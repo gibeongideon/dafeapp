@@ -1,21 +1,33 @@
 from django.contrib import admin
 from django.urls import include, path
+from django.views.generic import RedirectView
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
     TokenVerifyView,
 )
 
+from users.urls import auth_urlpatterns
+
 urlpatterns = [
     path("admin/", admin.site.urls),
 
-    # JWT auth
+    # Root -> dashboard
+    path("", RedirectView.as_view(url="/dashboard/", permanent=False)),
+
+    # Template auth (/auth/login/, /auth/register/, etc.)
+    path("auth/", include((auth_urlpatterns, "users"))),
+
+    # Dashboard UI
+    path("dashboard/", include("core.urls", namespace="core")),
+
+    # JWT
     path("api/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("api/token/verify/", TokenVerifyView.as_view(), name="token_verify"),
 
-    # App routes
-    path("api/users/", include("users.urls", namespace="users")),
+    # REST API
+    path("api/users/", include("users.urls")),
     path("api/subscriptions/", include("subscriptions.urls", namespace="subscriptions")),
     path("api/tenants/", include("tenants.urls", namespace="tenants")),
     path("api/cloud/", include("cloud.urls", namespace="cloud")),

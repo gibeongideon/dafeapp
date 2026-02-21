@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% load humanize %}
+
+{% block body %}
+<div class="flex h-full min-h-screen" x-data="{ sidebarOpen: true }">
+
+  <!-- ── Sidebar ──────────────────────────────────────────────── -->
+  <aside :class="sidebarOpen ? 'w-64' : 'w-16'"
+         class="bg-slate-900 flex flex-col transition-all duration-300 ease-in-out shrink-0">
+
+    <!-- Logo -->
+    <div class="flex items-center h-16 px-4 border-b border-slate-700">
+      <span class="text-blue-400 font-bold text-lg" x-show="sidebarOpen" x-transition>
+        🚀 DafeApp
+      </span>
+      <span class="text-blue-400 font-bold text-xl" x-show="!sidebarOpen">D</span>
+    </div>
+
+    <!-- Navigation -->
+    <nav class="flex-1 py-4 space-y-1 overflow-y-auto">
+      {% with request.resolver_match.url_name as current %}
+
+      {% url 'core:dashboard' as url_dash %}
+      <a href="{{ url_dash }}"
+         class="flex items-center gap-3 px-4 py-2.5 text-sm font-medium rounded-lg mx-2 transition
+                {% if request.path == url_dash %}bg-blue-600 text-white{% else %}text-slate-300 hover:bg-slate-800 hover:text-white{% endif %}">
+        <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+        <span x-show="sidebarOpen" x-transition>Dashboard</span>
+      </a>
+
+      {% url 'core:users' as url_users %}
+      <a href="{{ url_users }}"
+         class="flex items-center gap-3 px-4 py-2.5 text-sm font-medium rounded-lg mx-2 transition
+                {% if request.path == url_users %}bg-blue-600 text-white{% else %}text-slate-300 hover:bg-slate-800 hover:text-white{% endif %}">
+        <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+        <span x-show="sidebarOpen" x-transition>Users</span>
+      </a>
+
+      <!-- Tenants (Phase 2+) -->
+      <a href="#"
+         class="flex items-center gap-3 px-4 py-2.5 text-sm font-medium rounded-lg mx-2 text-slate-500 cursor-not-allowed">
+        <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+        <span x-show="sidebarOpen" x-transition class="flex items-center gap-1">Tenants <span class="text-xs bg-slate-700 px-1.5 py-0.5 rounded">Soon</span></span>
+      </a>
+
+      <!-- Deployments (Phase 2+) -->
+      <a href="#"
+         class="flex items-center gap-3 px-4 py-2.5 text-sm font-medium rounded-lg mx-2 text-slate-500 cursor-not-allowed">
+        <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7"/></svg>
+        <span x-show="sidebarOpen" x-transition class="flex items-center gap-1">Deployments <span class="text-xs bg-slate-700 px-1.5 py-0.5 rounded">Soon</span></span>
+      </a>
+
+      <!-- Monitoring (Phase 2+) -->
+      <a href="#"
+         class="flex items-center gap-3 px-4 py-2.5 text-sm font-medium rounded-lg mx-2 text-slate-500 cursor-not-allowed">
+        <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+        <span x-show="sidebarOpen" x-transition class="flex items-center gap-1">Monitoring <span class="text-xs bg-slate-700 px-1.5 py-0.5 rounded">Soon</span></span>
+      </a>
+
+      {% url 'core:audit' as url_audit %}
+      <a href="{{ url_audit }}"
+         class="flex items-center gap-3 px-4 py-2.5 text-sm font-medium rounded-lg mx-2 transition
+                {% if request.path == url_audit %}bg-blue-600 text-white{% else %}text-slate-300 hover:bg-slate-800 hover:text-white{% endif %}">
+        <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+        <span x-show="sidebarOpen" x-transition>Audit Log</span>
+      </a>
+
+      {% endwith %}
+    </nav>
+
+    <!-- User panel -->
+    <div class="border-t border-slate-700 p-4" x-data="{ open: false }">
+      <button @click="open = !open" class="flex items-center gap-3 w-full text-left">
+        <div class="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0">
+          {{ request.user.get_short_name|first|upper }}
+        </div>
+        <div class="flex-1 min-w-0" x-show="sidebarOpen" x-transition>
+          <p class="text-white text-sm font-medium truncate">{{ request.user.display_name }}</p>
+          <p class="text-slate-400 text-xs truncate">{{ request.user.email }}</p>
+        </div>
+      </button>
+      <div x-show="open" x-transition class="mt-2 pl-11 space-y-1" x-show="sidebarOpen">
+        <a href="{% url 'core:profile' %}" class="block text-sm text-slate-300 hover:text-white py-1">Profile</a>
+        <form method="post" action="{% url 'users:logout' %}">{% csrf_token %}
+          <button type="submit" class="text-sm text-slate-300 hover:text-red-400 py-1">Logout</button>
+        </form>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── Main ──────────────────────────────────────────────────── -->
+  <div class="flex-1 flex flex-col min-h-screen overflow-auto">
+
+    <!-- Top bar -->
+    <header class="bg-white border-b border-gray-200 h-16 flex items-center px-6 gap-4">
+      <!-- Collapse toggle -->
+      <button @click="sidebarOpen = !sidebarOpen" class="text-gray-500 hover:text-gray-700">
+        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+        </svg>
+      </button>
+
+      <div class="flex-1">
+        <h1 class="text-gray-800 font-semibold text-lg">{% block page_title %}Dashboard{% endblock %}</h1>
+      </div>
+
+      <!-- Role badge -->
+      <span class="
+        px-2.5 py-1 rounded-full text-xs font-semibold uppercase tracking-wide
+        {% if request.user.role == 'admin' %}bg-red-100 text-red-700
+        {% elif request.user.role == 'devops' %}bg-purple-100 text-purple-700
+        {% elif request.user.role == 'support' %}bg-yellow-100 text-yellow-700
+        {% else %}bg-blue-100 text-blue-700{% endif %}">
+        {{ request.user.role }}
+      </span>
+    </header>
+
+    <!-- Page content -->
+    <main class="flex-1 p-6 bg-gray-50">
+      {% include "components/messages.html" %}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+</div>
+{% endblock %}

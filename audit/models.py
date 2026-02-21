@@ -1,3 +1,43 @@
+from django.conf import settings
 from django.db import models
 
-# Create your models here.
+
+class AuditLog(models.Model):
+    class Action(models.TextChoices):
+        LOGIN = "login", "Login"
+        LOGOUT = "logout", "Logout"
+        REGISTER = "register", "Register"
+        EMAIL_VERIFY = "email_verify", "Email Verified"
+        PASSWORD_CHANGE = "password_change", "Password Changed"
+        PROFILE_UPDATE = "profile_update", "Profile Updated"
+        USER_CREATE = "user_create", "User Created"
+        USER_UPDATE = "user_update", "User Updated"
+        USER_DELETE = "user_delete", "User Deleted"
+        LOGIN_FAILED = "login_failed", "Login Failed"
+        OTHER = "other", "Other"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="audit_logs",
+    )
+    action = models.CharField(max_length=50, choices=Action.choices)
+    description = models.CharField(max_length=500, blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.TextField(blank=True)
+    timestamp = models.DateTimeField(auto_now_add=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-timestamp"]
+        indexes = [
+            models.Index(fields=["-timestamp"]),
+            models.Index(fields=["user", "-timestamp"]),
+            models.Index(fields=["action"]),
+        ]
+
+    def __str__(self):
+        who = self.user.email if self.user else "Anonymous"
+        return f"{who} – {self.action} @ {self.timestamp:%Y-%m-%d %H:%M}"

@@ -1,5 +1,12 @@
 from django.urls import path
 
+from . import views
+
 app_name = "core"
 
-urlpatterns = []
+urlpatterns = [
+    path("", views.DashboardHomeView.as_view(), name="dashboard"),
+    path("profile/", views.ProfileView.as_view(), name="profile"),
+    path("users/", views.UserManagementView.as_view(), name="users"),
+    path("audit/", views.AuditLogView.as_view(), name="audit"),
+]

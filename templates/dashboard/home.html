@@ -1,0 +1,73 @@
+{% extends "dashboard/layout.html" %}
+{% load humanize %}
+
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+
+<!-- ── Stat Cards ──────────────────────────────────────────────── -->
+<div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5 mb-8">
+
+  <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+    <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Total Users</p>
+    <p class="mt-2 text-3xl font-bold text-gray-900">{{ total_users|intcomma }}</p>
+    <p class="mt-1 text-xs text-gray-500">{{ verified_users }} verified</p>
+  </div>
+
+  <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+    <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Tenants</p>
+    <p class="mt-2 text-3xl font-bold text-gray-900">{{ total_tenants|intcomma }}</p>
+    <p class="mt-1 text-xs text-gray-400">Phase 2 →</p>
+  </div>
+
+  <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+    <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Deployments</p>
+    <p class="mt-2 text-3xl font-bold text-gray-900">{{ active_deployments|intcomma }}</p>
+    <p class="mt-1 text-xs text-gray-400">Phase 3 →</p>
+  </div>
+
+  <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
+    <p class="text-xs font-semibold text-gray-400 uppercase tracking-wide">Subscriptions</p>
+    <p class="mt-2 text-3xl font-bold text-gray-900">{{ active_subscriptions|intcomma }}</p>
+    <p class="mt-1 text-xs text-gray-400">Phase 2 →</p>
+  </div>
+
+</div>
+
+<!-- ── Recent Activity ──────────────────────────────────────────── -->
+<div class="bg-white rounded-xl shadow-sm border border-gray-100">
+  <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+    <h2 class="font-semibold text-gray-800">Recent Activity</h2>
+    <a href="{% url 'core:audit' %}" class="text-sm text-blue-600 hover:underline">View all →</a>
+  </div>
+
+  {% if recent_audit %}
+  <ul class="divide-y divide-gray-50">
+    {% for log in recent_audit %}
+    <li class="flex items-center gap-4 px-6 py-3">
+      <!-- Action badge -->
+      <span class="px-2 py-0.5 rounded text-xs font-medium
+        {% if log.action == 'login' %}bg-green-100 text-green-700
+        {% elif log.action == 'logout' %}bg-gray-100 text-gray-600
+        {% elif log.action == 'register' %}bg-blue-100 text-blue-700
+        {% elif log.action == 'login_failed' %}bg-red-100 text-red-700
+        {% else %}bg-purple-100 text-purple-700{% endif %}">
+        {{ log.get_action_display }}
+      </span>
+      <span class="text-sm text-gray-700 flex-1 truncate">
+        {{ log.user.email|default:"Anonymous" }}
+        {% if log.description %}&ndash; {{ log.description }}{% endif %}
+      </span>
+      <span class="text-xs text-gray-400 whitespace-nowrap">{{ log.timestamp|naturaltime }}</span>
+      {% if log.ip_address %}
+      <span class="text-xs text-gray-400 font-mono">{{ log.ip_address }}</span>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="px-6 py-8 text-center text-gray-400 text-sm">No activity yet. Log in and out to see entries here.</p>
+  {% endif %}
+</div>
+
+{% endblock %}

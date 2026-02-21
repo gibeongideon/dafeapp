@@ -1,0 +1,84 @@
+{% extends "dashboard/layout.html" %}
+
+{% block page_title %}My Profile{% endblock %}
+
+{% block content %}
+
+<div class="max-w-2xl">
+
+  <!-- Profile card -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+    <div class="flex items-center gap-5 mb-6">
+      <div class="w-16 h-16 bg-blue-600 text-white rounded-full flex items-center justify-center text-2xl font-bold">
+        {{ request.user.get_short_name|first|upper }}
+      </div>
+      <div>
+        <h2 class="text-xl font-bold text-gray-900">{{ request.user.display_name }}</h2>
+        <p class="text-gray-500 text-sm">{{ request.user.email }}</p>
+        <span class="mt-1 inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase
+          {% if request.user.role == 'admin' %}bg-red-100 text-red-700
+          {% elif request.user.role == 'devops' %}bg-purple-100 text-purple-700
+          {% elif request.user.role == 'support' %}bg-yellow-100 text-yellow-700
+          {% else %}bg-blue-100 text-blue-700{% endif %}">
+          {{ request.user.role }}
+        </span>
+      </div>
+    </div>
+
+    <!-- Stats row -->
+    <div class="grid grid-cols-3 gap-4 pt-4 border-t border-gray-100 text-center">
+      <div>
+        <p class="text-2xl font-bold text-gray-900">{{ request.user.login_count }}</p>
+        <p class="text-xs text-gray-400 mt-0.5">Total Logins</p>
+      </div>
+      <div>
+        <p class="text-2xl font-bold {% if request.user.is_email_verified %}text-green-600{% else %}text-yellow-500{% endif %}">
+          {% if request.user.is_email_verified %}✓{% else %}!{% endif %}
+        </p>
+        <p class="text-xs text-gray-400 mt-0.5">Email {% if request.user.is_email_verified %}Verified{% else %}Pending{% endif %}</p>
+      </div>
+      <div>
+        <p class="text-xs font-mono text-gray-600 mt-2 truncate">{{ request.user.last_login_ip|default:"—" }}</p>
+        <p class="text-xs text-gray-400 mt-0.5">Last IP</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit form -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+    <h3 class="font-semibold text-gray-800 mb-4">Edit Profile</h3>
+
+    <!-- HTMX: submit without full page reload -->
+    <form hx-post="{% url 'core:profile' %}"
+          hx-target="#save-result"
+          hx-swap="innerHTML">
+      {% csrf_token %}
+
+      <div class="grid grid-cols-2 gap-4 mb-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">First Name</label>
+          <input type="text" name="first_name" value="{{ request.user.first_name }}"
+                 class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+                        focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Last Name</label>
+          <input type="text" name="last_name" value="{{ request.user.last_name }}"
+                 class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+                        focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+      </div>
+
+      <div class="flex items-center gap-4">
+        <button type="submit"
+                class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition">
+          Save Changes
+        </button>
+        <span id="save-result" class="text-sm"></span>
+      </div>
+    </form>
+  </div>
+
+</div>
+
+{% endblock %}

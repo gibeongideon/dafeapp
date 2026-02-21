@@ -1,5 +1,25 @@
 from django.urls import path
 
-app_name = "users"
+from . import views
 
-urlpatterns = []
+app_name = "users_api"
+
+# Template auth routes (included at /auth/)
+auth_urlpatterns = [
+    path("login/", views.LoginView.as_view(), name="login"),
+    path("logout/", views.LogoutView.as_view(), name="logout"),
+    path("register/", views.RegisterView.as_view(), name="register"),
+    path(
+        "verify-email/<uuid:token>/",
+        views.VerifyEmailView.as_view(),
+        name="verify-email",
+    ),
+]
+
+# API routes (included at /api/users/)
+urlpatterns = [
+    path("register/", views.RegisterAPIView.as_view(), name="api-register"),
+    path("me/", views.ProfileAPIView.as_view(), name="api-profile"),
+    path("", views.UserListAPIView.as_view(), name="api-user-list"),
+    path("<int:pk>/role/", views.RoleUpdateAPIView.as_view(), name="api-role-update"),
+]

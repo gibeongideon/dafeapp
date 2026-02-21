@@ -170,3 +170,27 @@ MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "mediafiles"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# ---------------------------------------------------------------------------
+# Custom User Model
+# ---------------------------------------------------------------------------
+AUTH_USER_MODEL = "users.User"
+
+# ---------------------------------------------------------------------------
+# Authentication URLs
+# ---------------------------------------------------------------------------
+LOGIN_URL = "/auth/login/"
+LOGIN_REDIRECT_URL = "/dashboard/"
+LOGOUT_REDIRECT_URL = "/auth/login/"
+
+# ---------------------------------------------------------------------------
+# Email (console backend for development)
+# ---------------------------------------------------------------------------
+EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+DEFAULT_FROM_EMAIL = "noreply@dafeapp.com"
+SITE_URL = env("SITE_URL", default="http://localhost:8000")
+
+# ---------------------------------------------------------------------------
+# Extra built-ins
+# ---------------------------------------------------------------------------
+INSTALLED_APPS += ["django.contrib.humanize"]
