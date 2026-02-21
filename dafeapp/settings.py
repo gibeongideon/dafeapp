@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     "backups.apps.BackupsConfig",
     "monitoring.apps.MonitoringConfig",
     "audit.apps.AuditConfig",
+    "organizations.apps.OrganizationsConfig",
 ]
 
 # ---------------------------------------------------------------------------
@@ -62,6 +63,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "organizations.middleware.OrganizationMiddleware",   # must be after auth
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -78,6 +80,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "organizations.context_processors.organization",  # current_org, current_role, user_orgs
             ],
         },
     },

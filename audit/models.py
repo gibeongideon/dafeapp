@@ -13,11 +13,22 @@ class AuditLog(models.Model):
         USER_CREATE = "user_create", "User Created"
         USER_UPDATE = "user_update", "User Updated"
         USER_DELETE = "user_delete", "User Deleted"
+        ROLE_CHANGE = "role_change", "Role Changed"
+        INVITE_SENT = "invite_sent", "Invite Sent"
+        INVITE_ACCEPTED = "invite_accepted", "Invite Accepted"
+        ORG_CREATED = "org_created", "Organization Created"
         LOGIN_FAILED = "login_failed", "Login Failed"
         OTHER = "other", "Other"
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="audit_logs",
+    )
+    organization = models.ForeignKey(
+        "organizations.Organization",
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
@@ -34,10 +45,12 @@ class AuditLog(models.Model):
         ordering = ["-timestamp"]
         indexes = [
             models.Index(fields=["-timestamp"]),
+            models.Index(fields=["organization", "-timestamp"]),
             models.Index(fields=["user", "-timestamp"]),
             models.Index(fields=["action"]),
         ]
 
     def __str__(self):
         who = self.user.email if self.user else "Anonymous"
-        return f"{who} – {self.action} @ {self.timestamp:%Y-%m-%d %H:%M}"
+        org = self.organization.name if self.organization else "—"
+        return f"{who} [{org}] – {self.action} @ {self.timestamp:%Y-%m-%d %H:%M}"

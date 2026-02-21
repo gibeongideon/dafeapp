@@ -11,13 +11,13 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            "id", "email", "username", "first_name", "last_name",
-            "role", "is_email_verified", "last_login_ip", "login_count",
-            "date_joined", "display_name",
+            "id", "email", "first_name", "last_name",
+            "is_email_verified", "is_platform_admin",
+            "last_login_ip", "login_count", "date_joined", "display_name",
         ]
         read_only_fields = [
             "id", "is_email_verified", "last_login_ip",
-            "login_count", "date_joined",
+            "login_count", "date_joined", "is_platform_admin",
         ]
 
 
@@ -40,7 +40,6 @@ class RegisterSerializer(serializers.ModelSerializer):
         return User.objects.create_user(**validated_data)
 
 
-class RoleUpdateSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = User
-        fields = ["role"]
+class RoleUpdateSerializer(serializers.Serializer):
+    """Stub — roles are now on OrganizationMembership, not User."""
+    pass

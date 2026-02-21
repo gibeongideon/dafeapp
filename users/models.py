@@ -1,29 +1,19 @@
 import uuid
 
-from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
+from django.contrib.auth.models import AbstractUser
 from django.db import models
-from django.utils import timezone
 
 from .managers import UserManager
 
 
-class User(AbstractBaseUser, PermissionsMixin):
-    class Role(models.TextChoices):
-        ADMIN = "admin", "Admin"
-        CUSTOMER = "customer", "Customer"
-        DEVOPS = "devops", "DevOps"
-        SUPPORT = "support", "Support"
-
-    # Core fields
-    email = models.EmailField(unique=True)
+class User(AbstractUser):
+    # Override username: optional, auto-generated, not unique
     username = models.CharField(max_length=150, blank=True)
-    first_name = models.CharField(max_length=150, blank=True)
-    last_name = models.CharField(max_length=150, blank=True)
+    # Make email the login field + unique
+    email = models.EmailField(unique=True)
 
-    # Role
-    role = models.CharField(
-        max_length=20, choices=Role.choices, default=Role.CUSTOMER
-    )
+    # Platform-level admin (LaunchPad staff — can see ALL orgs)
+    is_platform_admin = models.BooleanField(default=False)
 
     # Email verification
     is_email_verified = models.BooleanField(default=False)
@@ -35,13 +25,8 @@ class User(AbstractBaseUser, PermissionsMixin):
     last_login_ip = models.GenericIPAddressField(null=True, blank=True)
     login_count = models.PositiveIntegerField(default=0)
 
-    # Django required fields
-    is_staff = models.BooleanField(default=False)
-    is_active = models.BooleanField(default=True)
-    date_joined = models.DateTimeField(default=timezone.now)
-
     USERNAME_FIELD = "email"
-    REQUIRED_FIELDS = []
+    REQUIRED_FIELDS = []  # nothing extra beyond email/password for createsuperuser
 
     objects = UserManager()
 
@@ -63,10 +48,9 @@ class User(AbstractBaseUser, PermissionsMixin):
     def display_name(self):
         return self.get_full_name()
 
-    @property
-    def is_admin(self):
-        return self.role == self.Role.ADMIN
-
-    @property
-    def is_devops(self):
-        return self.role == self.Role.DEVOPS
+    def membership_for(self, organization):
+        """Return active membership for a given org, or None."""
+        try:
+            return self.memberships.get(organization=organization, is_active=True)
+        except self.memberships.model.DoesNotExist:
+            return None

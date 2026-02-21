@@ -11,15 +11,16 @@ from users.urls import auth_urlpatterns
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-
-    # Root -> dashboard
     path("", RedirectView.as_view(url="/dashboard/", permanent=False)),
 
-    # Template auth (/auth/login/, /auth/register/, etc.)
+    # Template auth
     path("auth/", include((auth_urlpatterns, "users"))),
 
     # Dashboard UI
     path("dashboard/", include("core.urls", namespace="core")),
+
+    # Organization management
+    path("orgs/", include("organizations.urls", namespace="organizations")),
 
     # JWT
     path("api/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),

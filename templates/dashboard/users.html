@@ -1,78 +1,293 @@
 {% extends "dashboard/layout.html" %}
+{% load humanize %}
 
-{% block page_title %}User Management{% endblock %}
+{% block page_title %}Members – {{ current_org.name }}{% endblock %}
 
 {% block content %}
 
-<!-- Search bar with HTMX live filter -->
-<div class="mb-5">
-  <input
-    type="search"
-    name="q"
-    value="{{ query }}"
-    placeholder="Search by email…"
-    hx-get="{% url 'core:users' %}"
-    hx-target="#user-table-wrapper"
-    hx-trigger="keyup changed delay:400ms"
-    hx-include="[name='q']"
-    class="w-full sm:w-80 px-4 py-2 text-sm border border-gray-300 rounded-lg shadow-sm
-           focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-  />
+{# ── Invite modal ────────────────────────────────────────────────────────── #}
+{% if current_role == 'SUPER_ADMIN' or current_role == 'ADMIN' %}
+<div x-data="{ open: false }"
+     @keydown.escape.window="open = false">
+
+  {# Page header row #}
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-xl font-semibold text-gray-900">Team Members</h1>
+      <p class="text-sm text-gray-500 mt-0.5">
+        {{ members.count }} member{{ members.count|pluralize }} in {{ current_org.name }}
+      </p>
+    </div>
+    <button @click="open = true"
+            class="inline-flex items-center gap-2 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-900">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+      </svg>
+      Invite Member
+    </button>
+  </div>
+
+  {# Backdrop #}
+  <div x-show="open"
+       x-transition:enter="transition ease-out duration-200"
+       x-transition:enter-start="opacity-0"
+       x-transition:enter-end="opacity-100"
+       x-transition:leave="transition ease-in duration-150"
+       x-transition:leave-start="opacity-100"
+       x-transition:leave-end="opacity-0"
+       class="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
+       @click="open = false"
+       style="display:none">
+  </div>
+
+  {# Slide-over drawer #}
+  <div x-show="open"
+       x-transition:enter="transition ease-out duration-300"
+       x-transition:enter-start="translate-x-full"
+       x-transition:enter-end="translate-x-0"
+       x-transition:leave="transition ease-in duration-200"
+       x-transition:leave-start="translate-x-0"
+       x-transition:leave-end="translate-x-full"
+       class="fixed inset-y-0 right-0 z-50 w-full max-w-md bg-white shadow-2xl flex flex-col"
+       style="display:none">
+
+    {# Drawer header #}
+    <div class="flex items-center justify-between px-6 py-5 border-b border-gray-100">
+      <div>
+        <h2 class="text-base font-semibold text-gray-900">Invite a team member</h2>
+        <p class="text-xs text-gray-400 mt-0.5">They'll receive an email with a secure link.</p>
+      </div>
+      <button @click="open = false"
+              class="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors focus:outline-none">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+        </svg>
+      </button>
+    </div>
+
+    {# Drawer form body #}
+    <div class="flex-1 overflow-y-auto px-6 py-6">
+      <form hx-post="{% url 'core:users' %}"
+            hx-target="#invite-result"
+            hx-swap="innerHTML"
+            hx-on::after-request="if(event.detail.successful){ open = false }"
+            class="space-y-5">
+        {% csrf_token %}
+        <input type="hidden" name="invite" value="1">
+
+        {# First name #}
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5">
+            First name
+            <span class="font-normal text-gray-400 ml-1">(optional)</span>
+          </label>
+          <input type="text" name="first_name" placeholder="Jane"
+                 class="w-full px-3.5 py-2.5 text-sm border border-gray-200 rounded-lg bg-gray-50 text-gray-900 placeholder-gray-400
+                        focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent focus:bg-white transition">
+          <p class="mt-1 text-xs text-gray-400">Used to personalise the invite email.</p>
+        </div>
+
+        {# Email #}
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5">
+            Email address
+            <span class="text-gray-900 ml-0.5">*</span>
+          </label>
+          <input type="email" name="email" required placeholder="colleague@company.com"
+                 class="w-full px-3.5 py-2.5 text-sm border border-gray-200 rounded-lg bg-gray-50 text-gray-900 placeholder-gray-400
+                        focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent focus:bg-white transition">
+        </div>
+
+        {# Role #}
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1.5">
+            Role
+            <span class="text-gray-900 ml-0.5">*</span>
+          </label>
+          <select name="role"
+                  class="w-full px-3.5 py-2.5 text-sm border border-gray-200 rounded-lg bg-gray-50 text-gray-900
+                         focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent focus:bg-white transition appearance-none">
+            {% if current_role == 'SUPER_ADMIN' %}
+            <option value="SUPER_ADMIN">Super Admin — full control</option>
+            {% endif %}
+            <option value="ADMIN">Admin — manage members &amp; instances</option>
+            <option value="MANAGER">Manager — deploy &amp; manage instances</option>
+            <option value="USER" selected>User — view only</option>
+          </select>
+          <p class="mt-1 text-xs text-gray-400">
+            Determines what actions this person can perform.
+          </p>
+        </div>
+
+        {# Result feedback (HTMX target) #}
+        <div id="invite-result" class="text-sm"></div>
+
+        {# Actions #}
+        <div class="flex items-center gap-3 pt-2">
+          <button type="submit"
+                  class="flex-1 px-4 py-2.5 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-900">
+            Send invitation
+          </button>
+          <button type="button" @click="open = false"
+                  class="px-4 py-2.5 text-sm font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors focus:outline-none">
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
+
+    {# Drawer footer note #}
+    <div class="px-6 py-4 border-t border-gray-100 bg-gray-50">
+      <p class="text-xs text-gray-400">
+        Invitations expire after <strong class="text-gray-600">7 days</strong>.
+        Only one active invite per email address.
+      </p>
+    </div>
+  </div>
+
+</div>
+{% else %}
+{# Non-admin header row without invite button #}
+<div class="mb-6">
+  <h1 class="text-xl font-semibold text-gray-900">Team Members</h1>
+  <p class="text-sm text-gray-500 mt-0.5">
+    {{ members.count }} member{{ members.count|pluralize }} in {{ current_org.name }}
+  </p>
+</div>
+{% endif %}
+
+{# ── Search bar ──────────────────────────────────────────────────────────── #}
+<div class="mb-4">
+  <div class="relative w-72">
+    <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
+         fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/>
+    </svg>
+    <input type="search" name="q" value="{{ query }}"
+           placeholder="Search members…"
+           hx-get="{% url 'core:users' %}"
+           hx-target="#member-table"
+           hx-trigger="keyup changed delay:350ms"
+           class="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg bg-white text-gray-900 placeholder-gray-400
+                  focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition">
+  </div>
 </div>
 
-<div id="user-table-wrapper" class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-  <table class="min-w-full divide-y divide-gray-100 text-sm">
-    <thead class="bg-gray-50">
-      <tr>
-        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">User</th>
-        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Role</th>
-        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
-        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Logins</th>
-        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Last IP</th>
-        <th class="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Joined</th>
+{# ── Members table ───────────────────────────────────────────────────────── #}
+<div id="member-table" class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+  <table class="min-w-full text-sm">
+    <thead>
+      <tr class="border-b border-gray-100 bg-gray-50">
+        <th class="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Member</th>
+        <th class="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Role</th>
+        <th class="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+        <th class="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Joined</th>
+        <th class="px-5 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
       </tr>
     </thead>
     <tbody class="divide-y divide-gray-50">
-      {% for u in users %}
-      <tr class="hover:bg-gray-50 transition">
-        <td class="px-6 py-4">
+      {% for m in members %}
+      <tr class="hover:bg-gray-50/60 transition-colors {% if not m.is_active %}opacity-40{% endif %}">
+
+        {# Member cell #}
+        <td class="px-5 py-4">
           <div class="flex items-center gap-3">
-            <div class="w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-bold text-sm">
-              {{ u.get_short_name|first|upper }}
+            <div class="w-8 h-8 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-xs font-semibold text-gray-600 shrink-0">
+              {{ m.user.get_short_name|first|upper|default:m.user.email|first|upper }}
             </div>
-            <div>
-              <p class="font-medium text-gray-900">{{ u.display_name }}</p>
-              <p class="text-gray-400 text-xs">{{ u.email }}</p>
+            <div class="min-w-0">
+              <p class="font-medium text-gray-900 truncate">{{ m.user.get_full_name|default:m.user.email }}</p>
+              <p class="text-gray-400 text-xs truncate">{{ m.user.email }}</p>
             </div>
           </div>
         </td>
-        <td class="px-6 py-4">
-          <span class="px-2.5 py-1 rounded-full text-xs font-semibold uppercase
-            {% if u.role == 'admin' %}bg-red-100 text-red-700
-            {% elif u.role == 'devops' %}bg-purple-100 text-purple-700
-            {% elif u.role == 'support' %}bg-yellow-100 text-yellow-700
-            {% else %}bg-blue-100 text-blue-700{% endif %}">
-            {{ u.role }}
-          </span>
-        </td>
-        <td class="px-6 py-4">
-          {% if u.is_email_verified %}
-            <span class="flex items-center gap-1 text-green-600 text-xs font-medium">
-              <span class="w-1.5 h-1.5 bg-green-500 rounded-full"></span> Verified
-            </span>
+
+        {# Role cell #}
+        <td class="px-5 py-4">
+          {% if can_change_role and m.user != request.user %}
+          <form hx-post="{% url 'organizations:member-role' m.pk %}"
+                hx-target="#role-result-{{ m.pk }}"
+                hx-swap="innerHTML">
+            {% csrf_token %}
+            <select name="role" onchange="this.form.requestSubmit()"
+                    class="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white text-gray-700
+                           focus:outline-none focus:ring-1 focus:ring-gray-900 transition cursor-pointer">
+              {% for val, label in m.get_role_choices %}
+              <option value="{{ val }}" {% if val == m.role %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </form>
+          <span id="role-result-{{ m.pk }}" class="text-xs mt-0.5 block text-gray-500"></span>
           {% else %}
-            <span class="flex items-center gap-1 text-yellow-600 text-xs font-medium">
-              <span class="w-1.5 h-1.5 bg-yellow-400 rounded-full"></span> Pending
-            </span>
+          <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border border-gray-200 text-gray-700 bg-gray-50">
+            {{ m.get_role_display }}
+          </span>
           {% endif %}
         </td>
-        <td class="px-6 py-4 text-gray-600">{{ u.login_count }}</td>
-        <td class="px-6 py-4 font-mono text-xs text-gray-400">{{ u.last_login_ip|default:"—" }}</td>
-        <td class="px-6 py-4 text-gray-400 text-xs">{{ u.date_joined|date:"M d, Y" }}</td>
+
+        {# Status cell #}
+        <td class="px-5 py-4">
+          {% if m.is_active %}
+          <span class="inline-flex items-center gap-1.5 text-xs text-gray-700">
+            <span class="w-1.5 h-1.5 rounded-full bg-gray-800"></span>
+            Active
+          </span>
+          {% else %}
+          <span class="inline-flex items-center gap-1.5 text-xs text-gray-400">
+            <span class="w-1.5 h-1.5 rounded-full bg-gray-300"></span>
+            Disabled
+          </span>
+          {% endif %}
+        </td>
+
+        {# Joined cell #}
+        <td class="px-5 py-4 text-xs text-gray-400 whitespace-nowrap">
+          {{ m.joined_at|date:"M d, Y" }}
+        </td>
+
+        {# Actions cell #}
+        <td class="px-5 py-4">
+          <div class="flex items-center justify-end gap-2">
+            {% if m.user != request.user %}
+              {% if current_role == 'SUPER_ADMIN' or current_role == 'ADMIN' %}
+              <form hx-post="{% url 'organizations:member-toggle' m.pk %}"
+                    hx-target="#toggle-result-{{ m.pk }}"
+                    hx-swap="innerHTML">
+                {% csrf_token %}
+                <button type="submit"
+                        class="text-xs px-2.5 py-1 rounded-md border border-gray-200 text-gray-600 hover:bg-gray-100 transition-colors whitespace-nowrap">
+                  {% if m.is_active %}Disable{% else %}Enable{% endif %}
+                </button>
+              </form>
+              <span id="toggle-result-{{ m.pk }}" class="text-xs text-gray-500"></span>
+              {% endif %}
+
+              {% if can_delete %}
+              <form method="post" action="{% url 'organizations:member-remove' m.pk %}"
+                    onsubmit="return confirm('Remove {{ m.user.email }} from the organization?')">
+                {% csrf_token %}
+                <button type="submit"
+                        class="text-xs px-2.5 py-1 rounded-md border border-gray-200 text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition-colors">
+                  Remove
+                </button>
+              </form>
+              {% endif %}
+            {% else %}
+            <span class="text-xs text-gray-400 italic">You</span>
+            {% endif %}
+          </div>
+        </td>
       </tr>
       {% empty %}
       <tr>
-        <td colspan="6" class="px-6 py-10 text-center text-gray-400">No users found.</td>
+        <td colspan="5" class="px-5 py-16 text-center">
+          <svg class="mx-auto w-8 h-8 text-gray-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                  d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>
+          </svg>
+          <p class="text-sm text-gray-400">No members found.</p>
+        </td>
       </tr>
       {% endfor %}
     </tbody>

@@ -14,12 +14,14 @@ def on_login(sender, request, user, **kwargs):
     from audit.models import AuditLog
 
     ip = get_client_ip(request)
-    # Update tracking fields
     user.last_login_ip = ip
     user.login_count = F("login_count") + 1
     user.save(update_fields=["last_login_ip", "login_count"])
+
+    org = getattr(request, "organization", None)
     AuditLog.objects.create(
         user=user,
+        organization=org,
         action=AuditLog.Action.LOGIN,
         ip_address=ip,
         user_agent=request.META.get("HTTP_USER_AGENT", ""),
@@ -32,8 +34,10 @@ def on_logout(sender, request, user, **kwargs):
     from audit.models import AuditLog
 
     if user:
+        org = getattr(request, "organization", None)
         AuditLog.objects.create(
             user=user,
+            organization=org,
             action=AuditLog.Action.LOGOUT,
             ip_address=get_client_ip(request),
             user_agent=request.META.get("HTTP_USER_AGENT", ""),
@@ -48,6 +52,6 @@ def on_login_failed(sender, credentials, request, **kwargs):
         action=AuditLog.Action.LOGIN_FAILED,
         ip_address=get_client_ip(request),
         user_agent=request.META.get("HTTP_USER_AGENT", ""),
-        description=f"Failed login attempt for {credentials.get('email', '?')}",
+        description=f"Failed login for {credentials.get('email', '?')}",
         metadata={"email": credentials.get("email", "")},
     )
