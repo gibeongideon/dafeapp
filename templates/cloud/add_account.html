@@ -1,0 +1,74 @@
+{% extends "dashboard/layout.html" %}
+
+{% block page_title %}Add Cloud Account{% endblock %}
+
+{% block content %}
+<div class="max-w-xl mx-auto">
+
+  {# Breadcrumb #}
+  <div class="flex items-center gap-2 text-sm text-gray-400 mb-6">
+    <a href="{% url 'cloud:dashboard' %}" class="hover:text-gray-700">Infrastructure</a>
+    <span>/</span>
+    <span class="text-gray-700">Add Cloud Account</span>
+  </div>
+
+  <div class="bg-white border border-gray-200 rounded-xl p-6">
+    <h2 class="text-base font-semibold text-gray-900 mb-1">Connect DigitalOcean</h2>
+    <p class="text-sm text-gray-500 mb-6">
+      Paste your DigitalOcean Personal Access Token (read + write scope).
+      The token is encrypted before storage and never displayed again.
+    </p>
+
+    <form method="post">
+      {% csrf_token %}
+
+      {% if form.non_field_errors %}
+      <div class="mb-4 px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700">
+        {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+      </div>
+      {% endif %}
+
+      <div class="space-y-4">
+
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Account name</label>
+          {{ form.name }}
+          {% if form.name.errors %}<p class="text-xs text-red-500 mt-1">{{ form.name.errors.0 }}</p>{% endif %}
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Provider</label>
+          {{ form.provider }}
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">API Token</label>
+          {{ form.api_token }}
+          <p class="text-xs text-gray-400 mt-1">{{ form.api_token.help_text }}</p>
+          {% if form.api_token.errors %}<p class="text-xs text-red-500 mt-1">{{ form.api_token.errors.0 }}</p>{% endif %}
+        </div>
+
+      </div>
+
+      <div class="mt-6 flex items-center gap-3">
+        <button type="submit"
+                class="px-4 py-2.5 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-700 transition-colors">
+          Save &amp; Verify
+        </button>
+        <a href="{% url 'cloud:dashboard' %}"
+           class="text-sm text-gray-500 hover:text-gray-700">Cancel</a>
+      </div>
+    </form>
+  </div>
+
+  <p class="text-xs text-gray-400 mt-4 text-center">
+    Create a Personal Access Token at
+    <a href="https://cloud.digitalocean.com/account/api/tokens"
+       target="_blank" rel="noopener"
+       class="underline hover:text-gray-600">
+      digitalocean.com/account/api/tokens
+    </a>
+  </p>
+
+</div>
+{% endblock %}

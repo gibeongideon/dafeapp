@@ -196,6 +196,11 @@ DEFAULT_FROM_EMAIL = "noreply@dafeapp.com"
 SITE_URL = env("SITE_URL", default="http://localhost:8000")
 
 # ---------------------------------------------------------------------------
+# Field-level encryption (Fernet) — cloud credentials
+# ---------------------------------------------------------------------------
+FIELD_ENCRYPTION_KEY = env("FIELD_ENCRYPTION_KEY", default="")
+
+# ---------------------------------------------------------------------------
 # Extra built-ins
 # ---------------------------------------------------------------------------
 INSTALLED_APPS += ["django.contrib.humanize"]

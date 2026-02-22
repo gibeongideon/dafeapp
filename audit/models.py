@@ -18,6 +18,14 @@ class AuditLog(models.Model):
         INVITE_ACCEPTED = "invite_accepted", "Invite Accepted"
         ORG_CREATED = "org_created", "Organization Created"
         LOGIN_FAILED = "login_failed", "Login Failed"
+        # Cloud infrastructure actions
+        SERVER_ADD = "server_add", "Server Added"
+        SERVER_VERIFY = "server_verify", "Server Verified"
+        SERVER_PREPARE = "server_prepare", "Server Prepared"
+        CLOUD_ACCT_ADD = "cloud_acct_add", "Cloud Account Added"
+        CLOUD_ACCT_VERIFY = "cloud_acct_verify", "Cloud Account Verified"
+        DROPLET_PROVISION = "droplet_provision", "Droplet Provisioned"
+        DROPLET_DESTROY = "droplet_destroy", "Droplet Destroyed"
         OTHER = "other", "Other"
 
     user = models.ForeignKey(

@@ -1,0 +1,610 @@
+{% extends "dashboard/layout.html" %}
+{% load humanize %}
+
+{% block page_title %}Infrastructure{% endblock %}
+
+{% block content %}
+{# Full-bleed dot-grid background that overrides the layout padding #}
+<div class="-m-6 min-h-full"
+     style="background-color:#f8fafc;background-image:radial-gradient(circle,#cbd5e1 1.2px,transparent 1.2px);background-size:22px 22px;"
+     x-data="{ view: 'list' }">
+
+  <div class="max-w-6xl mx-auto px-8 py-8 space-y-14">
+
+    {# HEADER #}
+    <header class="flex items-start justify-between">
+      <div>
+        <p class="text-[10px] font-bold tracking-[0.2em] uppercase text-gray-400 mb-2">DafeApp · Phase 3</p>
+        <h1 class="text-[28px] font-bold text-gray-950 tracking-tight leading-none">Infrastructure</h1>
+        <p class="text-sm text-gray-500 mt-2 max-w-sm leading-relaxed">
+          Provision your own servers via SSH, or deploy managed cloud infrastructure from a single dashboard.
+        </p>
+      </div>
+      <div class="flex items-center gap-2 mt-1">
+        <a href="{% url 'cloud:add-account' %}"
+           class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-xl hover:border-gray-300 shadow-sm transition-all">
+          <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"/>
+          </svg>
+          Connect Provider
+        </a>
+        <a href="{% url 'cloud:add-server' %}"
+           class="flex items-center gap-1.5 px-4 py-2.5 bg-gray-950 text-white text-sm font-medium rounded-xl hover:bg-gray-800 shadow-sm transition-all">
+          <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+          </svg>
+          Add PYOS Server
+        </a>
+      </div>
+    </header>
+
+    {# CLOUD PROVIDERS MARKETPLACE #}
+    <section>
+      <div class="flex items-center gap-4 mb-6">
+        <div class="flex items-center gap-2.5">
+          <div class="w-5 h-5 bg-gray-950 rounded-md flex items-center justify-center shrink-0">
+            <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"/>
+            </svg>
+          </div>
+          <h2 class="text-xs font-bold text-gray-900 tracking-widest uppercase">Cloud Providers</h2>
+        </div>
+        <div class="flex-1 h-px bg-gradient-to-r from-gray-200 to-transparent"></div>
+      </div>
+
+      <div class="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-7 gap-3">
+
+        {# ── DigitalOcean — LIVE ─────────────────────────── #}
+        <a href="{% url 'cloud:add-account' %}"
+           class="group relative bg-white rounded-2xl p-4 flex flex-col items-center gap-3 shadow-sm
+                  border-2 border-gray-900 hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 cursor-pointer">
+          <span class="absolute -top-2.5 left-1/2 -translate-x-1/2
+                       bg-gray-950 text-white text-[8px] font-black px-2.5 py-0.5 rounded-full
+                       tracking-[0.15em] uppercase whitespace-nowrap">
+            ● LIVE
+          </span>
+          {# DigitalOcean SVG logo #}
+          <div class="w-12 h-12 mt-0.5 flex items-center justify-center">
+            <svg viewBox="0 0 120 120" class="w-12 h-12" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="60" cy="60" r="60" fill="#0080FF"/>
+              <path d="M60 17C36.8 17 18 35.8 18 59s18.8 42 42 42V82.5c-12.9 0-23.5-10.5-23.5-23.5S47.1 35.5 60 35.5 83.5 46 83.5 59c0 12.9-10.5 23.5-23.5 23.5V101c23.2 0 42-18.8 42-42S83.2 17 60 17z" fill="white"/>
+              <rect x="18" y="82.5" width="17.5" height="9" rx="2" fill="white"/>
+              <rect x="18" y="94" width="11" height="9" rx="2" fill="white"/>
+            </svg>
+          </div>
+          <div class="text-center">
+            <p class="text-[11px] font-bold text-gray-900 leading-tight">DigitalOcean</p>
+            <p class="text-[9px] text-gray-400 mt-0.5 font-medium">Droplets · Volumes</p>
+          </div>
+          {% if cloud_accounts %}
+          <div class="flex items-center gap-1 px-2 py-0.5 bg-gray-100 rounded-full">
+            <span class="w-1 h-1 rounded-full bg-gray-950 inline-block"></span>
+            <span class="text-[9px] text-gray-600 font-semibold">
+              {{ cloud_accounts|length }} account{{ cloud_accounts|length|pluralize }}
+            </span>
+          </div>
+          {% endif %}
+        </a>
+
+        {# ── AWS — COMING SOON ───────────────────────────── #}
+        <div class="relative bg-white rounded-2xl p-4 flex flex-col items-center gap-3
+                    border border-gray-100 cursor-not-allowed select-none"
+             style="filter:grayscale(1);opacity:0.55;">
+          <span class="absolute -top-2.5 left-1/2 -translate-x-1/2
+                       bg-gray-200 text-gray-500 text-[8px] font-bold px-2.5 py-0.5 rounded-full
+                       tracking-[0.15em] uppercase whitespace-nowrap">
+            SOON
+          </span>
+          <div class="w-12 h-12 rounded-xl flex items-center justify-center bg-[#FF9900] shrink-0 mt-0.5">
+            <svg viewBox="0 0 80 50" class="w-10 h-7" xmlns="http://www.w3.org/2000/svg">
+              <text x="40" y="32" text-anchor="middle" font-family="Arial Black,sans-serif"
+                    font-size="26" font-weight="900" fill="white">AWS</text>
+            </svg>
+          </div>
+          <div class="text-center">
+            <p class="text-[11px] font-bold text-gray-900 leading-tight">Amazon AWS</p>
+            <p class="text-[9px] text-gray-400 mt-0.5 font-medium">EC2 · S3 · RDS</p>
+          </div>
+        </div>
+
+        {# ── Google Cloud — COMING SOON ──────────────────── #}
+        <div class="relative bg-white rounded-2xl p-4 flex flex-col items-center gap-3
+                    border border-gray-100 cursor-not-allowed select-none"
+             style="filter:grayscale(1);opacity:0.55;">
+          <span class="absolute -top-2.5 left-1/2 -translate-x-1/2
+                       bg-gray-200 text-gray-500 text-[8px] font-bold px-2.5 py-0.5 rounded-full
+                       tracking-[0.15em] uppercase whitespace-nowrap">
+            SOON
+          </span>
+          <div class="w-12 h-12 rounded-xl flex items-center justify-center mt-0.5 overflow-hidden bg-white border border-gray-100">
+            {# GCP 4-color logo blocks #}
+            <svg viewBox="0 0 48 48" class="w-9 h-9" xmlns="http://www.w3.org/2000/svg">
+              <path d="M30 13H18l-6 10.4L18 34h12l6-10.6z" fill="#4285F4"/>
+              <path d="M18 13l-6 10.4L6 13z" fill="#EA4335"/>
+              <path d="M30 13l6 10.4 6-10.4z" fill="#FBBC04"/>
+              <path d="M6 23.4L12 34l6-10.6z" fill="#34A853"/>
+              <path d="M36 23.4L30 34l6 10.6 6-10.6z" fill="#EA4335" opacity=".4"/>
+              <circle cx="24" cy="23.5" r="6" fill="white"/>
+              <circle cx="24" cy="23.5" r="4" fill="#4285F4"/>
+            </svg>
+          </div>
+          <div class="text-center">
+            <p class="text-[11px] font-bold text-gray-900 leading-tight">Google Cloud</p>
+            <p class="text-[9px] text-gray-400 mt-0.5 font-medium">Compute · GKE</p>
+          </div>
+        </div>
+
+        {# ── Hetzner — COMING SOON ───────────────────────── #}
+        <div class="relative bg-white rounded-2xl p-4 flex flex-col items-center gap-3
+                    border border-gray-100 cursor-not-allowed select-none"
+             style="filter:grayscale(1);opacity:0.55;">
+          <span class="absolute -top-2.5 left-1/2 -translate-x-1/2
+                       bg-gray-200 text-gray-500 text-[8px] font-bold px-2.5 py-0.5 rounded-full
+                       tracking-[0.15em] uppercase whitespace-nowrap">
+            SOON
+          </span>
+          <div class="w-12 h-12 rounded-xl bg-[#D50C2D] flex items-center justify-center mt-0.5 shrink-0">
+            <svg viewBox="0 0 48 48" class="w-8 h-8" xmlns="http://www.w3.org/2000/svg">
+              <text x="24" y="34" text-anchor="middle" font-family="Arial Black,sans-serif"
+                    font-size="30" font-weight="900" fill="white">H</text>
+            </svg>
+          </div>
+          <div class="text-center">
+            <p class="text-[11px] font-bold text-gray-900 leading-tight">Hetzner</p>
+            <p class="text-[9px] text-gray-400 mt-0.5 font-medium">Cloud · Dedicated</p>
+          </div>
+        </div>
+
+        {# ── Vultr — COMING SOON ─────────────────────────── #}
+        <div class="relative bg-white rounded-2xl p-4 flex flex-col items-center gap-3
+                    border border-gray-100 cursor-not-allowed select-none"
+             style="filter:grayscale(1);opacity:0.55;">
+          <span class="absolute -top-2.5 left-1/2 -translate-x-1/2
+                       bg-gray-200 text-gray-500 text-[8px] font-bold px-2.5 py-0.5 rounded-full
+                       tracking-[0.15em] uppercase whitespace-nowrap">
+            SOON
+          </span>
+          <div class="w-12 h-12 rounded-xl bg-[#2B87F9] flex items-center justify-center mt-0.5 shrink-0">
+            {# Vultr lightning-V mark #}
+            <svg viewBox="0 0 48 48" class="w-8 h-8" xmlns="http://www.w3.org/2000/svg">
+              <polygon points="28,8 16,28 22,28 20,40 32,20 26,20" fill="white"/>
+            </svg>
+          </div>
+          <div class="text-center">
+            <p class="text-[11px] font-bold text-gray-900 leading-tight">Vultr</p>
+            <p class="text-[9px] text-gray-400 mt-0.5 font-medium">Cloud Compute</p>
+          </div>
+        </div>
+
+        {# ── Azure — COMING SOON ─────────────────────────── #}
+        <div class="relative bg-white rounded-2xl p-4 flex flex-col items-center gap-3
+                    border border-gray-100 cursor-not-allowed select-none"
+             style="filter:grayscale(1);opacity:0.55;">
+          <span class="absolute -top-2.5 left-1/2 -translate-x-1/2
+                       bg-gray-200 text-gray-500 text-[8px] font-bold px-2.5 py-0.5 rounded-full
+                       tracking-[0.15em] uppercase whitespace-nowrap">
+            SOON
+          </span>
+          <div class="w-12 h-12 rounded-xl bg-[#0078D4] flex items-center justify-center mt-0.5 shrink-0">
+            {# Azure A-blocks logo #}
+            <svg viewBox="0 0 48 48" class="w-8 h-8" xmlns="http://www.w3.org/2000/svg">
+              <path d="M14 36L24 12l6 12-8 4 6 8z" fill="white" opacity=".9"/>
+              <path d="M26 24l8-12 4 24H22z" fill="white" opacity=".6"/>
+            </svg>
+          </div>
+          <div class="text-center">
+            <p class="text-[11px] font-bold text-gray-900 leading-tight">Microsoft Azure</p>
+            <p class="text-[9px] text-gray-400 mt-0.5 font-medium">VMs · AKS</p>
+          </div>
+        </div>
+
+        {# ── Linode/Akamai — COMING SOON ─────────────────── #}
+        <div class="relative bg-white rounded-2xl p-4 flex flex-col items-center gap-3
+                    border border-gray-100 cursor-not-allowed select-none"
+             style="filter:grayscale(1);opacity:0.55;">
+          <span class="absolute -top-2.5 left-1/2 -translate-x-1/2
+                       bg-gray-200 text-gray-500 text-[8px] font-bold px-2.5 py-0.5 rounded-full
+                       tracking-[0.15em] uppercase whitespace-nowrap">
+            SOON
+          </span>
+          <div class="w-12 h-12 rounded-xl bg-[#02B159] flex items-center justify-center mt-0.5 shrink-0">
+            <svg viewBox="0 0 48 48" class="w-8 h-8" xmlns="http://www.w3.org/2000/svg">
+              <text x="24" y="34" text-anchor="middle" font-family="Arial Black,sans-serif"
+                    font-size="26" font-weight="900" fill="white">Ak</text>
+            </svg>
+          </div>
+          <div class="text-center">
+            <p class="text-[11px] font-bold text-gray-900 leading-tight">Linode/Akamai</p>
+            <p class="text-[9px] text-gray-400 mt-0.5 font-medium">Linodes · LKE</p>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    {# DIGITALOCEAN — ACCOUNTS & DROPLETS #}
+    {% if cloud_accounts or cloud_servers %}
+    <section>
+      <div class="flex items-center gap-4 mb-6">
+        <div class="flex items-center gap-2.5">
+          <div class="w-5 h-5 bg-gray-950 rounded-md flex items-center justify-center shrink-0">
+            <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"/>
+            </svg>
+          </div>
+          <h2 class="text-xs font-bold text-gray-900 tracking-widest uppercase">DigitalOcean</h2>
+        </div>
+        <div class="flex-1 h-px bg-gradient-to-r from-gray-200 to-transparent"></div>
+        {% if cloud_accounts %}
+        <a href="{% url 'cloud:provision-droplet' %}"
+           class="flex items-center gap-1.5 text-xs font-medium text-gray-600 border border-gray-200 px-3 py-1.5 rounded-xl bg-white hover:border-gray-300 transition-all shadow-sm">
+          + Provision Droplet
+        </a>
+        {% endif %}
+      </div>
+
+      {# Accounts row #}
+      {% if cloud_accounts %}
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
+        {% for account in cloud_accounts %}
+        <div class="bg-white border border-gray-100 rounded-2xl px-4 py-3.5 flex items-center justify-between shadow-sm">
+          <div class="flex items-center gap-3">
+            <div class="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
+              <svg viewBox="0 0 24 24" class="w-4 h-4" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="12" cy="12" r="12" fill="#0080FF"/>
+                <path d="M12 3.5C7.3 3.5 3.5 7.3 3.5 12s3.8 8.5 8.5 8.5V17c-2.8 0-5-2.2-5-5s2.2-5 5-5 5 2.2 5 5-2.2 5-5 5v3.5c4.7 0 8.5-3.8 8.5-8.5S16.7 3.5 12 3.5z" fill="white"/>
+                <rect x="3.5" y="17" width="3.5" height="2" rx=".5" fill="white"/>
+                <rect x="3.5" y="19.3" width="2.2" height="1.8" rx=".5" fill="white"/>
+              </svg>
+            </div>
+            <div>
+              <p class="text-sm font-semibold text-gray-900">{{ account.name }}</p>
+              <p class="text-[10px] text-gray-400">
+                {{ account.get_provider_display }}
+                {% if account.last_verified_at %}· {{ account.last_verified_at|timesince }} ago{% endif %}
+              </p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            {% if account.is_verified %}
+            <span class="flex items-center gap-1 text-[10px] font-semibold text-gray-700">
+              <span class="w-1.5 h-1.5 rounded-full bg-gray-900 inline-block"></span>
+              Verified
+            </span>
+            {% else %}
+            <span class="flex items-center gap-1 text-[10px] font-medium text-gray-400">
+              <span class="w-1.5 h-1.5 rounded-full bg-gray-300 inline-block"></span>
+              Unverified
+            </span>
+            {% endif %}
+            <form method="post" action="{% url 'cloud:verify-account' account.pk %}">
+              {% csrf_token %}
+              <button type="submit"
+                      class="text-[10px] text-gray-400 border border-gray-200 px-2 py-1 rounded-lg hover:bg-gray-50 transition-colors">
+                ↻ Verify
+              </button>
+            </form>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {# Droplets list #}
+      {% if cloud_servers %}
+      <div class="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-gray-50 bg-gray-50/60">
+              <th class="text-left px-5 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Droplet</th>
+              <th class="text-left px-5 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Region / Size</th>
+              <th class="text-left px-5 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">IP</th>
+              <th class="text-left px-5 py-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Status</th>
+              <th class="px-5 py-3"></th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-50">
+            {% for cs in cloud_servers %}
+            <tr class="hover:bg-gray-50/50 transition-colors">
+              <td class="px-5 py-3.5">
+                <div class="flex items-center gap-3">
+                  <div class="w-7 h-7 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
+                    <span class="text-[9px] font-black text-blue-600">DO</span>
+                  </div>
+                  <p class="text-sm font-semibold text-gray-900">{{ cs.name }}</p>
+                </div>
+              </td>
+              <td class="px-5 py-3.5">
+                <span class="font-mono text-xs text-gray-500">{{ cs.region }} · {{ cs.size }}</span>
+              </td>
+              <td class="px-5 py-3.5">
+                <span class="font-mono text-xs text-gray-600">{{ cs.ip_address|default:"—" }}</span>
+              </td>
+              <td class="px-5 py-3.5">
+                <span class="inline-flex items-center gap-1.5 text-[11px] font-semibold
+                  {% if cs.status == 'RUNNING' %}text-gray-800
+                  {% elif cs.status == 'PROVISIONING' %}text-gray-600
+                  {% elif cs.status == 'FAILED' %}text-gray-500
+                  {% else %}text-gray-400{% endif %}">
+                  <span class="w-1.5 h-1.5 rounded-full inline-block
+                    {% if cs.status == 'RUNNING' %}bg-gray-900
+                    {% elif cs.status == 'PROVISIONING' %}bg-gray-500 animate-pulse
+                    {% elif cs.status == 'FAILED' %}bg-gray-400
+                    {% else %}bg-gray-200{% endif %}"></span>
+                  {{ cs.get_status_display }}
+                </span>
+              </td>
+              <td class="px-5 py-3.5 text-right">
+                {% if cs.status != 'DELETED' %}
+                <form method="post" action="{% url 'cloud:destroy-droplet' cs.pk %}"
+                      onsubmit="return confirm('Destroy {{ cs.name }}? This cannot be undone.')">
+                  {% csrf_token %}
+                  <button type="submit"
+                          class="text-[10px] text-gray-400 border border-gray-200 px-2.5 py-1 rounded-lg hover:text-gray-700 hover:bg-gray-50 transition-colors">
+                    Destroy
+                  </button>
+                </form>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    {# PYOS — PROVISION YOUR OWN SERVER #}
+    <section>
+      <div class="flex items-center justify-between mb-6">
+        <div class="flex items-center gap-4">
+          <div class="flex items-center gap-2.5">
+            <div class="w-5 h-5 bg-gray-950 rounded-md flex items-center justify-center shrink-0">
+              <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M8 9l3 3-3 3m5 0h3"/>
+              </svg>
+            </div>
+            <h2 class="text-xs font-bold text-gray-900 tracking-widest uppercase">PYOS — Provision Your Own Server</h2>
+          </div>
+          <div class="h-px w-8 bg-gray-200"></div>
+          {% if external_servers %}
+          <span class="text-[11px] font-semibold text-gray-500">{{ external_servers|length }} server{{ external_servers|length|pluralize }}</span>
+          {% endif %}
+        </div>
+
+        {# View toggle #}
+        <div class="flex items-center gap-3">
+          <div class="flex bg-white border border-gray-200 rounded-xl p-0.5 gap-0.5 shadow-sm">
+            <button @click="view='list'"
+                    :class="view==='list' ? 'bg-gray-950 text-white shadow-sm' : 'text-gray-400 hover:text-gray-600'"
+                    class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150">
+              <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+              </svg>
+              List
+            </button>
+            <button @click="view='kanban'"
+                    :class="view==='kanban' ? 'bg-gray-950 text-white shadow-sm' : 'text-gray-400 hover:text-gray-600'"
+                    class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150">
+              <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/>
+              </svg>
+              Kanban
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {% if external_servers %}
+
+      {# ── LIST VIEW ─────────────────────────────────────────────────────── #}
+      <div x-show="view==='list'"
+           x-transition:enter="transition-opacity ease-out duration-150"
+           x-transition:enter-start="opacity-0 translate-y-1"
+           x-transition:enter-end="opacity-100 translate-y-0">
+        <div class="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
+          <table class="w-full">
+            <thead>
+              <tr class="border-b border-gray-50 bg-gray-50/60">
+                <th class="text-left px-5 py-3.5 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Server</th>
+                <th class="text-left px-5 py-3.5 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Endpoint</th>
+                <th class="text-left px-5 py-3.5 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Auth</th>
+                <th class="text-left px-5 py-3.5 text-[10px] font-bold text-gray-400 uppercase tracking-widest">State</th>
+                <th class="text-left px-5 py-3.5 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Prep</th>
+                <th class="px-5 py-3.5"></th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-50">
+              {% for server in external_servers %}
+              <tr class="group hover:bg-gray-50/50 transition-colors">
+                <td class="px-5 py-4">
+                  <div class="flex items-center gap-3">
+                    <div class="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center shrink-0 group-hover:bg-gray-200 transition-colors">
+                      <svg class="w-3.5 h-3.5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3"/>
+                      </svg>
+                    </div>
+                    <div>
+                      <a href="{% url 'cloud:server-detail' server.pk %}"
+                         class="text-sm font-bold text-gray-900 hover:underline">{{ server.name }}</a>
+                      <p class="text-[10px] font-mono text-gray-400 mt-0.5">{{ server.username }}</p>
+                    </div>
+                  </div>
+                </td>
+                <td class="px-5 py-4">
+                  <span class="font-mono text-xs text-gray-600 bg-gray-50 px-2 py-1 rounded-md border border-gray-100">
+                    {{ server.host }}:{{ server.port }}
+                  </span>
+                </td>
+                <td class="px-5 py-4">
+                  <span class="text-xs text-gray-500">{{ server.get_auth_type_display }}</span>
+                </td>
+                <td class="px-5 py-4">
+                  {% if server.is_verified %}
+                  <span class="flex items-center gap-1.5 text-[11px] font-bold text-gray-800">
+                    <span class="w-1.5 h-1.5 rounded-full bg-gray-900"></span>SSH OK
+                  </span>
+                  {% else %}
+                  <span class="flex items-center gap-1.5 text-[11px] font-medium text-gray-400">
+                    <span class="w-1.5 h-1.5 rounded-full bg-gray-300"></span>Unverified
+                  </span>
+                  {% endif %}
+                </td>
+                <td class="px-5 py-4">
+                  {% if server.is_prepared %}
+                  <span class="flex items-center gap-1.5 text-[11px] font-bold text-gray-800">
+                    <span class="w-1.5 h-1.5 rounded-full bg-gray-900"></span>Docker ready
+                  </span>
+                  {% elif server.is_verified %}
+                  <span class="flex items-center gap-1.5 text-[11px] font-medium text-gray-400">
+                    <span class="w-1.5 h-1.5 rounded-full bg-gray-300"></span>Needs prep
+                  </span>
+                  {% else %}
+                  <span class="text-[11px] text-gray-300">—</span>
+                  {% endif %}
+                </td>
+                <td class="px-5 py-4 text-right">
+                  <a href="{% url 'cloud:server-detail' server.pk %}"
+                     class="text-[11px] font-semibold text-gray-400 border border-gray-200 px-3 py-1.5 rounded-lg
+                            hover:text-gray-800 hover:border-gray-400 bg-white transition-all">
+                    Open →
+                  </a>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {# ── KANBAN VIEW ───────────────────────────────────────────────────── #}
+      <div x-show="view==='kanban'"
+           x-transition:enter="transition-opacity ease-out duration-150"
+           x-transition:enter-start="opacity-0"
+           x-transition:enter-end="opacity-100"
+           class="grid grid-cols-3 gap-4">
+
+        {# Column: Unverified #}
+        <div>
+          <div class="flex items-center gap-2 mb-3 px-1">
+            <span class="w-2 h-2 rounded-full bg-gray-300"></span>
+            <h3 class="text-[10px] font-bold uppercase tracking-widest text-gray-400">Unverified</h3>
+            <span class="ml-auto text-[10px] font-bold text-gray-300">
+              {{ external_servers|length }}
+            </span>
+          </div>
+          <div class="space-y-2.5 min-h-[120px]">
+            {% for server in external_servers %}{% if not server.is_verified %}
+            <a href="{% url 'cloud:server-detail' server.pk %}"
+               class="group block bg-white border border-gray-100 rounded-2xl p-4 hover:border-gray-300 hover:shadow-sm transition-all">
+              <div class="flex items-center gap-2.5 mb-2.5">
+                <div class="w-7 h-7 bg-gray-100 rounded-lg flex items-center justify-center shrink-0 group-hover:bg-gray-200 transition-colors">
+                  <svg class="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3"/>
+                  </svg>
+                </div>
+                <p class="text-xs font-bold text-gray-900 truncate">{{ server.name }}</p>
+              </div>
+              <p class="font-mono text-[10px] text-gray-400 truncate">{{ server.host }}:{{ server.port }}</p>
+              {% if server.verification_error %}
+              <p class="text-[10px] text-gray-400 mt-1.5 truncate">{{ server.verification_error|truncatechars:50 }}</p>
+              {% endif %}
+            </a>
+            {% endif %}{% endfor %}
+          </div>
+        </div>
+
+        {# Column: SSH Verified #}
+        <div>
+          <div class="flex items-center gap-2 mb-3 px-1">
+            <span class="w-2 h-2 rounded-full bg-gray-600"></span>
+            <h3 class="text-[10px] font-bold uppercase tracking-widest text-gray-500">SSH Verified</h3>
+          </div>
+          <div class="space-y-2.5 min-h-[120px]">
+            {% for server in external_servers %}{% if server.is_verified and not server.is_prepared %}
+            <a href="{% url 'cloud:server-detail' server.pk %}"
+               class="group block bg-white border border-gray-100 rounded-2xl p-4 hover:border-gray-300 hover:shadow-sm transition-all">
+              <div class="flex items-center gap-2.5 mb-2.5">
+                <div class="w-7 h-7 bg-gray-100 rounded-lg flex items-center justify-center shrink-0">
+                  <svg class="w-3 h-3 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3"/>
+                  </svg>
+                </div>
+                <p class="text-xs font-bold text-gray-900 truncate">{{ server.name }}</p>
+              </div>
+              <p class="font-mono text-[10px] text-gray-400 truncate">{{ server.host }}:{{ server.port }}</p>
+              <div class="mt-2">
+                <span class="text-[10px] font-medium text-gray-500">{{ server.get_preparation_status_display }}</span>
+              </div>
+            </a>
+            {% endif %}{% endfor %}
+          </div>
+        </div>
+
+        {# Column: Docker Ready #}
+        <div>
+          <div class="flex items-center gap-2 mb-3 px-1">
+            <span class="w-2 h-2 rounded-full bg-gray-900"></span>
+            <h3 class="text-[10px] font-bold uppercase tracking-widest text-gray-700">Docker Ready</h3>
+          </div>
+          <div class="space-y-2.5 min-h-[120px]">
+            {% for server in external_servers %}{% if server.is_prepared %}
+            <a href="{% url 'cloud:server-detail' server.pk %}"
+               class="group block bg-white border-2 border-gray-200 rounded-2xl p-4 hover:border-gray-400 hover:shadow-sm transition-all">
+              <div class="flex items-center gap-2.5 mb-2.5">
+                <div class="w-7 h-7 bg-gray-950 rounded-lg flex items-center justify-center shrink-0">
+                  <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                  </svg>
+                </div>
+                <p class="text-xs font-bold text-gray-900 truncate">{{ server.name }}</p>
+              </div>
+              <p class="font-mono text-[10px] text-gray-400 truncate">{{ server.host }}:{{ server.port }}</p>
+              {% if server.last_verified_at %}
+              <p class="text-[10px] text-gray-400 mt-1.5">Verified {{ server.last_verified_at|timesince }} ago</p>
+              {% endif %}
+            </a>
+            {% endif %}{% endfor %}
+
+          </div>
+        </div>
+
+      </div>
+
+      {% else %}
+      {# ── Empty state ──────────────────────────────────────────────────── #}
+      <div class="bg-white border-2 border-dashed border-gray-200 rounded-2xl px-8 py-16 flex flex-col items-center gap-5">
+        <div class="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center">
+          <svg class="w-7 h-7 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+          </svg>
+        </div>
+        <div class="text-center">
+          <p class="text-base font-bold text-gray-800">No PYOS servers connected</p>
+          <p class="text-sm text-gray-400 mt-1.5 max-w-xs leading-relaxed">
+            Bring any VPS — DafeApp will SSH in, verify the connection, and install Docker automatically.
+          </p>
+        </div>
+        <a href="{% url 'cloud:add-server' %}"
+           class="flex items-center gap-2 px-5 py-2.5 bg-gray-950 text-white text-sm font-semibold rounded-xl hover:bg-gray-800 transition-all shadow-sm">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+          </svg>
+          Connect your first server
+        </a>
+      </div>
+      {% endif %}
+
+    </section>
+
+    {# ── Footer note ─────────────────────────────────────────────────────── #}
+    <footer class="flex items-center justify-center pb-4">
+      <p class="text-[10px] font-medium text-gray-300 tracking-widest uppercase">
+        DafeApp Infrastructure — Phase 3 · More providers coming soon
+      </p>
+    </footer>
+
+  </div>
+</div>
+{% endblock %}

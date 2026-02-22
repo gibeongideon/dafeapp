@@ -20,3 +20,8 @@ django-environ>=0.11
 
 # Redis client
 redis>=5.0
+
+# Cloud / SSH / Encryption (Phase 3)
+paramiko>=3.4.0
+cryptography>=42.0.0
+requests>=2.31.0

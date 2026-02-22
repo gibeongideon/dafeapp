@@ -1,0 +1,96 @@
+{% extends "dashboard/layout.html" %}
+
+{% block page_title %}Add PYOS Server{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+
+  {# Breadcrumb #}
+  <div class="flex items-center gap-2 text-sm text-gray-400 mb-6">
+    <a href="{% url 'cloud:dashboard' %}" class="hover:text-gray-700">Infrastructure</a>
+    <span>/</span>
+    <span class="text-gray-700">Add PYOS Server</span>
+  </div>
+
+  <div class="bg-white border border-gray-200 rounded-xl p-6">
+    <h2 class="text-base font-semibold text-gray-900 mb-1">Connect your own VPS</h2>
+    <p class="text-sm text-gray-500 mb-6">
+      DafeApp will connect via SSH to verify the server and install Docker.
+      Your credentials are encrypted at rest.
+    </p>
+
+    <form method="post" x-data="{ authType: '{{ form.auth_type.value|default:'SSH_KEY' }}' }">
+      {% csrf_token %}
+
+      {% if form.non_field_errors %}
+      <div class="mb-4 px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700">
+        {% for error in form.non_field_errors %}{{ error }}{% endfor %}
+      </div>
+      {% endif %}
+
+      <div class="space-y-4">
+
+        {# Name #}
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Name</label>
+          {{ form.name }}
+          {% if form.name.errors %}<p class="text-xs text-red-500 mt-1">{{ form.name.errors.0 }}</p>{% endif %}
+        </div>
+
+        {# Host + Port row #}
+        <div class="grid grid-cols-3 gap-4">
+          <div class="col-span-2">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Host (IP address)</label>
+            {{ form.host }}
+            {% if form.host.errors %}<p class="text-xs text-red-500 mt-1">{{ form.host.errors.0 }}</p>{% endif %}
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">SSH Port</label>
+            {{ form.port }}
+          </div>
+        </div>
+
+        {# Username #}
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Username</label>
+          {{ form.username }}
+        </div>
+
+        {# Auth type #}
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Authentication</label>
+          <div x-on:change="authType = $event.target.value">
+            {{ form.auth_type }}
+          </div>
+        </div>
+
+        {# SSH Key (shown when auth_type = SSH_KEY) #}
+        <div x-show="authType === 'SSH_KEY'" x-transition>
+          <label class="block text-sm font-medium text-gray-700 mb-1">SSH Private Key</label>
+          {{ form.private_key }}
+          <p class="text-xs text-gray-400 mt-1">{{ form.private_key.help_text }}</p>
+          {% if form.private_key.errors %}<p class="text-xs text-red-500 mt-1">{{ form.private_key.errors.0 }}</p>{% endif %}
+        </div>
+
+        {# Password (shown when auth_type = PASSWORD) #}
+        <div x-show="authType === 'PASSWORD'" x-transition>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+          {{ form.password }}
+          {% if form.password.errors %}<p class="text-xs text-red-500 mt-1">{{ form.password.errors.0 }}</p>{% endif %}
+        </div>
+
+      </div>
+
+      <div class="mt-6 flex items-center gap-3">
+        <button type="submit"
+                class="px-4 py-2.5 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-700 transition-colors">
+          Add Server
+        </button>
+        <a href="{% url 'cloud:dashboard' %}"
+           class="text-sm text-gray-500 hover:text-gray-700">Cancel</a>
+      </div>
+    </form>
+  </div>
+
+</div>
+{% endblock %}

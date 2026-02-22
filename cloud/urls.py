@@ -1,5 +1,24 @@
 from django.urls import path
 
+from cloud import views
+
 app_name = "cloud"
 
-urlpatterns = []
+urlpatterns = [
+    # Dashboard
+    path("", views.CloudDashboardView.as_view(), name="dashboard"),
+
+    # PYOS servers
+    path("servers/add/", views.AddExternalServerView.as_view(), name="add-server"),
+    path("servers/<int:pk>/", views.ServerDetailView.as_view(), name="server-detail"),
+    path("servers/<int:pk>/verify/", views.VerifyServerView.as_view(), name="verify-server"),
+    path("servers/<int:pk>/prepare/", views.PrepareServerView.as_view(), name="prepare-server"),
+
+    # Cloud accounts (DO)
+    path("accounts/add/", views.AddCloudAccountView.as_view(), name="add-account"),
+    path("accounts/<int:pk>/verify/", views.VerifyAccountView.as_view(), name="verify-account"),
+
+    # Droplets
+    path("droplets/provision/", views.ProvisionDropletView.as_view(), name="provision-droplet"),
+    path("droplets/<int:pk>/destroy/", views.DestroyDropletView.as_view(), name="destroy-droplet"),
+]
