@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}Subscription Required{% endblock %}
+
+{% block body %}
+<div class="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+  <div class="max-w-md w-full">
+
+    {# Icon #}
+    <div class="flex justify-center mb-6">
+      <div class="w-16 h-16 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center">
+        <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/>
+        </svg>
+      </div>
+    </div>
+
+    {# Card #}
+    <div class="bg-white rounded-2xl border border-gray-200 p-8 text-center">
+      <h1 class="text-xl font-semibold text-gray-900 mb-2">Subscription inactive</h1>
+
+      {% if subscription %}
+        {% if subscription.status == 'CANCELLED' %}
+        <p class="text-gray-500 text-sm mb-6">
+          Your subscription has been <strong class="text-gray-700">cancelled</strong>.
+          Renew anytime to restore access to all features.
+        </p>
+        {% elif subscription.status == 'TRIAL' %}
+        <p class="text-gray-500 text-sm mb-6">
+          Your 14-day free trial has expired. Upgrade to a paid plan to continue
+          using DafeApp without interruption.
+        </p>
+        {% elif subscription.status == 'PAST_DUE' %}
+        <p class="text-gray-500 text-sm mb-6">
+          Your subscription is <strong class="text-gray-700">past due</strong> and the
+          3-day grace period has ended. Update your payment method to restore access.
+        </p>
+        {% else %}
+        <p class="text-gray-500 text-sm mb-6">
+          Your subscription is currently <strong class="text-gray-700">inactive</strong>.
+          Please contact support or renew your plan.
+        </p>
+        {% endif %}
+
+        {# Status chip #}
+        <div class="inline-flex items-center gap-2 px-3 py-1.5 bg-gray-100 border border-gray-200 rounded-full text-xs font-medium text-gray-600 mb-6">
+          <span class="w-1.5 h-1.5 rounded-full bg-gray-400"></span>
+          {{ subscription.get_status_display }} · {{ subscription.plan.name }} plan
+        </div>
+      {% else %}
+        <p class="text-gray-500 text-sm mb-6">
+          No active subscription found for this organization.
+        </p>
+      {% endif %}
+
+      {# Actions #}
+      <div class="flex flex-col gap-3">
+        {% if user.is_authenticated and request.org_role == 'SUPER_ADMIN' %}
+        <a href="{% url 'subscriptions:billing' %}"
+           class="w-full px-4 py-2.5 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-700 transition-colors text-center">
+          Manage billing
+        </a>
+        {% endif %}
+        <a href="{% url 'organizations:select' %}"
+           class="w-full px-4 py-2.5 border border-gray-200 text-gray-600 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors text-center">
+          Switch organization
+        </a>
+        <form method="post" action="{% url 'users:logout' %}">
+          {% csrf_token %}
+          <button type="submit"
+                  class="w-full text-sm text-gray-400 hover:text-gray-600 py-1 transition-colors">
+            Sign out
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <p class="text-center text-xs text-gray-400 mt-5">
+      Need help?
+      <a href="mailto:support@dafeapp.com" class="text-gray-600 underline hover:text-gray-900">Contact support</a>
+    </p>
+
+  </div>
+</div>
+{% endblock %}

@@ -22,6 +22,9 @@ urlpatterns = [
     # Organization management
     path("orgs/", include("organizations.urls", namespace="organizations")),
 
+    # Subscription UI (required page + billing dashboard)
+    path("subscriptions/", include("subscriptions.urls", namespace="subscriptions")),
+
     # JWT
     path("api/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
@@ -29,7 +32,7 @@ urlpatterns = [
 
     # REST API
     path("api/users/", include("users.urls")),
-    path("api/subscriptions/", include("subscriptions.urls", namespace="subscriptions")),
+    # subscriptions REST API endpoints will be added in a future phase
     path("api/tenants/", include("tenants.urls", namespace="tenants")),
     path("api/cloud/", include("cloud.urls", namespace="cloud")),
     path("api/deployments/", include("deployments.urls", namespace="deployments")),

@@ -46,8 +46,23 @@ class DashboardHomeView(LoginRequiredMixin, TemplateView):
             AuditLog.objects.filter(organization=org).select_related("user")[:10]
             if org else []
         )
-        ctx["active_deployments"] = 0
-        ctx["active_subscriptions"] = 0
+        from deployments.models import Instance
+        from subscriptions.models import Subscription
+
+        ctx["active_deployments"] = (
+            Instance.objects.filter(
+                organization=org, status=Instance.Status.RUNNING
+            ).count() if org else 0
+        )
+        ctx["subscription"] = None
+        ctx["plan"] = None
+        if org:
+            try:
+                sub = org.subscription
+                ctx["subscription"] = sub
+                ctx["plan"] = sub.plan
+            except Subscription.DoesNotExist:
+                pass
         return ctx
 
 

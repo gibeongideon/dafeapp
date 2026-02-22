@@ -71,6 +71,19 @@
         <span x-show="sidebarOpen" x-transition class="flex items-center gap-1.5">Monitoring <span class="text-xs bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded">Phase 3</span></span>
       </a>
 
+      {% if current_role == 'SUPER_ADMIN' %}
+      {% url 'subscriptions:billing' as u_billing %}
+      <a href="{{ u_billing }}"
+         class="flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition
+                {% if request.path == u_billing %}bg-blue-600 text-white{% else %}text-slate-300 hover:bg-slate-800{% endif %}">
+        <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
+        <span x-show="sidebarOpen" x-transition class="flex items-center gap-1.5">
+          Billing
+          {% if plan %}<span class="text-xs text-slate-400 ml-auto">{{ plan.name }}</span>{% endif %}
+        </span>
+      </a>
+      {% endif %}
+
       {% url 'core:audit' as u_audit %}
       <a href="{{ u_audit }}"
          class="flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition

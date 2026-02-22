@@ -63,7 +63,8 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
-    "organizations.middleware.OrganizationMiddleware",   # must be after auth
+    "organizations.middleware.OrganizationMiddleware",    # must be after auth
+    "subscriptions.middleware.SubscriptionMiddleware",    # must be after OrganizationMiddleware
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -80,7 +81,8 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
-                "organizations.context_processors.organization",  # current_org, current_role, user_orgs
+                "organizations.context_processors.organization",   # current_org, current_role, user_orgs
+                "subscriptions.context_processors.subscription",  # subscription, plan, plan_limits
             ],
         },
     },
