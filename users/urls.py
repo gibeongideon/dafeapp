@@ -11,6 +11,8 @@ auth_urlpatterns = [
     path("register/", views.OrgSignupView.as_view(), name="register"),
     path("verify-email/<uuid:token>/", views.VerifyEmailView.as_view(), name="verify-email"),
     path("invite/<uuid:token>/", views.AcceptInviteView.as_view(), name="accept-invite"),
+    # VCS account management
+    path("vcs/<int:pk>/disconnect/", views.VCSDisconnectView.as_view(), name="vcs-disconnect"),
 ]
 
 # API routes (included at /api/users/)

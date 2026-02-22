@@ -15,6 +15,9 @@ django-celery-results>=2.5
 # Auth / JWT
 djangorestframework-simplejwt>=5.3
 
+# Social Auth
+django-allauth[socialaccount]>=0.61.0
+
 # Environment
 django-environ>=0.11
 

@@ -58,6 +58,16 @@
       </a>
       {% endif %}
 
+      {% if current_role == 'SUPER_ADMIN' or current_role == 'ADMIN' %}
+      {% url 'core:vcs' as u_vcs %}
+      <a href="{{ u_vcs }}"
+         class="flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition
+                {% if request.path == u_vcs %}bg-blue-600 text-white{% else %}text-slate-300 hover:bg-slate-800{% endif %}">
+        <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+        <span x-show="sidebarOpen" x-transition>VCS</span>
+      </a>
+      {% endif %}
+
       <a href="#" class="flex items-center gap-3 px-3 py-2.5 text-sm rounded-lg text-slate-600 cursor-not-allowed">
         <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5"/></svg>
         <span x-show="sidebarOpen" x-transition class="flex items-center gap-1.5">Tenants <span class="text-xs bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded">Phase 2</span></span>

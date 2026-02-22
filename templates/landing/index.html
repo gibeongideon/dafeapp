@@ -6,37 +6,20 @@
   <title>DafeApp — Odoo LaunchPad</title>
   <meta name="description" content="Deploy, manage, and scale Odoo on any cloud or your own server. Production-ready in minutes, not days." />
 
+  <!-- Anti-FOUC: apply light class before anything paints -->
+  <script>if(localStorage.getItem('theme')==='light')document.documentElement.classList.add('light');</script>
+
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
       theme: {
         extend: {
           fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
-          colors: {
-            zinc: {
-              950: '#09090b',
-              925: '#0f0f12',
-              900: '#18181b',
-              800: '#27272a',
-              700: '#3f3f46',
-              600: '#52525b',
-              500: '#71717a',
-              400: '#a1a1aa',
-              300: '#d4d4d8',
-              200: '#e4e4e7',
-              100: '#f4f4f5',
-              50:  '#fafafa',
-            }
-          },
           animation: {
-            'fade-up': 'fadeUp 0.6s ease forwards',
-            'shimmer': 'shimmer 2.5s linear infinite',
             'pulse-slow': 'pulse 4s cubic-bezier(0.4,0,0.6,1) infinite',
             'float': 'float 6s ease-in-out infinite',
           },
           keyframes: {
-            fadeUp: { '0%': { opacity: '0', transform: 'translateY(24px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
-            shimmer: { '0%': { backgroundPosition: '-200% 0' }, '100%': { backgroundPosition: '200% 0' } },
             float: { '0%,100%': { transform: 'translateY(0)' }, '50%': { transform: 'translateY(-10px)' } },
           }
         }
@@ -49,39 +32,99 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
 
   <style>
-    html { background: #09090b; color: #fafafa; }
+    /* ── CSS custom properties — dark default, .light overrides ── */
+    :root {
+      --bg:        #09090b;
+      --bg2:       #0c0c10;
+      --bg3:       #13131a;
+      --bg4:       #0f0f14;
+      --nav-bg:    rgba(9,9,11,0.85);
+      --mob-bg:    rgba(9,9,11,0.97);
+      --surface:   rgba(255,255,255,0.03);
+      --surface-h: rgba(255,255,255,0.055);
+      --surface-b: rgba(255,255,255,0.06);
+      --border:    rgba(255,255,255,0.08);
+      --border-h:  rgba(255,255,255,0.15);
+      --border-2:  rgba(255,255,255,0.20);
+      --text:      #fafafa;
+      --text-2:    #a1a1aa;
+      --text-3:    #71717a;
+      --dot:       rgba(255,255,255,0.06);
+      --term:      #0f0f12;
+      --grad-s:    #fff;
+      --grad-e:    #a1a1aa;
+      --btn-bg:    #fff;
+      --btn-fg:    #09090b;
+      --btn-h:     #e4e4e7;
+      --scroll-t:  #3f3f46;
+      --glow-a:    rgba(255,255,255,0.035);
+      --glow-b:    rgba(255,255,255,0.02);
+      --glow-c:    rgba(255,255,255,0.015);
+      --cta-glow:  rgba(255,255,255,0.05);
+      --growth-bg: linear-gradient(135deg,rgba(255,255,255,0.07) 0%,rgba(255,255,255,0.03) 100%);
+      --ring-box:  0 0 0 1px rgba(255,255,255,0.08),0 0 40px rgba(255,255,255,0.04);
+      --outer-glow:0 0 80px rgba(255,255,255,0.04),0 0 200px rgba(255,255,255,0.02);
+    }
+    html.light {
+      --bg:        #ffffff;
+      --bg2:       #f8fafc;
+      --bg3:       #f1f5f9;
+      --bg4:       #e8edf2;
+      --nav-bg:    rgba(255,255,255,0.90);
+      --mob-bg:    rgba(255,255,255,0.98);
+      --surface:   rgba(0,0,0,0.025);
+      --surface-h: rgba(0,0,0,0.050);
+      --surface-b: rgba(0,0,0,0.055);
+      --border:    rgba(0,0,0,0.09);
+      --border-h:  rgba(0,0,0,0.15);
+      --border-2:  rgba(0,0,0,0.18);
+      --text:      #09090b;
+      --text-2:    #52525b;
+      --text-3:    #71717a;
+      --dot:       rgba(0,0,0,0.06);
+      --term:      #f1f5f9;
+      --grad-s:    #09090b;
+      --grad-e:    #52525b;
+      --btn-bg:    #09090b;
+      --btn-fg:    #ffffff;
+      --btn-h:     #27272a;
+      --scroll-t:  #a1a1aa;
+      --glow-a:    rgba(0,0,0,0.04);
+      --glow-b:    rgba(0,0,0,0.025);
+      --glow-c:    rgba(0,0,0,0.015);
+      --cta-glow:  rgba(0,0,0,0.04);
+      --growth-bg: linear-gradient(135deg,rgba(0,0,0,0.04) 0%,rgba(0,0,0,0.015) 100%);
+      --ring-box:  0 0 0 1px rgba(0,0,0,0.1),0 0 40px rgba(0,0,0,0.04);
+      --outer-glow:0 0 60px rgba(0,0,0,0.06),0 0 120px rgba(0,0,0,0.03);
+    }
 
-    /* Dot-grid overlay */
+    html { background: var(--bg); color: var(--text); transition: background 0.25s, color 0.25s; }
+
+    /* Dot-grid */
     .dot-grid {
-      background-image: radial-gradient(circle, rgba(255,255,255,0.06) 1px, transparent 1px);
+      background-image: radial-gradient(circle, var(--dot) 1px, transparent 1px);
       background-size: 28px 28px;
     }
 
-    /* Glow rings */
-    .glow-ring {
-      box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 0 40px rgba(255,255,255,0.04);
-    }
+    /* Glow ring */
+    .glow-ring { box-shadow: var(--ring-box); }
 
-    /* Gradient border button */
-    .btn-primary {
-      background: #fff;
-      color: #09090b;
-      transition: all 0.2s;
-    }
-    .btn-primary:hover { background: #e4e4e7; transform: translateY(-1px); box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+    /* Buttons */
+    .btn-primary { background: var(--btn-bg); color: var(--btn-fg); transition: all 0.2s; }
+    .btn-primary:hover { background: var(--btn-h); transform: translateY(-1px); box-shadow: 0 8px 32px rgba(0,0,0,0.25); }
 
     .btn-ghost {
-      border: 1px solid rgba(255,255,255,0.15);
-      color: #fafafa;
-      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border-h);
+      color: var(--text);
+      background: var(--surface);
       transition: all 0.2s;
       backdrop-filter: blur(8px);
     }
-    .btn-ghost:hover { border-color: rgba(255,255,255,0.3); background: rgba(255,255,255,0.08); transform: translateY(-1px); }
+    .btn-ghost:hover { border-color: var(--border-2); background: var(--surface-h); transform: translateY(-1px); }
 
     /* Gradient text */
     .gradient-text {
-      background: linear-gradient(135deg, #fff 0%, #a1a1aa 100%);
+      background: linear-gradient(135deg, var(--grad-s) 0%, var(--grad-e) 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
@@ -89,71 +132,117 @@
 
     /* Glass card */
     .glass-card {
-      background: rgba(255,255,255,0.03);
-      border: 1px solid rgba(255,255,255,0.08);
+      background: var(--surface);
+      border: 1px solid var(--border);
       backdrop-filter: blur(12px);
+      transition: all 0.25s ease;
     }
-    .glass-card:hover {
-      background: rgba(255,255,255,0.055);
-      border-color: rgba(255,255,255,0.15);
-      transform: translateY(-2px);
-    }
-    .glass-card { transition: all 0.25s ease; }
+    .glass-card:hover { background: var(--surface-h); border-color: var(--border-h); transform: translateY(-2px); }
 
-    /* Noise texture overlay */
-    .noise::before {
-      content: '';
-      position: absolute;
-      inset: 0;
-      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
-      pointer-events: none;
-      z-index: 0;
-    }
-
-    /* Section fade-in on scroll */
-    .reveal { opacity: 0; transform: translateY(32px); transition: opacity 0.7s ease, transform 0.7s ease; }
-    .reveal.visible { opacity: 1; transform: translateY(0); }
-
-    /* Terminal block */
-    .terminal {
-      background: #0f0f12;
-      border: 1px solid rgba(255,255,255,0.1);
-      font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
-    }
+    /* Terminal */
+    .terminal { background: var(--term); border: 1px solid var(--border); font-family: 'Menlo','Monaco','Courier New',monospace; }
 
     /* Gradient top border */
     .top-gradient-border {
       border-top: 1px solid transparent;
-      border-image: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent) 1;
+      border-image: linear-gradient(90deg, transparent, var(--border-h), transparent) 1;
     }
 
-    /* Hero ambient glow */
-    .hero-glow {
-      position: absolute;
-      width: 600px; height: 600px;
-      border-radius: 50%;
-      filter: blur(120px);
-      pointer-events: none;
-    }
+    /* Hero glow */
+    .hero-glow { position: absolute; width: 600px; height: 600px; border-radius: 50%; filter: blur(120px); pointer-events: none; }
+
+    /* Reveal on scroll */
+    .reveal { opacity: 0; transform: translateY(32px); transition: opacity 0.7s ease, transform 0.7s ease; }
+    .reveal.visible { opacity: 1; transform: translateY(0); }
 
     /* Scrollbar */
     ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-track { background: #09090b; }
-    ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 3px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--scroll-t); border-radius: 3px; }
+
+    /* Theme toggle */
+    .theme-toggle {
+      border: 1px solid var(--border-h);
+      color: var(--text-2);
+      background: var(--surface);
+      transition: all 0.2s;
+    }
+    .theme-toggle:hover { border-color: var(--border-2); color: var(--text); background: var(--surface-h); }
+
+    /* ── Light-mode Tailwind overrides ── */
+    /* Text */
+    html.light .text-white  { color: #09090b; }
+    html.light .text-zinc-200 { color: #18181b; }
+    html.light .text-zinc-300 { color: #3f3f46; }
+    html.light .text-zinc-400 { color: #52525b; }
+    html.light .text-zinc-500 { color: #71717a; }
+    html.light .text-zinc-600 { color: #a1a1aa; }
+    html.light .text-zinc-700 { color: #a1a1aa; }
+    html.light .text-zinc-950 { color: #ffffff; }
+    html.light .hover\:text-white:hover { color: #09090b; }
+
+    /* Backgrounds */
+    html.light .bg-zinc-800 { background-color: #e4e4e7; }
+    html.light .bg-zinc-900 { background-color: #f1f5f9; }
+    html.light .bg-white\/\[0\.02\] { background-color: rgba(0,0,0,0.02); }
+    html.light .bg-white\/\[0\.03\] { background-color: rgba(0,0,0,0.03); }
+    html.light .bg-white\/\[0\.04\] { background-color: rgba(0,0,0,0.04); }
+    html.light .bg-white\/\[0\.06\] { background-color: rgba(0,0,0,0.06); }
+    html.light .bg-white\/\[0\.07\] { background-color: rgba(0,0,0,0.06); }
+    html.light .bg-white\/10      { background-color: rgba(0,0,0,0.08); }
+    html.light .bg-white\/\[0\.1\] { background-color: rgba(0,0,0,0.07); }
+
+    /* Borders */
+    html.light .border-white\/\[0\.06\] { border-color: rgba(0,0,0,0.08); }
+    html.light .border-white\/\[0\.07\] { border-color: rgba(0,0,0,0.08); }
+    html.light .border-white\/\[0\.08\] { border-color: rgba(0,0,0,0.10); }
+    html.light .border-white\/\[0\.1\]  { border-color: rgba(0,0,0,0.12); }
+    html.light .border-white\/10        { border-color: rgba(0,0,0,0.12); }
+    html.light .border-white\/\[0\.12\] { border-color: rgba(0,0,0,0.12); }
+    html.light .border-white\/\[0\.15\] { border-color: rgba(0,0,0,0.14); }
+    html.light .border-white\/\[0\.18\] { border-color: rgba(0,0,0,0.16); }
+    html.light .border-white\/\[0\.2\]  { border-color: rgba(0,0,0,0.18); }
+    html.light .border-dashed          { border-color: rgba(0,0,0,0.15); }
+
+    /* Divide */
+    html.light .divide-white\/\[0\.04\] > * { border-color: rgba(0,0,0,0.07); }
+
+    /* Logo icon: dark box + inverted icon in light mode */
+    html.light .logo-box { background: #09090b; }
+    html.light .logo-box svg { filter: invert(1); }
+
+    /* "Most popular" badge: flip to dark in light mode */
+    html.light .popular-badge { background: #09090b; color: #ffffff; }
+
+    /* Progress bar fill */
+    html.light .progress-fill { background: #09090b; }
+
+    /* Social-proof SVG logos */
+    html.light .stack-logos svg { fill: #09090b; }
+
+    /* Section-bg elements driven by inline style use CSS vars — no extra rule needed */
+
+    /* Terminal text in light mode: dark monochrome */
+    html.light .terminal { color: #3f3f46; }
+    html.light .terminal .text-zinc-500 { color: #71717a; }
+    html.light .terminal .text-zinc-600 { color: #a1a1aa; }
+    html.light .terminal .text-white    { color: #09090b; }
   </style>
 </head>
 
-<body class="font-sans antialiased overflow-x-hidden" x-data="{ mobileOpen: false }">
+<body class="font-sans antialiased overflow-x-hidden"
+      x-data="{ mobileOpen: false, dark: localStorage.getItem('theme') !== 'light' }"
+      x-init="$watch('dark', v => { localStorage.setItem('theme', v ? 'dark' : 'light'); document.documentElement.classList.toggle('light', !v); })">
 
 <!-- ═══════════════════════════════════ NAVBAR ═══════════════════════════════ -->
 <nav class="fixed top-0 left-0 right-0 z-50 border-b border-white/[0.06]"
-     style="background: rgba(9,9,11,0.85); backdrop-filter: blur(20px);">
+     style="background:var(--nav-bg); backdrop-filter:blur(20px);">
   <div class="max-w-7xl mx-auto px-5 lg:px-8 h-16 flex items-center justify-between gap-8">
 
     <!-- Logo -->
     <a href="#" class="flex items-center gap-2.5 shrink-0">
-      <div class="w-8 h-8 bg-white rounded-lg flex items-center justify-center">
-        <svg viewBox="0 0 24 24" fill="none" class="w-4.5 h-4.5 text-zinc-950" style="width:18px;height:18px;">
+      <div class="w-8 h-8 bg-white logo-box rounded-lg flex items-center justify-center">
+        <svg viewBox="0 0 24 24" fill="none" style="width:18px;height:18px;">
           <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="#09090b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </div>
@@ -162,14 +251,26 @@
 
     <!-- Desktop nav links -->
     <div class="hidden md:flex items-center gap-6">
-      <a href="#features" class="text-sm text-zinc-400 hover:text-white transition-colors">Features</a>
+      <a href="#features"    class="text-sm text-zinc-400 hover:text-white transition-colors">Features</a>
       <a href="#how-it-works" class="text-sm text-zinc-400 hover:text-white transition-colors">How it works</a>
-      <a href="#providers" class="text-sm text-zinc-400 hover:text-white transition-colors">Cloud Providers</a>
-      <a href="#pricing" class="text-sm text-zinc-400 hover:text-white transition-colors">Pricing</a>
+      <a href="#providers"   class="text-sm text-zinc-400 hover:text-white transition-colors">Cloud Providers</a>
+      <a href="#pricing"     class="text-sm text-zinc-400 hover:text-white transition-colors">Pricing</a>
     </div>
 
-    <!-- CTA buttons -->
+    <!-- Desktop right: toggle + CTAs -->
     <div class="hidden md:flex items-center gap-3">
+      <!-- Theme toggle -->
+      <button @click="dark = !dark" title="Toggle theme"
+              class="theme-toggle w-8 h-8 rounded-lg flex items-center justify-center">
+        <!-- Sun: visible in dark mode, click → go light -->
+        <svg x-show="dark" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m8.66-9H21M3 12H2m15.66 6.34l-.71-.71M5.05 5.05l-.71-.71M18.36 5.36l-.71.71M6.34 18.66l-.71.71M17 12a5 5 0 11-10 0 5 5 0 0110 0z"/>
+        </svg>
+        <!-- Moon: visible in light mode, click → go dark -->
+        <svg x-show="!dark" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/>
+        </svg>
+      </button>
       <a href="{% url 'users:login' %}" class="text-sm text-zinc-400 hover:text-white transition-colors px-3 py-1.5">
         Sign in
       </a>
@@ -178,36 +279,42 @@
       </a>
     </div>
 
-    <!-- Mobile hamburger -->
-    <button @click="mobileOpen = !mobileOpen" class="md:hidden text-zinc-400 hover:text-white">
-      <svg x-show="!mobileOpen" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
-      <svg x-show="mobileOpen" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-    </button>
+    <!-- Mobile right: toggle + hamburger -->
+    <div class="flex md:hidden items-center gap-2">
+      <button @click="dark = !dark" class="theme-toggle w-8 h-8 rounded-lg flex items-center justify-center">
+        <svg x-show="dark"  class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m8.66-9H21M3 12H2m15.66 6.34l-.71-.71M5.05 5.05l-.71-.71M18.36 5.36l-.71.71M6.34 18.66l-.71.71M17 12a5 5 0 11-10 0 5 5 0 0110 0z"/></svg>
+        <svg x-show="!dark" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+      </button>
+      <button @click="mobileOpen = !mobileOpen" class="text-zinc-400 hover:text-white w-8 h-8 flex items-center justify-center">
+        <svg x-show="!mobileOpen" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+        <svg x-show="mobileOpen"  class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
   </div>
 
   <!-- Mobile menu -->
   <div x-show="mobileOpen" x-transition class="md:hidden border-t border-white/[0.06] px-5 py-4 space-y-3"
-       style="background: rgba(9,9,11,0.97);">
-    <a href="#features" @click="mobileOpen=false" class="block text-sm text-zinc-400 hover:text-white py-1.5">Features</a>
+       style="background:var(--mob-bg);">
+    <a href="#features"     @click="mobileOpen=false" class="block text-sm text-zinc-400 hover:text-white py-1.5">Features</a>
     <a href="#how-it-works" @click="mobileOpen=false" class="block text-sm text-zinc-400 hover:text-white py-1.5">How it works</a>
-    <a href="#providers" @click="mobileOpen=false" class="block text-sm text-zinc-400 hover:text-white py-1.5">Cloud Providers</a>
-    <a href="#pricing" @click="mobileOpen=false" class="block text-sm text-zinc-400 hover:text-white py-1.5">Pricing</a>
+    <a href="#providers"    @click="mobileOpen=false" class="block text-sm text-zinc-400 hover:text-white py-1.5">Cloud Providers</a>
+    <a href="#pricing"      @click="mobileOpen=false" class="block text-sm text-zinc-400 hover:text-white py-1.5">Pricing</a>
     <div class="pt-2 border-t border-white/[0.06] flex flex-col gap-2">
-      <a href="{% url 'users:login' %}" class="text-sm text-zinc-400 hover:text-white py-1.5">Sign in</a>
+      <a href="{% url 'users:login' %}"    class="text-sm text-zinc-400 hover:text-white py-1.5">Sign in</a>
       <a href="{% url 'users:register' %}" class="btn-primary text-sm font-medium px-4 py-2.5 rounded-lg text-center">Get started free</a>
     </div>
   </div>
 </nav>
 
 
-<!-- ═══════════════════════════════════ HERO ═══════════════════════════════════ -->
+<!-- ═══════════════════════════════════ HERO ══════════════════════════════════ -->
 <section class="relative min-h-screen flex flex-col items-center justify-center pt-24 pb-20 dot-grid overflow-hidden">
 
   <!-- Ambient glows -->
   <div class="hero-glow top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/4"
-       style="background: radial-gradient(circle, rgba(255,255,255,0.035) 0%, transparent 70%);"></div>
-  <div class="hero-glow" style="top:-100px;left:-200px;background:radial-gradient(circle,rgba(255,255,255,0.02) 0%,transparent 70%);width:500px;height:500px;"></div>
-  <div class="hero-glow" style="top:100px;right:-150px;background:radial-gradient(circle,rgba(255,255,255,0.015) 0%,transparent 70%);width:400px;height:400px;"></div>
+       style="background:radial-gradient(circle,var(--glow-a) 0%,transparent 70%);"></div>
+  <div class="hero-glow" style="top:-100px;left:-200px;background:radial-gradient(circle,var(--glow-b) 0%,transparent 70%);width:500px;height:500px;"></div>
+  <div class="hero-glow" style="top:100px;right:-150px;background:radial-gradient(circle,var(--glow-c) 0%,transparent 70%);width:400px;height:400px;"></div>
 
   <div class="relative z-10 max-w-5xl mx-auto px-5 text-center">
 
@@ -242,14 +349,12 @@
 
     <!-- Dashboard mockup -->
     <div class="relative mx-auto max-w-4xl animate-float" style="animation-delay:0.3s;">
-      <!-- Outer glow -->
-      <div class="absolute inset-0 rounded-2xl" style="box-shadow: 0 0 80px rgba(255,255,255,0.04), 0 0 200px rgba(255,255,255,0.02);"></div>
+      <div class="absolute inset-0 rounded-2xl" style="box-shadow:var(--outer-glow);"></div>
 
       <!-- Browser chrome -->
       <div class="rounded-2xl overflow-hidden glow-ring border border-white/10">
         <!-- Browser bar -->
-        <div class="flex items-center gap-2 px-4 py-3 border-b border-white/[0.07]"
-             style="background:#13131a;">
+        <div class="flex items-center gap-2 px-4 py-3 border-b border-white/[0.07]" style="background:var(--bg3);">
           <div class="w-3 h-3 rounded-full bg-zinc-700"></div>
           <div class="w-3 h-3 rounded-full bg-zinc-700"></div>
           <div class="w-3 h-3 rounded-full bg-zinc-700"></div>
@@ -261,25 +366,24 @@
         </div>
 
         <!-- Dashboard content -->
-        <div class="flex" style="background:#0f0f14;min-height:340px;">
+        <div class="flex" style="background:var(--bg4);min-height:340px;">
 
           <!-- Sidebar -->
-          <div class="w-48 border-r border-white/[0.06] p-4 flex flex-col gap-1 shrink-0 hidden sm:flex"
-               style="background:#0c0c10;">
+          <div class="w-48 border-r border-white/[0.06] p-4 flex flex-col gap-1 shrink-0 hidden sm:flex" style="background:var(--bg2);">
             <div class="text-[10px] font-semibold text-zinc-600 uppercase tracking-wider px-2 mb-2">Navigation</div>
             <div class="flex items-center gap-2.5 px-2 py-1.5 rounded-lg bg-white/[0.06] text-white text-xs font-medium">
               <svg class="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7"/></svg>
               Infrastructure
             </div>
-            <div class="flex items-center gap-2.5 px-2 py-1.5 text-zinc-500 text-xs hover:text-zinc-300 rounded-lg">
+            <div class="flex items-center gap-2.5 px-2 py-1.5 text-zinc-500 text-xs rounded-lg">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
               Deployments
             </div>
-            <div class="flex items-center gap-2.5 px-2 py-1.5 text-zinc-500 text-xs hover:text-zinc-300 rounded-lg">
+            <div class="flex items-center gap-2.5 px-2 py-1.5 text-zinc-500 text-xs rounded-lg">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0"/></svg>
               Team
             </div>
-            <div class="flex items-center gap-2.5 px-2 py-1.5 text-zinc-500 text-xs hover:text-zinc-300 rounded-lg">
+            <div class="flex items-center gap-2.5 px-2 py-1.5 text-zinc-500 text-xs rounded-lg">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
               Billing
             </div>
@@ -287,7 +391,6 @@
 
           <!-- Main area -->
           <div class="flex-1 p-5 space-y-4 overflow-hidden">
-            <!-- Top bar -->
             <div class="flex items-center justify-between">
               <div>
                 <div class="text-white text-sm font-semibold">Infrastructure</div>
@@ -299,9 +402,8 @@
               </div>
             </div>
 
-            <!-- Provider cards row -->
+            <!-- Provider cards -->
             <div class="grid grid-cols-4 gap-2">
-              <!-- DO card -->
               <div class="col-span-2 p-3 rounded-xl border border-white/[0.12] bg-white/[0.04] flex items-center gap-3">
                 <div class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style="background:#0080FF;">
                   <svg viewBox="0 0 24 24" class="w-5 h-5" fill="white"><path d="M12.015 0C5.383 0 0 5.387 0 12.015c0 6.629 5.383 12.015 12.015 12.015 6.629 0 12.015-5.386 12.015-12.015C24.03 5.387 18.644 0 12.015 0zm0 18.586v-3.38c3.42 0 5.968-3.423 4.617-7.015a5.034 5.034 0 00-2.816-2.816C10.224 4.024 6.8 6.572 6.8 9.992h-3.38c0-5.02 4.93-8.997 10.193-7.376a8.424 8.424 0 015.377 5.377c1.621 5.263-2.356 10.193-7.375 10.193zm0 0h-3.38v-3.38h3.38v3.38zm-3.38 0H5.254v-3.38h3.381v3.38z"/></svg>
@@ -314,12 +416,10 @@
                   </div>
                 </div>
               </div>
-              <!-- AWS coming soon -->
               <div class="p-3 rounded-xl border border-white/[0.06] flex items-center gap-2 opacity-50">
                 <div class="w-7 h-7 rounded-md bg-zinc-800 flex items-center justify-center text-[10px] font-bold text-zinc-300">AWS</div>
                 <div class="text-[10px] text-zinc-500">Soon</div>
               </div>
-              <!-- GCP coming soon -->
               <div class="p-3 rounded-xl border border-white/[0.06] flex items-center gap-2 opacity-50">
                 <div class="w-7 h-7 rounded-md bg-zinc-800 flex items-center justify-center text-[10px] font-bold text-zinc-300">GCP</div>
                 <div class="text-[10px] text-zinc-500">Soon</div>
@@ -327,7 +427,7 @@
             </div>
 
             <!-- Server list -->
-            <div class="rounded-xl border border-white/[0.07] overflow-hidden" style="background:#0c0c10;">
+            <div class="rounded-xl border border-white/[0.07] overflow-hidden" style="background:var(--bg2);">
               <div class="border-b border-white/[0.06] px-3 py-2 flex items-center gap-4 text-[10px] font-medium text-zinc-600 uppercase tracking-wider">
                 <span class="w-32">Name</span><span class="w-24">Host</span><span class="w-16">Status</span><span>Auth</span>
               </div>
@@ -370,33 +470,26 @@
 </section>
 
 
-<!-- ═══════════════════════════════════ LOGOS / SOCIAL PROOF ═══════════════════ -->
-<div class="border-y border-white/[0.06] py-10 reveal" style="background:#0c0c10;">
+<!-- ═══════════════════════════════════ SOCIAL PROOF ═════════════════════════ -->
+<div class="border-y border-white/[0.06] py-10 reveal" style="background:var(--bg2);">
   <div class="max-w-5xl mx-auto px-5 text-center">
     <p class="text-xs font-medium text-zinc-600 uppercase tracking-widest mb-8">Trusted stack — runs on</p>
-    <div class="flex flex-wrap items-center justify-center gap-10 opacity-40 grayscale">
-      <!-- DigitalOcean -->
+    <div class="stack-logos flex flex-wrap items-center justify-center gap-10 opacity-40 grayscale">
       <svg viewBox="0 0 182 24" class="h-5" fill="white"><text y="18" font-size="18" font-family="Inter,sans-serif" font-weight="700">DigitalOcean</text></svg>
-      <!-- Docker -->
-      <svg viewBox="0 0 80 24" class="h-5" fill="white"><text y="18" font-size="18" font-family="Inter,sans-serif" font-weight="700">Docker</text></svg>
-      <!-- Celery -->
-      <svg viewBox="0 0 70 24" class="h-5" fill="white"><text y="18" font-size="18" font-family="Inter,sans-serif" font-weight="700">Celery</text></svg>
-      <!-- Django -->
-      <svg viewBox="0 0 80 24" class="h-5" fill="white"><text y="18" font-size="18" font-family="Inter,sans-serif" font-weight="700">Django</text></svg>
-      <!-- Redis -->
-      <svg viewBox="0 0 65 24" class="h-5" fill="white"><text y="18" font-size="18" font-family="Inter,sans-serif" font-weight="700">Redis</text></svg>
-      <!-- Paramiko -->
-      <svg viewBox="0 0 90 24" class="h-5" fill="white"><text y="18" font-size="18" font-family="Inter,sans-serif" font-weight="700">Paramiko</text></svg>
+      <svg viewBox="0 0 80 24"  class="h-5" fill="white"><text y="18" font-size="18" font-family="Inter,sans-serif" font-weight="700">Docker</text></svg>
+      <svg viewBox="0 0 70 24"  class="h-5" fill="white"><text y="18" font-size="18" font-family="Inter,sans-serif" font-weight="700">Celery</text></svg>
+      <svg viewBox="0 0 80 24"  class="h-5" fill="white"><text y="18" font-size="18" font-family="Inter,sans-serif" font-weight="700">Django</text></svg>
+      <svg viewBox="0 0 65 24"  class="h-5" fill="white"><text y="18" font-size="18" font-family="Inter,sans-serif" font-weight="700">Redis</text></svg>
+      <svg viewBox="0 0 90 24"  class="h-5" fill="white"><text y="18" font-size="18" font-family="Inter,sans-serif" font-weight="700">Paramiko</text></svg>
     </div>
   </div>
 </div>
 
 
-<!-- ═══════════════════════════════════ FEATURES ═══════════════════════════════ -->
+<!-- ═══════════════════════════════════ FEATURES ════════════════════════════ -->
 <section id="features" class="py-28 relative reveal">
   <div class="max-w-7xl mx-auto px-5 lg:px-8">
 
-    <!-- Section header -->
     <div class="max-w-2xl mb-16">
       <div class="text-xs font-semibold text-zinc-500 uppercase tracking-widest mb-4">Platform capabilities</div>
       <h2 class="text-4xl lg:text-5xl font-black tracking-tight gradient-text leading-tight mb-4">
@@ -405,10 +498,8 @@
       <p class="text-zinc-400 text-lg font-light">A full infrastructure control plane purpose-built for Odoo — from SSH provisioning to billing enforcement.</p>
     </div>
 
-    <!-- Feature grid -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
 
-      <!-- 1 -->
       <div class="glass-card rounded-2xl p-6">
         <div class="w-10 h-10 rounded-xl bg-white/[0.07] border border-white/[0.1] flex items-center justify-center mb-5">
           <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M12 5l7 7-7 7"/></svg>
@@ -420,14 +511,13 @@
         </div>
       </div>
 
-      <!-- 2 -->
       <div class="glass-card rounded-2xl p-6">
         <div class="w-10 h-10 rounded-xl bg-white/[0.07] border border-white/[0.1] flex items-center justify-center mb-5">
           <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg>
         </div>
         <h3 class="text-white font-semibold mb-2">Bring Your Own Server</h3>
         <p class="text-zinc-400 text-sm leading-relaxed">Already have a VPS? Connect any server via SSH (key or password). DafeApp verifies the connection and preps Docker automatically.</p>
-        <div class="mt-4 flex items-center gap-2">
+        <div class="mt-4 flex items-center gap-2 flex-wrap">
           <span class="text-[11px] text-zinc-500 font-mono px-2 py-1 rounded border border-white/[0.07] bg-white/[0.03]">ssh-key</span>
           <span class="text-[11px] text-zinc-500 font-mono px-2 py-1 rounded border border-white/[0.07] bg-white/[0.03]">password</span>
           <span class="text-[11px] text-zinc-500 font-mono px-2 py-1 rounded border border-white/[0.07] bg-white/[0.03]">ed25519</span>
@@ -435,7 +525,6 @@
         </div>
       </div>
 
-      <!-- 3 -->
       <div class="glass-card rounded-2xl p-6">
         <div class="w-10 h-10 rounded-xl bg-white/[0.07] border border-white/[0.1] flex items-center justify-center mb-5">
           <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
@@ -448,7 +537,6 @@
         </div>
       </div>
 
-      <!-- 4 -->
       <div class="glass-card rounded-2xl p-6">
         <div class="w-10 h-10 rounded-xl bg-white/[0.07] border border-white/[0.1] flex items-center justify-center mb-5">
           <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
@@ -463,7 +551,6 @@
         </div>
       </div>
 
-      <!-- 5 -->
       <div class="glass-card rounded-2xl p-6">
         <div class="w-10 h-10 rounded-xl bg-white/[0.07] border border-white/[0.1] flex items-center justify-center mb-5">
           <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
@@ -477,7 +564,6 @@
         </div>
       </div>
 
-      <!-- 6 -->
       <div class="glass-card rounded-2xl p-6">
         <div class="w-10 h-10 rounded-xl bg-white/[0.07] border border-white/[0.1] flex items-center justify-center mb-5">
           <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
@@ -490,7 +576,7 @@
             <span class="text-white font-mono">3 / 5</span>
           </div>
           <div class="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
-            <div class="h-full bg-white rounded-full" style="width:60%"></div>
+            <div class="progress-fill h-full bg-white rounded-full" style="width:60%"></div>
           </div>
         </div>
       </div>
@@ -500,8 +586,8 @@
 </section>
 
 
-<!-- ═══════════════════════════════════ HOW IT WORKS ═══════════════════════════ -->
-<section id="how-it-works" class="py-28 border-t border-white/[0.06] reveal" style="background:#0c0c10;">
+<!-- ═══════════════════════════════════ HOW IT WORKS ════════════════════════ -->
+<section id="how-it-works" class="py-28 border-t border-white/[0.06] reveal" style="background:var(--bg2);">
   <div class="max-w-7xl mx-auto px-5 lg:px-8">
 
     <div class="max-w-2xl mb-16">
@@ -514,11 +600,10 @@
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-      <!-- Step 1 -->
       <div class="relative">
         <div class="glass-card rounded-2xl p-7">
           <div class="flex items-start gap-4 mb-6">
-            <div class="w-9 h-9 rounded-xl border border-white/[0.15] flex items-center justify-center text-sm font-black text-white shrink-0" style="background:rgba(255,255,255,0.06);">01</div>
+            <div class="w-9 h-9 rounded-xl border border-white/[0.15] flex items-center justify-center text-sm font-black text-white shrink-0" style="background:var(--surface-b);">01</div>
             <div>
               <h3 class="text-white font-semibold">Connect a server</h3>
               <p class="text-zinc-500 text-sm mt-1">Bring your VPS or provision a fresh DigitalOcean droplet.</p>
@@ -531,17 +616,15 @@
             <div><span class="text-zinc-500">Auth</span> <span class="text-emerald-400">SSH Key ✓</span></div>
           </div>
         </div>
-        <!-- Arrow -->
         <div class="hidden lg:block absolute top-1/2 -right-3 -translate-y-1/2 text-zinc-700 z-10">
           <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5l7 7-7 7"/></svg>
         </div>
       </div>
 
-      <!-- Step 2 -->
       <div class="relative">
         <div class="glass-card rounded-2xl p-7">
           <div class="flex items-start gap-4 mb-6">
-            <div class="w-9 h-9 rounded-xl border border-white/[0.15] flex items-center justify-center text-sm font-black text-white shrink-0" style="background:rgba(255,255,255,0.06);">02</div>
+            <div class="w-9 h-9 rounded-xl border border-white/[0.15] flex items-center justify-center text-sm font-black text-white shrink-0" style="background:var(--surface-b);">02</div>
             <div>
               <h3 class="text-white font-semibold">Verify & prepare</h3>
               <p class="text-zinc-500 text-sm mt-1">DafeApp SSH-tests the connection and installs Docker + UFW automatically.</p>
@@ -560,10 +643,9 @@
         </div>
       </div>
 
-      <!-- Step 3 -->
       <div class="glass-card rounded-2xl p-7">
         <div class="flex items-start gap-4 mb-6">
-          <div class="w-9 h-9 rounded-xl border border-white/[0.15] flex items-center justify-center text-sm font-black text-white shrink-0" style="background:rgba(255,255,255,0.06);">03</div>
+          <div class="w-9 h-9 rounded-xl border border-white/[0.15] flex items-center justify-center text-sm font-black text-white shrink-0" style="background:var(--surface-b);">03</div>
           <div>
             <h3 class="text-white font-semibold">Deploy Odoo</h3>
             <p class="text-zinc-500 text-sm mt-1">Point a deployment at your server and go live. Backups, monitoring, and DNS coming next.</p>
@@ -590,7 +672,7 @@
 </section>
 
 
-<!-- ═══════════════════════════════════ CLOUD PROVIDERS ═══════════════════════ -->
+<!-- ═══════════════════════════════════ CLOUD PROVIDERS ═════════════════════ -->
 <section id="providers" class="py-28 border-t border-white/[0.06] reveal">
   <div class="max-w-7xl mx-auto px-5 lg:px-8">
 
@@ -604,7 +686,6 @@
 
     <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
 
-      <!-- DigitalOcean — LIVE -->
       <div class="glass-card rounded-2xl p-5 flex flex-col gap-4 border-white/[0.18] relative overflow-hidden">
         <div class="absolute top-3 right-3">
           <span class="text-[10px] font-semibold text-emerald-400 bg-emerald-400/10 border border-emerald-400/20 rounded-full px-2 py-0.5">LIVE</span>
@@ -618,25 +699,16 @@
         </div>
       </div>
 
-      <!-- AWS — SOON -->
       <div class="glass-card rounded-2xl p-5 flex flex-col gap-4 opacity-50 relative overflow-hidden">
-        <div class="absolute top-3 right-3">
-          <span class="text-[10px] font-medium text-zinc-500 bg-zinc-800 border border-white/[0.07] rounded-full px-2 py-0.5">SOON</span>
-        </div>
+        <div class="absolute top-3 right-3"><span class="text-[10px] font-medium text-zinc-500 bg-zinc-800 border border-white/[0.07] rounded-full px-2 py-0.5">SOON</span></div>
         <div class="w-12 h-12 rounded-xl bg-zinc-800 flex items-center justify-center">
-          <svg viewBox="0 0 80 32" class="w-10" fill="white"><text y="24" font-size="22" font-family="Amazon Ember,Arial,sans-serif" font-weight="700" fill="#FF9900">aws</text></svg>
+          <svg viewBox="0 0 80 32" class="w-10"><text y="24" font-size="22" font-family="Arial,sans-serif" font-weight="700" fill="#FF9900">aws</text></svg>
         </div>
-        <div>
-          <div class="text-zinc-300 font-semibold text-sm">Amazon AWS</div>
-          <div class="text-zinc-600 text-xs mt-0.5">EC2 · RDS · S3</div>
-        </div>
+        <div><div class="text-zinc-300 font-semibold text-sm">Amazon AWS</div><div class="text-zinc-600 text-xs mt-0.5">EC2 · RDS · S3</div></div>
       </div>
 
-      <!-- Google Cloud — SOON -->
       <div class="glass-card rounded-2xl p-5 flex flex-col gap-4 opacity-50 relative overflow-hidden">
-        <div class="absolute top-3 right-3">
-          <span class="text-[10px] font-medium text-zinc-500 bg-zinc-800 border border-white/[0.07] rounded-full px-2 py-0.5">SOON</span>
-        </div>
+        <div class="absolute top-3 right-3"><span class="text-[10px] font-medium text-zinc-500 bg-zinc-800 border border-white/[0.07] rounded-full px-2 py-0.5">SOON</span></div>
         <div class="w-12 h-12 rounded-xl bg-zinc-800 flex items-center justify-center">
           <svg viewBox="0 0 24 24" class="w-7 h-7" fill="none">
             <path d="M12 11.174l5.303-5.303A8.965 8.965 0 0012 3.05a8.994 8.994 0 00-6.364 2.636L12 11.174z" fill="#EA4335"/>
@@ -645,69 +717,37 @@
             <path d="M3.95 9.39a8.978 8.978 0 000 5.22l4.94-3.271a5.021 5.021 0 010-5.22L3.95 9.39z" fill="#4285F4"/>
           </svg>
         </div>
-        <div>
-          <div class="text-zinc-300 font-semibold text-sm">Google Cloud</div>
-          <div class="text-zinc-600 text-xs mt-0.5">Compute Engine · Cloud SQL</div>
-        </div>
+        <div><div class="text-zinc-300 font-semibold text-sm">Google Cloud</div><div class="text-zinc-600 text-xs mt-0.5">Compute Engine · Cloud SQL</div></div>
       </div>
 
-      <!-- Hetzner — SOON -->
       <div class="glass-card rounded-2xl p-5 flex flex-col gap-4 opacity-50 relative overflow-hidden">
-        <div class="absolute top-3 right-3">
-          <span class="text-[10px] font-medium text-zinc-500 bg-zinc-800 border border-white/[0.07] rounded-full px-2 py-0.5">SOON</span>
-        </div>
-        <div class="w-12 h-12 rounded-xl flex items-center justify-center" style="background:#D50C2D;">
-          <span class="text-white font-black text-lg tracking-tight">H</span>
-        </div>
-        <div>
-          <div class="text-zinc-300 font-semibold text-sm">Hetzner</div>
-          <div class="text-zinc-600 text-xs mt-0.5">Cloud Servers · Volumes</div>
-        </div>
+        <div class="absolute top-3 right-3"><span class="text-[10px] font-medium text-zinc-500 bg-zinc-800 border border-white/[0.07] rounded-full px-2 py-0.5">SOON</span></div>
+        <div class="w-12 h-12 rounded-xl flex items-center justify-center" style="background:#D50C2D;"><span class="text-white font-black text-lg">H</span></div>
+        <div><div class="text-zinc-300 font-semibold text-sm">Hetzner</div><div class="text-zinc-600 text-xs mt-0.5">Cloud Servers · Volumes</div></div>
       </div>
 
-      <!-- Vultr — SOON -->
       <div class="glass-card rounded-2xl p-5 flex flex-col gap-4 opacity-50 relative overflow-hidden">
-        <div class="absolute top-3 right-3">
-          <span class="text-[10px] font-medium text-zinc-500 bg-zinc-800 border border-white/[0.07] rounded-full px-2 py-0.5">SOON</span>
-        </div>
+        <div class="absolute top-3 right-3"><span class="text-[10px] font-medium text-zinc-500 bg-zinc-800 border border-white/[0.07] rounded-full px-2 py-0.5">SOON</span></div>
         <div class="w-12 h-12 rounded-xl flex items-center justify-center" style="background:#007BFC;">
           <svg viewBox="0 0 24 24" class="w-7 h-7" fill="white"><polygon points="12,2 22,9 12,22 2,9"/></svg>
         </div>
-        <div>
-          <div class="text-zinc-300 font-semibold text-sm">Vultr</div>
-          <div class="text-zinc-600 text-xs mt-0.5">Cloud Compute · Bare Metal</div>
-        </div>
+        <div><div class="text-zinc-300 font-semibold text-sm">Vultr</div><div class="text-zinc-600 text-xs mt-0.5">Cloud Compute · Bare Metal</div></div>
       </div>
 
-      <!-- Azure — SOON -->
       <div class="glass-card rounded-2xl p-5 flex flex-col gap-4 opacity-50 relative overflow-hidden">
-        <div class="absolute top-3 right-3">
-          <span class="text-[10px] font-medium text-zinc-500 bg-zinc-800 border border-white/[0.07] rounded-full px-2 py-0.5">SOON</span>
-        </div>
+        <div class="absolute top-3 right-3"><span class="text-[10px] font-medium text-zinc-500 bg-zinc-800 border border-white/[0.07] rounded-full px-2 py-0.5">SOON</span></div>
         <div class="w-12 h-12 rounded-xl flex items-center justify-center" style="background:#0089D6;">
           <svg viewBox="0 0 24 24" class="w-7 h-7" fill="white"><path d="M5.483 21.3H22l-8.6-15.16-4.02 7.49 2.99 3.16L5.483 21.3zM13.4 2.7l-4.84 8.5-4.09 7.63h4.3l4.63-16.13z"/></svg>
         </div>
-        <div>
-          <div class="text-zinc-300 font-semibold text-sm">Microsoft Azure</div>
-          <div class="text-zinc-600 text-xs mt-0.5">VMs · AKS · Blob Storage</div>
-        </div>
+        <div><div class="text-zinc-300 font-semibold text-sm">Microsoft Azure</div><div class="text-zinc-600 text-xs mt-0.5">VMs · AKS · Blob Storage</div></div>
       </div>
 
-      <!-- Linode/Akamai — SOON -->
       <div class="glass-card rounded-2xl p-5 flex flex-col gap-4 opacity-50 relative overflow-hidden">
-        <div class="absolute top-3 right-3">
-          <span class="text-[10px] font-medium text-zinc-500 bg-zinc-800 border border-white/[0.07] rounded-full px-2 py-0.5">SOON</span>
-        </div>
-        <div class="w-12 h-12 rounded-xl flex items-center justify-center" style="background:#00A95C;">
-          <span class="text-white font-black text-sm">Ak</span>
-        </div>
-        <div>
-          <div class="text-zinc-300 font-semibold text-sm">Akamai / Linode</div>
-          <div class="text-zinc-600 text-xs mt-0.5">Nanode · Shared CPU</div>
-        </div>
+        <div class="absolute top-3 right-3"><span class="text-[10px] font-medium text-zinc-500 bg-zinc-800 border border-white/[0.07] rounded-full px-2 py-0.5">SOON</span></div>
+        <div class="w-12 h-12 rounded-xl flex items-center justify-center" style="background:#00A95C;"><span class="text-white font-black text-sm">Ak</span></div>
+        <div><div class="text-zinc-300 font-semibold text-sm">Akamai / Linode</div><div class="text-zinc-600 text-xs mt-0.5">Nanode · Shared CPU</div></div>
       </div>
 
-      <!-- PYOS — ALWAYS -->
       <div class="glass-card rounded-2xl p-5 flex flex-col gap-4 border-white/[0.15] relative overflow-hidden">
         <div class="absolute top-3 right-3">
           <span class="text-[10px] font-semibold text-white bg-white/10 border border-white/[0.15] rounded-full px-2 py-0.5">ALWAYS</span>
@@ -715,10 +755,7 @@
         <div class="w-12 h-12 rounded-xl bg-zinc-800 flex items-center justify-center border border-white/[0.1]">
           <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M12 5l7 7-7 7"/></svg>
         </div>
-        <div>
-          <div class="text-white font-semibold text-sm">Your Own VPS</div>
-          <div class="text-zinc-500 text-xs mt-0.5">Any server · SSH · BYOS</div>
-        </div>
+        <div><div class="text-white font-semibold text-sm">Your Own VPS</div><div class="text-zinc-500 text-xs mt-0.5">Any server · SSH · BYOS</div></div>
       </div>
 
     </div>
@@ -726,15 +763,13 @@
 </section>
 
 
-<!-- ═══════════════════════════════════ PRICING ════════════════════════════════ -->
-<section id="pricing" class="py-28 border-t border-white/[0.06] reveal" style="background:#0c0c10;">
+<!-- ═══════════════════════════════════ PRICING ══════════════════════════════ -->
+<section id="pricing" class="py-28 border-t border-white/[0.06] reveal" style="background:var(--bg2);">
   <div class="max-w-7xl mx-auto px-5 lg:px-8">
 
     <div class="text-center max-w-2xl mx-auto mb-16">
       <div class="text-xs font-semibold text-zinc-500 uppercase tracking-widest mb-4">Pricing</div>
-      <h2 class="text-4xl lg:text-5xl font-black tracking-tight gradient-text leading-tight mb-4">
-        Simple, honest pricing.
-      </h2>
+      <h2 class="text-4xl lg:text-5xl font-black tracking-tight gradient-text leading-tight mb-4">Simple, honest pricing.</h2>
       <p class="text-zinc-400 text-lg font-light">Start free. Scale as you grow. No surprises.</p>
     </div>
 
@@ -744,118 +779,57 @@
       <div class="glass-card rounded-2xl p-7 flex flex-col">
         <div class="mb-6">
           <div class="text-xs font-semibold text-zinc-500 uppercase tracking-widest mb-3">Starter</div>
-          <div class="flex items-end gap-1">
-            <span class="text-4xl font-black text-white">$0</span>
-            <span class="text-zinc-500 text-sm mb-1.5">/month</span>
-          </div>
+          <div class="flex items-end gap-1"><span class="text-4xl font-black text-white">$0</span><span class="text-zinc-500 text-sm mb-1.5">/month</span></div>
           <p class="text-zinc-500 text-sm mt-2">For solo developers and hobbyists.</p>
         </div>
         <ul class="space-y-3 flex-1 mb-8">
-          <li class="flex items-start gap-2.5 text-sm text-zinc-300">
-            <svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-            Up to 2 Odoo instances
-          </li>
-          <li class="flex items-start gap-2.5 text-sm text-zinc-300">
-            <svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-            PYOS server support
-          </li>
-          <li class="flex items-start gap-2.5 text-sm text-zinc-300">
-            <svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-            5 backups / month
-          </li>
-          <li class="flex items-start gap-2.5 text-sm text-zinc-500">
-            <svg class="w-4 h-4 text-zinc-700 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-            No staging environments
-          </li>
-          <li class="flex items-start gap-2.5 text-sm text-zinc-500">
-            <svg class="w-4 h-4 text-zinc-700 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-            No version upgrades
-          </li>
+          <li class="flex items-start gap-2.5 text-sm text-zinc-300"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>Up to 2 Odoo instances</li>
+          <li class="flex items-start gap-2.5 text-sm text-zinc-300"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>PYOS server support</li>
+          <li class="flex items-start gap-2.5 text-sm text-zinc-300"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>5 backups / month</li>
+          <li class="flex items-start gap-2.5 text-sm text-zinc-500"><svg class="w-4 h-4 text-zinc-700 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>No staging environments</li>
+          <li class="flex items-start gap-2.5 text-sm text-zinc-500"><svg class="w-4 h-4 text-zinc-700 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>No version upgrades</li>
         </ul>
-        <a href="{% url 'users:register' %}" class="btn-ghost text-sm font-medium px-5 py-2.5 rounded-xl text-center">
-          Start free
-        </a>
+        <a href="{% url 'users:register' %}" class="btn-ghost text-sm font-medium px-5 py-2.5 rounded-xl text-center">Start free</a>
       </div>
 
       <!-- Growth — highlighted -->
       <div class="rounded-2xl p-7 flex flex-col relative overflow-hidden border border-white/[0.2]"
-           style="background: linear-gradient(135deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.03) 100%);">
-        <!-- Popular badge -->
+           style="background:var(--growth-bg);">
         <div class="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2">
-          <div class="bg-white text-zinc-950 text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full">
+          <div class="popular-badge bg-white text-zinc-950 text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full">
             Most popular
           </div>
         </div>
         <div class="mb-6 mt-2">
           <div class="text-xs font-semibold text-zinc-400 uppercase tracking-widest mb-3">Growth</div>
-          <div class="flex items-end gap-1">
-            <span class="text-4xl font-black text-white">$49</span>
-            <span class="text-zinc-400 text-sm mb-1.5">/month</span>
-          </div>
+          <div class="flex items-end gap-1"><span class="text-4xl font-black text-white">$49</span><span class="text-zinc-400 text-sm mb-1.5">/month</span></div>
           <p class="text-zinc-400 text-sm mt-2">For teams running production Odoo.</p>
         </div>
         <ul class="space-y-3 flex-1 mb-8">
-          <li class="flex items-start gap-2.5 text-sm text-zinc-200">
-            <svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-            Up to 10 Odoo instances
-          </li>
-          <li class="flex items-start gap-2.5 text-sm text-zinc-200">
-            <svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-            PYOS + DigitalOcean
-          </li>
-          <li class="flex items-start gap-2.5 text-sm text-zinc-200">
-            <svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-            50 backups / month
-          </li>
-          <li class="flex items-start gap-2.5 text-sm text-zinc-200">
-            <svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-            Staging environments
-          </li>
-          <li class="flex items-start gap-2.5 text-sm text-zinc-200">
-            <svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-            Version upgrade automation
-          </li>
+          <li class="flex items-start gap-2.5 text-sm text-zinc-200"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>Up to 10 Odoo instances</li>
+          <li class="flex items-start gap-2.5 text-sm text-zinc-200"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>PYOS + DigitalOcean</li>
+          <li class="flex items-start gap-2.5 text-sm text-zinc-200"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>50 backups / month</li>
+          <li class="flex items-start gap-2.5 text-sm text-zinc-200"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>Staging environments</li>
+          <li class="flex items-start gap-2.5 text-sm text-zinc-200"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>Version upgrade automation</li>
         </ul>
-        <a href="{% url 'users:register' %}" class="btn-primary text-sm font-semibold px-5 py-2.5 rounded-xl text-center">
-          Get started
-        </a>
+        <a href="{% url 'users:register' %}" class="btn-primary text-sm font-semibold px-5 py-2.5 rounded-xl text-center">Get started</a>
       </div>
 
       <!-- Enterprise -->
       <div class="glass-card rounded-2xl p-7 flex flex-col">
         <div class="mb-6">
           <div class="text-xs font-semibold text-zinc-500 uppercase tracking-widest mb-3">Enterprise</div>
-          <div class="flex items-end gap-1">
-            <span class="text-4xl font-black text-white">$199</span>
-            <span class="text-zinc-500 text-sm mb-1.5">/month</span>
-          </div>
+          <div class="flex items-end gap-1"><span class="text-4xl font-black text-white">$199</span><span class="text-zinc-500 text-sm mb-1.5">/month</span></div>
           <p class="text-zinc-500 text-sm mt-2">For agencies and large-scale Odoo deployments.</p>
         </div>
         <ul class="space-y-3 flex-1 mb-8">
-          <li class="flex items-start gap-2.5 text-sm text-zinc-300">
-            <svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-            Unlimited Odoo instances
-          </li>
-          <li class="flex items-start gap-2.5 text-sm text-zinc-300">
-            <svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-            All cloud providers
-          </li>
-          <li class="flex items-start gap-2.5 text-sm text-zinc-300">
-            <svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-            Unlimited backups
-          </li>
-          <li class="flex items-start gap-2.5 text-sm text-zinc-300">
-            <svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-            Priority support
-          </li>
-          <li class="flex items-start gap-2.5 text-sm text-zinc-300">
-            <svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-            Custom SLA + onboarding
-          </li>
+          <li class="flex items-start gap-2.5 text-sm text-zinc-300"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>Unlimited Odoo instances</li>
+          <li class="flex items-start gap-2.5 text-sm text-zinc-300"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>All cloud providers</li>
+          <li class="flex items-start gap-2.5 text-sm text-zinc-300"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>Unlimited backups</li>
+          <li class="flex items-start gap-2.5 text-sm text-zinc-300"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>Priority support</li>
+          <li class="flex items-start gap-2.5 text-sm text-zinc-300"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>Custom SLA + onboarding</li>
         </ul>
-        <a href="{% url 'users:register' %}" class="btn-ghost text-sm font-medium px-5 py-2.5 rounded-xl text-center">
-          Contact sales
-        </a>
+        <a href="{% url 'users:register' %}" class="btn-ghost text-sm font-medium px-5 py-2.5 rounded-xl text-center">Contact sales</a>
       </div>
 
     </div>
@@ -863,46 +837,31 @@
 </section>
 
 
-<!-- ═══════════════════════════════════ STATS STRIP ═══════════════════════════ -->
+<!-- ═══════════════════════════════════ STATS ════════════════════════════════ -->
 <div class="border-y border-white/[0.06] py-16 reveal">
   <div class="max-w-5xl mx-auto px-5">
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-8 text-center">
-      <div>
-        <div class="text-4xl font-black text-white mb-1">7+</div>
-        <div class="text-sm text-zinc-500">Cloud providers<br/>in roadmap</div>
-      </div>
-      <div>
-        <div class="text-4xl font-black text-white mb-1">&lt;2m</div>
-        <div class="text-sm text-zinc-500">Server prep<br/>time</div>
-      </div>
-      <div>
-        <div class="text-4xl font-black text-white mb-1">AES</div>
-        <div class="text-sm text-zinc-500">Field-level<br/>encryption</div>
-      </div>
-      <div>
-        <div class="text-4xl font-black text-white mb-1">20+</div>
-        <div class="text-sm text-zinc-500">Audit event<br/>types</div>
-      </div>
+      <div><div class="text-4xl font-black text-white mb-1">7+</div><div class="text-sm text-zinc-500">Cloud providers<br/>in roadmap</div></div>
+      <div><div class="text-4xl font-black text-white mb-1">&lt;2m</div><div class="text-sm text-zinc-500">Server prep<br/>time</div></div>
+      <div><div class="text-4xl font-black text-white mb-1">AES</div><div class="text-sm text-zinc-500">Field-level<br/>encryption</div></div>
+      <div><div class="text-4xl font-black text-white mb-1">20+</div><div class="text-sm text-zinc-500">Audit event<br/>types</div></div>
     </div>
   </div>
 </div>
 
 
-<!-- ═══════════════════════════════════ CTA BANNER ════════════════════════════ -->
+<!-- ═══════════════════════════════════ CTA BANNER ══════════════════════════ -->
 <section class="py-32 relative overflow-hidden reveal">
-  <!-- Ambient -->
   <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
-    <div style="width:700px;height:300px;background:radial-gradient(ellipse,rgba(255,255,255,0.05) 0%,transparent 70%);filter:blur(40px);"></div>
+    <div style="width:700px;height:300px;background:radial-gradient(ellipse,var(--cta-glow) 0%,transparent 70%);filter:blur(40px);"></div>
   </div>
-
   <div class="relative z-10 max-w-3xl mx-auto px-5 text-center">
     <h2 class="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tight text-white mb-6 leading-tight">
       Ready to ship<br/>
       <span class="gradient-text">without the headache?</span>
     </h2>
     <p class="text-zinc-400 text-lg mb-10 font-light max-w-xl mx-auto">
-      Create your free account in 30 seconds. No credit card required.
-      Your first 14 days are on us.
+      Create your free account in 30 seconds. No credit card required. Your first 14 days are on us.
     </p>
     <div class="flex flex-col sm:flex-row items-center justify-center gap-3">
       <a href="{% url 'users:register' %}" class="btn-primary text-sm font-semibold px-8 py-3.5 rounded-xl w-full sm:w-auto text-center">
@@ -917,49 +876,43 @@
 </section>
 
 
-<!-- ═══════════════════════════════════ FOOTER ════════════════════════════════ -->
-<footer class="border-t border-white/[0.06] py-14" style="background:#0c0c10;">
+<!-- ═══════════════════════════════════ FOOTER ══════════════════════════════ -->
+<footer class="border-t border-white/[0.06] py-14" style="background:var(--bg2);">
   <div class="max-w-7xl mx-auto px-5 lg:px-8">
     <div class="grid grid-cols-2 md:grid-cols-5 gap-8 mb-12">
 
-      <!-- Brand -->
       <div class="col-span-2">
         <div class="flex items-center gap-2.5 mb-4">
-          <div class="w-7 h-7 bg-white rounded-lg flex items-center justify-center">
+          <div class="w-7 h-7 bg-white logo-box rounded-lg flex items-center justify-center">
             <svg viewBox="0 0 24 24" fill="none" style="width:14px;height:14px;">
               <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="#09090b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
           </div>
           <span class="text-sm font-semibold text-white">DafeApp</span>
         </div>
-        <p class="text-zinc-500 text-sm leading-relaxed max-w-xs">
-          The control plane for Odoo deployments. Provision, manage, and scale with confidence.
-        </p>
+        <p class="text-zinc-500 text-sm leading-relaxed max-w-xs">The control plane for Odoo deployments. Provision, manage, and scale with confidence.</p>
       </div>
 
-      <!-- Product -->
       <div>
         <div class="text-[11px] font-semibold text-zinc-600 uppercase tracking-widest mb-4">Product</div>
         <ul class="space-y-2.5">
-          <li><a href="#features" class="text-sm text-zinc-400 hover:text-white transition-colors">Features</a></li>
-          <li><a href="#pricing" class="text-sm text-zinc-400 hover:text-white transition-colors">Pricing</a></li>
-          <li><a href="#providers" class="text-sm text-zinc-400 hover:text-white transition-colors">Providers</a></li>
+          <li><a href="#features"     class="text-sm text-zinc-400 hover:text-white transition-colors">Features</a></li>
+          <li><a href="#pricing"      class="text-sm text-zinc-400 hover:text-white transition-colors">Pricing</a></li>
+          <li><a href="#providers"    class="text-sm text-zinc-400 hover:text-white transition-colors">Providers</a></li>
           <li><a href="#how-it-works" class="text-sm text-zinc-400 hover:text-white transition-colors">How it works</a></li>
         </ul>
       </div>
 
-      <!-- Platform -->
       <div>
         <div class="text-[11px] font-semibold text-zinc-600 uppercase tracking-widest mb-4">Platform</div>
         <ul class="space-y-2.5">
-          <li><a href="{% url 'users:login' %}" class="text-sm text-zinc-400 hover:text-white transition-colors">Sign in</a></li>
+          <li><a href="{% url 'users:login' %}"    class="text-sm text-zinc-400 hover:text-white transition-colors">Sign in</a></li>
           <li><a href="{% url 'users:register' %}" class="text-sm text-zinc-400 hover:text-white transition-colors">Register</a></li>
           <li><span class="text-sm text-zinc-600 cursor-not-allowed">Documentation</span></li>
           <li><span class="text-sm text-zinc-600 cursor-not-allowed">Status page</span></li>
         </ul>
       </div>
 
-      <!-- Legal -->
       <div>
         <div class="text-[11px] font-semibold text-zinc-600 uppercase tracking-widest mb-4">Legal</div>
         <ul class="space-y-2.5">
@@ -978,12 +931,11 @@
   </div>
 </footer>
 
-
-<!-- ═══════════════════════════════════ SCROLL REVEAL SCRIPT ══════════════════ -->
 <script>
-  const observer = new IntersectionObserver((entries) => {
-    entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); } });
-  }, { threshold: 0.12 });
+  const observer = new IntersectionObserver(
+    entries => entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); }),
+    { threshold: 0.12 }
+  );
   document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
 </script>
 

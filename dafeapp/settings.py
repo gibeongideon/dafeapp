@@ -34,12 +34,20 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django.contrib.sites",
     # Third-party
     "rest_framework",
     "rest_framework_simplejwt",
     "channels",
     "django_celery_beat",
     "django_celery_results",
+    # Social Auth
+    "allauth",
+    "allauth.account",
+    "allauth.socialaccount",
+    "allauth.socialaccount.providers.google",
+    "allauth.socialaccount.providers.github",
+    "allauth.socialaccount.providers.gitlab",
     # Local apps
     "core.apps.CoreConfig",
     "users.apps.UsersConfig",
@@ -54,6 +62,8 @@ INSTALLED_APPS = [
     "organizations.apps.OrganizationsConfig",
 ]
 
+SITE_ID = 1
+
 # ---------------------------------------------------------------------------
 # Middleware
 # ---------------------------------------------------------------------------
@@ -63,6 +73,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "allauth.account.middleware.AccountMiddleware",        # must be after auth
     "organizations.middleware.OrganizationMiddleware",    # must be after auth
     "subscriptions.middleware.SubscriptionMiddleware",    # must be after OrganizationMiddleware
     "django.contrib.messages.middleware.MessageMiddleware",
@@ -131,6 +142,54 @@ CELERY_TIMEZONE = "UTC"
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 
 # ---------------------------------------------------------------------------
+# Authentication Backends
+# ---------------------------------------------------------------------------
+AUTHENTICATION_BACKENDS = [
+    "django.contrib.auth.backends.ModelBackend",
+    "allauth.account.auth_backends.AuthenticationBackend",
+]
+
+# ---------------------------------------------------------------------------
+# django-allauth configuration
+# ---------------------------------------------------------------------------
+ACCOUNT_LOGIN_METHODS = {"email"}         # replaces deprecated ACCOUNT_AUTHENTICATION_METHOD
+ACCOUNT_SIGNUP_FIELDS = ["email*", "password1*", "password2*"]  # replaces EMAIL_REQUIRED + USERNAME_REQUIRED
+ACCOUNT_EMAIL_VERIFICATION = "none"       # DafeApp handles its own email verify
+ACCOUNT_ADAPTER = "users.adapters.AccountAdapter"
+SOCIALACCOUNT_ADAPTER = "users.adapters.SocialAccountAdapter"
+SOCIALACCOUNT_STORE_TOKENS = True         # Keep OAuth tokens for API use
+SOCIALACCOUNT_AUTO_SIGNUP = True
+
+SOCIALACCOUNT_PROVIDERS = {
+    "google": {
+        "APP": {
+            "client_id": env("GOOGLE_CLIENT_ID", default=""),
+            "secret": env("GOOGLE_SECRET", default=""),
+            "key": "",
+        },
+        "SCOPE": ["profile", "email"],
+        "AUTH_PARAMS": {"access_type": "online"},
+    },
+    "github": {
+        "APP": {
+            "client_id": env("GITHUB_CLIENT_ID", default=""),
+            "secret": env("GITHUB_SECRET", default=""),
+            "key": "",
+        },
+        "SCOPE": ["user:email", "read:user"],
+    },
+    "gitlab": {
+        "APP": {
+            "client_id": env("GITLAB_CLIENT_ID", default=""),
+            "secret": env("GITLAB_SECRET", default=""),
+            "key": "",
+        },
+        "SCOPE": ["read_user", "api"],
+        "GITLAB_URL": env("GITLAB_URL", default="https://gitlab.com"),
+    },
+}
+
+# ---------------------------------------------------------------------------
 # Auth
 # ---------------------------------------------------------------------------
 AUTH_PASSWORD_VALIDATORS = [
@@ -196,9 +255,20 @@ DEFAULT_FROM_EMAIL = "noreply@dafeapp.com"
 SITE_URL = env("SITE_URL", default="http://localhost:8000")
 
 # ---------------------------------------------------------------------------
-# Field-level encryption (Fernet) — cloud credentials
+# Field-level encryption (Fernet) — cloud credentials + VCS tokens
 # ---------------------------------------------------------------------------
 FIELD_ENCRYPTION_KEY = env("FIELD_ENCRYPTION_KEY", default="")
+
+# ---------------------------------------------------------------------------
+# OAuth provider credentials (env-only, never hardcoded)
+# ---------------------------------------------------------------------------
+GOOGLE_CLIENT_ID = env("GOOGLE_CLIENT_ID", default="")
+GOOGLE_SECRET = env("GOOGLE_SECRET", default="")
+GITHUB_CLIENT_ID = env("GITHUB_CLIENT_ID", default="")
+GITHUB_SECRET = env("GITHUB_SECRET", default="")
+GITLAB_CLIENT_ID = env("GITLAB_CLIENT_ID", default="")
+GITLAB_SECRET = env("GITLAB_SECRET", default="")
+GITLAB_URL = env("GITLAB_URL", default="https://gitlab.com")
 
 # ---------------------------------------------------------------------------
 # Extra built-ins

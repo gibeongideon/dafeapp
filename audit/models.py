@@ -26,6 +26,10 @@ class AuditLog(models.Model):
         CLOUD_ACCT_VERIFY = "cloud_acct_verify", "Cloud Account Verified"
         DROPLET_PROVISION = "droplet_provision", "Droplet Provisioned"
         DROPLET_DESTROY = "droplet_destroy", "Droplet Destroyed"
+        # VCS / social auth actions
+        SOCIAL_LOGIN = "social_login", "Social Login"
+        VCS_CONNECT = "vcs_connect", "VCS Account Connected"
+        VCS_DISCONNECT = "vcs_disconnect", "VCS Account Disconnected"
         OTHER = "other", "Other"
 
     user = models.ForeignKey(

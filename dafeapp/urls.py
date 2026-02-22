@@ -16,6 +16,9 @@ urlpatterns = [
     # Template auth
     path("auth/", include((auth_urlpatterns, "users"))),
 
+    # Social auth (django-allauth)
+    path("accounts/", include("allauth.urls")),
+
     # Dashboard UI
     path("dashboard/", include("core.urls", namespace="core")),
 

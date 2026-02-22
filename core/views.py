@@ -144,3 +144,29 @@ class AuditLogView(LoginRequiredMixin, TemplateView):
             if org else []
         )
         return ctx
+
+
+class VCSManagementView(LoginRequiredMixin, TemplateView):
+    """
+    Dashboard page for managing connected VCS (GitHub/GitLab) accounts.
+    Any authenticated user can view; connect/disconnect allowed for SUPER_ADMIN + ADMIN.
+    """
+    template_name = "dashboard/vcs.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        from users.models import VCSAccount
+
+        ctx["vcs_accounts"] = VCSAccount.objects.filter(user=self.request.user)
+
+        # Determine which providers are not yet connected (active)
+        connected = set(
+            VCSAccount.objects.filter(user=self.request.user, is_active=True)
+            .values_list("provider", flat=True)
+        )
+        ctx["github_connected"] = "github" in connected
+        ctx["gitlab_connected"] = "gitlab" in connected
+
+        org_role = getattr(self.request, "org_role", None)
+        ctx["can_manage"] = org_role in ("SUPER_ADMIN", "ADMIN")
+        return ctx

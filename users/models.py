@@ -1,7 +1,8 @@
 import uuid
 
-from django.contrib.auth.models import AbstractUser
+from django.conf import settings
 from django.db import models
+from django.contrib.auth.models import AbstractUser
 
 from .managers import UserManager
 
@@ -20,6 +21,9 @@ class User(AbstractUser):
     email_verification_token = models.UUIDField(
         default=uuid.uuid4, editable=False, unique=True
     )
+
+    # Social auth provider (email = standard password login)
+    auth_provider = models.CharField(max_length=30, blank=True, default="email")
 
     # Login tracking
     last_login_ip = models.GenericIPAddressField(null=True, blank=True)
@@ -54,3 +58,43 @@ class User(AbstractUser):
             return self.memberships.get(organization=organization, is_active=True)
         except self.memberships.model.DoesNotExist:
             return None
+
+
+class VCSAccount(models.Model):
+    """
+    Stores an encrypted OAuth access token for GitHub/GitLab API access.
+    Separate from allauth's SocialAccount — this is used for VCS operations
+    (pulling repos, triggering deployments) rather than for authentication.
+    """
+
+    class Provider(models.TextChoices):
+        GITHUB = "github", "GitHub"
+        GITLAB = "gitlab", "GitLab"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="vcs_accounts",
+    )
+    provider = models.CharField(max_length=20, choices=Provider.choices)
+    username = models.CharField(max_length=255, blank=True)
+    encrypted_access_token = models.TextField()
+    connected_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        unique_together = ("user", "provider")
+        ordering = ["provider"]
+
+    def __str__(self):
+        return f"{self.user.email} @ {self.provider} ({self.username})"
+
+    @property
+    def access_token(self):
+        from cloud.encryption import FieldEncryptor
+        return FieldEncryptor.decrypt(self.encrypted_access_token)
+
+    @access_token.setter
+    def access_token(self, value):
+        from cloud.encryption import FieldEncryptor
+        self.encrypted_access_token = FieldEncryptor.encrypt(value)

@@ -1,3 +1,4 @@
+from allauth.socialaccount.signals import social_account_added, social_account_updated
 from django.contrib.auth.signals import (
     user_logged_in,
     user_logged_out,
@@ -7,6 +8,59 @@ from django.db.models import F
 from django.dispatch import receiver
 
 from core.utils import get_client_ip
+
+
+# ─── VCS Account Sync ────────────────────────────────────────────────────────
+
+def _sync_vcs_account(sociallogin):
+    """
+    When a GitHub or GitLab account is connected, persist the OAuth access token
+    into VCSAccount (Fernet-encrypted). Also writes an audit log entry.
+    Called from both social_account_added and social_account_updated.
+    """
+    provider = sociallogin.account.provider
+    if provider not in ("github", "gitlab"):
+        return
+
+    token_obj = getattr(sociallogin, "token", None)
+    if not token_obj or not token_obj.token:
+        return
+
+    from audit.models import AuditLog
+    from cloud.encryption import FieldEncryptor
+
+    from .models import VCSAccount
+
+    extra = sociallogin.account.extra_data or {}
+    username = extra.get("login") or extra.get("username", "")
+    encrypted = FieldEncryptor.encrypt(token_obj.token)
+
+    _, created = VCSAccount.objects.update_or_create(
+        user=sociallogin.user,
+        provider=provider,
+        defaults={
+            "username": username,
+            "encrypted_access_token": encrypted,
+            "is_active": True,
+        },
+    )
+
+    verb = "Connected" if created else "Re-connected"
+    AuditLog.objects.create(
+        user=sociallogin.user,
+        action=AuditLog.Action.VCS_CONNECT,
+        description=f"{verb} {provider} VCS account: {username}",
+    )
+
+
+@receiver(social_account_added)
+def on_social_account_added(sender, request, sociallogin, **kwargs):
+    _sync_vcs_account(sociallogin)
+
+
+@receiver(social_account_updated)
+def on_social_account_updated(sender, request, sociallogin, **kwargs):
+    _sync_vcs_account(sociallogin)
 
 
 @receiver(user_logged_in)

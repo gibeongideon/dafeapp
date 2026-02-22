@@ -1,10 +1,12 @@
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model, login
+from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import LoginView as BaseLoginView
 from django.contrib.auth.views import LogoutView as BaseLogoutView
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils.decorators import method_decorator
 from django.views import View
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
@@ -15,6 +17,7 @@ from core.utils import get_client_ip, log_audit
 from organizations.models import Organization, OrganizationInvite, OrganizationMembership
 
 from .forms import InviteAcceptForm, OrgSignupForm, ProfileUpdateForm
+from .models import VCSAccount
 from .serializers import RegisterSerializer, RoleUpdateSerializer, UserSerializer
 
 User = get_user_model()
@@ -230,3 +233,42 @@ class RoleUpdateAPIView(APIView):
             serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+# ─── VCS Account Views ────────────────────────────────────────────────────────
+
+@method_decorator(login_required, name="dispatch")
+class VCSDisconnectView(View):
+    """
+    POST /auth/vcs/<pk>/disconnect/
+    Revokes the VCSAccount (marks inactive) and removes the linked allauth
+    SocialAccount so the user can reconnect cleanly.
+    Accessible to the account owner regardless of org role.
+    """
+
+    def post(self, request, pk):
+        vcs = get_object_or_404(VCSAccount, pk=pk, user=request.user)
+        provider = vcs.provider
+
+        # Deactivate our VCS record
+        vcs.is_active = False
+        vcs.save(update_fields=["is_active"])
+
+        # Remove the allauth SocialAccount so the user can reconnect
+        try:
+            from allauth.socialaccount.models import SocialAccount
+            SocialAccount.objects.filter(user=request.user, provider=provider).delete()
+        except Exception:
+            pass
+
+        org = getattr(request, "organization", None)
+        AuditLog.objects.create(
+            user=request.user,
+            organization=org,
+            action=AuditLog.Action.VCS_DISCONNECT,
+            ip_address=get_client_ip(request),
+            description=f"Disconnected {provider} VCS account ({vcs.username})",
+        )
+
+        messages.success(request, f"Disconnected {vcs.get_provider_display()} account.")
+        return redirect("core:vcs")
