@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.urls import include, path
-from django.views.generic import RedirectView
+from django.views.generic import TemplateView
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
@@ -11,7 +11,7 @@ from users.urls import auth_urlpatterns
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    path("", RedirectView.as_view(url="/dashboard/", permanent=False)),
+    path("", TemplateView.as_view(template_name="landing/index.html"), name="landing"),
 
     # Template auth
     path("auth/", include((auth_urlpatterns, "users"))),
