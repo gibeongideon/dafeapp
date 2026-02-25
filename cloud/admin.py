@@ -39,13 +39,23 @@ class CloudAccountAdmin(admin.ModelAdmin):
     search_fields = ["name", "organization__name"]
     readonly_fields = [
         "encrypted_api_token_display",
+        "encrypted_aws_access_key_id_display",
+        "encrypted_aws_secret_access_key_display",
         "is_verified", "verification_error", "last_verified_at", "created_at",
     ]
-    exclude = ["encrypted_api_token"]
+    exclude = ["encrypted_api_token", "encrypted_aws_access_key_id", "encrypted_aws_secret_access_key"]
 
     def encrypted_api_token_display(self, obj):
         return "[encrypted]" if obj.encrypted_api_token else "—"
     encrypted_api_token_display.short_description = "API Token"
+
+    def encrypted_aws_access_key_id_display(self, obj):
+        return "[encrypted]" if obj.encrypted_aws_access_key_id else "—"
+    encrypted_aws_access_key_id_display.short_description = "AWS Access Key ID"
+
+    def encrypted_aws_secret_access_key_display(self, obj):
+        return "[encrypted]" if obj.encrypted_aws_secret_access_key else "—"
+    encrypted_aws_secret_access_key_display.short_description = "AWS Secret Access Key"
 
     def verified_badge(self, obj):
         if obj.is_verified:

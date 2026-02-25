@@ -72,6 +72,7 @@ class CloudAccount(models.Model):
 
     class Provider(models.TextChoices):
         DIGITALOCEAN = "DIGITALOCEAN", "DigitalOcean"
+        AWS = "AWS", "Amazon Web Services"
 
     organization = models.ForeignKey(
         "organizations.Organization",
@@ -82,7 +83,10 @@ class CloudAccount(models.Model):
         max_length=20, choices=Provider.choices, default=Provider.DIGITALOCEAN
     )
     name = models.CharField(max_length=100)
-    encrypted_api_token = models.TextField()
+    encrypted_api_token = models.TextField(blank=True)
+    encrypted_aws_access_key_id = models.TextField(blank=True)
+    encrypted_aws_secret_access_key = models.TextField(blank=True)
+    aws_default_region = models.CharField(max_length=30, blank=True, default="")
     is_verified = models.BooleanField(default=False)
     verification_error = models.CharField(max_length=500, blank=True)
     last_verified_at = models.DateTimeField(null=True, blank=True)
@@ -94,11 +98,33 @@ class CloudAccount(models.Model):
     def __str__(self):
         return f"{self.name} ({self.get_provider_display()})"
 
+    @property
+    def api_token(self):
+        return FieldEncryptor.decrypt(self.encrypted_api_token)
+
+    @property
+    def aws_access_key_id(self):
+        return FieldEncryptor.decrypt(self.encrypted_aws_access_key_id)
+
+    @property
+    def aws_secret_access_key(self):
+        return FieldEncryptor.decrypt(self.encrypted_aws_secret_access_key)
+
     def save(self, *args, **kwargs):
         raw_token = getattr(self, "_raw_api_token", None)
         if raw_token:
             self.encrypted_api_token = FieldEncryptor.encrypt(raw_token)
             self._raw_api_token = None
+
+        raw_aws_key = getattr(self, "_raw_aws_access_key_id", None)
+        if raw_aws_key:
+            self.encrypted_aws_access_key_id = FieldEncryptor.encrypt(raw_aws_key)
+            self._raw_aws_access_key_id = None
+
+        raw_aws_secret = getattr(self, "_raw_aws_secret_access_key", None)
+        if raw_aws_secret:
+            self.encrypted_aws_secret_access_key = FieldEncryptor.encrypt(raw_aws_secret)
+            self._raw_aws_secret_access_key = None
         super().save(*args, **kwargs)
 
 

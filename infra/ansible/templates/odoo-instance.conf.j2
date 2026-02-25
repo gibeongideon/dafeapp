@@ -1,0 +1,13 @@
+[options]
+admin_passwd = {{ admin_passwd }}
+db_host = False
+db_port = False
+db_user = {{ odoo_user }}
+db_password = False
+db_name = {{ db_name }}
+http_port = {{ http_port }}
+proxy_mode = True
+workers = 2
+max_cron_threads = 1
+addons_path = {{ odoo_home }}/src/odoo/addons
+logfile = {{ odoo_home }}/logs/{{ db_name }}/odoo.log

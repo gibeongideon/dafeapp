@@ -1,0 +1,9 @@
+[options]
+admin_passwd = {{ lookup('password', '/tmp/.odoo_admin_base_{{ odoo_version }} chars=ascii_letters,digits length=24') }}
+db_host = False
+db_port = False
+db_user = {{ odoo_user }}
+db_password = False
+addons_path = {{ odoo_home }}/src/odoo/addons
+proxy_mode = True
+logfile = {{ odoo_home }}/logs/odoo{{ odoo_version }}.log

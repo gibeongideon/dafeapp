@@ -1,0 +1,112 @@
+---
+- name: Create or update one Odoo instance on a versioned server
+  hosts: all
+  become: true
+  vars:
+    odoo_version: "{{ odoo_version | default('18') }}"
+    odoo_user: "odoo{{ odoo_version }}"
+    odoo_home: "/opt/odoo{{ odoo_version }}"
+    instance_name: "{{ instance_name | default('instance') }}"
+    db_name: "{{ db_name | default('odoo_db') }}"
+    domain: "{{ domain | default('') }}"
+    http_port: "{{ (http_port | default(8069)) | int }}"
+    service_name: "odoo-{{ db_name }}"
+    nginx_site_name: "odoo-{{ db_name }}.conf"
+    config_path: "{{ odoo_home }}/instances/{{ db_name }}/odoo.conf"
+    admin_passwd: "{{ lookup('password', '/tmp/.odoo_admin_' ~ db_name ~ ' chars=ascii_letters,digits length=24') }}"
+    letsencrypt_email: "{{ letsencrypt_email | default('admin@localhost') }}"
+
+  tasks:
+    - name: Ensure instance directory exists
+      file:
+        path: "{{ odoo_home }}/instances/{{ db_name }}"
+        state: directory
+        owner: "{{ odoo_user }}"
+        group: "{{ odoo_user }}"
+        mode: "0755"
+
+    - name: Ensure log directory exists
+      file:
+        path: "{{ odoo_home }}/logs/{{ db_name }}"
+        state: directory
+        owner: "{{ odoo_user }}"
+        group: "{{ odoo_user }}"
+        mode: "0755"
+
+    - name: Ensure PostgreSQL database exists
+      become_user: postgres
+      shell: "psql -tAc \"SELECT 1 FROM pg_database WHERE datname='{{ db_name }}'\" | grep -q 1 || createdb {{ db_name }}"
+      args:
+        executable: /bin/bash
+
+    - name: Render instance Odoo config
+      template:
+        src: templates/odoo-instance.conf.j2
+        dest: "{{ config_path }}"
+        owner: "{{ odoo_user }}"
+        group: "{{ odoo_user }}"
+        mode: "0640"
+
+    - name: Render systemd service
+      template:
+        src: templates/odoo-instance.service.j2
+        dest: "/etc/systemd/system/{{ service_name }}.service"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Reload systemd
+      systemd:
+        daemon_reload: true
+
+    - name: Enable and start Odoo instance service
+      systemd:
+        name: "{{ service_name }}"
+        enabled: true
+        state: started
+
+    - name: Render nginx site config
+      template:
+        src: templates/nginx-odoo-site.conf.j2
+        dest: "/etc/nginx/sites-available/{{ nginx_site_name }}"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Enable nginx site
+      file:
+        src: "/etc/nginx/sites-available/{{ nginx_site_name }}"
+        dest: "/etc/nginx/sites-enabled/{{ nginx_site_name }}"
+        state: link
+
+    - name: Disable default nginx site
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+
+    - name: Validate nginx config
+      command: nginx -t
+
+    - name: Reload nginx
+      systemd:
+        name: nginx
+        state: reloaded
+
+    - name: Request SSL certificate (optional, when domain is set)
+      command: >
+        certbot --nginx -d {{ domain }}
+        --non-interactive --agree-tos
+        --email {{ letsencrypt_email }}
+        --redirect
+      when: domain | length > 0
+      register: certbot_out
+      failed_when: false
+      changed_when: "'Certificate not yet due for renewal' not in certbot_out.stdout"
+
+    - name: Instance summary
+      debug:
+        msg:
+          - "Service: {{ service_name }}"
+          - "DB: {{ db_name }}"
+          - "Port: {{ http_port }}"
+          - "Domain: {{ domain if domain else 'not set' }}"

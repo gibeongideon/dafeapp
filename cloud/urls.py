@@ -17,6 +17,7 @@ urlpatterns = [
     # Cloud accounts (DO)
     path("accounts/add/", views.AddCloudAccountView.as_view(), name="add-account"),
     path("accounts/<int:pk>/verify/", views.VerifyAccountView.as_view(), name="verify-account"),
+    path("accounts/<int:pk>/options/", views.CloudAccountOptionsView.as_view(), name="account-options"),
 
     # Droplets
     path("droplets/provision/", views.ProvisionDropletView.as_view(), name="provision-droplet"),

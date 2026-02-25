@@ -82,9 +82,21 @@
       </a>
       {% endif %}
 
+      {% if current_role == 'SUPER_ADMIN' or current_role == 'ADMIN' or current_role == 'MANAGER' %}
+      {% url 'deployments_ui:create-instance' as u_deployments %}
+      <a href="{{ u_deployments }}"
+         class="flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition
+                {% if request.path|slice:':13' == '/deployments/' %}bg-blue-600 text-white{% else %}text-slate-300 hover:bg-slate-800{% endif %}">
+      {% else %}
       <a href="#" class="flex items-center gap-3 px-3 py-2.5 text-sm rounded-lg text-slate-600 cursor-not-allowed">
+      {% endif %}
         <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7"/></svg>
-        <span x-show="sidebarOpen" x-transition class="flex items-center gap-1.5">Deployments <span class="text-xs bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded">Phase 4</span></span>
+        <span x-show="sidebarOpen" x-transition class="flex items-center gap-1.5">
+          Deployments
+          {% if not current_role == 'SUPER_ADMIN' and not current_role == 'ADMIN' and not current_role == 'MANAGER' %}
+          <span class="text-xs bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded">Phase 4</span>
+          {% endif %}
+        </span>
       </a>
       <a href="#" class="flex items-center gap-3 px-3 py-2.5 text-sm rounded-lg text-slate-600 cursor-not-allowed">
         <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>

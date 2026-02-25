@@ -3,6 +3,7 @@ import logging
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.generic import TemplateView, View
@@ -10,6 +11,7 @@ from django.views.generic import TemplateView, View
 from audit.models import AuditLog
 from cloud.forms import CloudAccountForm, ExternalServerForm, ProvisionDropletForm
 from cloud.models import CloudAccount, CloudServer, ExternalServer, Infrastructure
+from cloud.providers import get_provider
 from core.utils import log_audit
 
 logger = logging.getLogger(__name__)
@@ -184,6 +186,28 @@ class VerifyAccountView(CloudSuperAdminMixin, View):
             )
         messages.info(request, "Token verification queued.")
         return redirect("cloud:dashboard")
+
+
+class CloudAccountOptionsView(CloudSuperAdminMixin, View):
+    """Return region/size options for a verified account."""
+
+    def get(self, request, pk):
+        account = get_object_or_404(CloudAccount, pk=pk, organization=request.organization)
+        if not account.is_verified:
+            return JsonResponse(
+                {"regions": [], "sizes": [], "error": "Account is not verified yet."},
+                status=400,
+            )
+        try:
+            provider = get_provider(account)
+            regions = provider.list_regions()
+            sizes = provider.list_sizes()
+            return JsonResponse({"regions": regions, "sizes": sizes, "provider": account.provider})
+        except Exception as exc:
+            return JsonResponse(
+                {"regions": [], "sizes": [], "error": str(exc)},
+                status=400,
+            )
 
 
 # ── Droplet provisioning ─────────────────────────────────────────────────────

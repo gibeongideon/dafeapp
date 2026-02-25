@@ -2,6 +2,7 @@ from django import forms
 
 from cloud.digitalocean import DO_REGIONS, DO_SIZES
 from cloud.models import CloudAccount, CloudServer, ExternalServer
+from cloud.providers import get_provider
 
 _INPUT = "w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400"
 _SELECT = "w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-gray-400"
@@ -61,32 +62,74 @@ class ExternalServerForm(forms.ModelForm):
 
 
 class CloudAccountForm(forms.ModelForm):
-    """Form for adding a DigitalOcean cloud account."""
+    """Form for adding a cloud account (DigitalOcean or AWS)."""
 
     api_token = forms.CharField(
-        label="API Token",
+        label="DigitalOcean API Token",
         widget=forms.PasswordInput(render_value=False, attrs={"class": _INPUT}),
         help_text="Your DigitalOcean Personal Access Token (read + write).",
+        required=False,
+    )
+    aws_access_key_id = forms.CharField(
+        label="AWS Access Key ID",
+        widget=forms.TextInput(attrs={"class": _INPUT, "autocomplete": "off"}),
+        required=False,
+    )
+    aws_secret_access_key = forms.CharField(
+        label="AWS Secret Access Key",
+        widget=forms.PasswordInput(render_value=False, attrs={"class": _INPUT}),
+        required=False,
+    )
+    aws_default_region = forms.CharField(
+        label="AWS Default Region",
+        widget=forms.TextInput(attrs={"class": _INPUT, "placeholder": "us-east-1"}),
+        required=False,
     )
 
     class Meta:
         model = CloudAccount
-        fields = ["name", "provider"]
+        fields = ["name", "provider", "aws_default_region"]
         widgets = {
             "name": forms.TextInput(attrs={"class": _INPUT}),
             "provider": forms.Select(attrs={"class": _SELECT}),
+            "aws_default_region": forms.TextInput(attrs={"class": _INPUT}),
         }
+
+    def clean(self):
+        cleaned = super().clean()
+        provider = cleaned.get("provider")
+        if provider == CloudAccount.Provider.DIGITALOCEAN:
+            if not cleaned.get("api_token"):
+                self.add_error("api_token", "DigitalOcean API token is required.")
+        elif provider == CloudAccount.Provider.AWS:
+            if not cleaned.get("aws_access_key_id"):
+                self.add_error("aws_access_key_id", "AWS access key ID is required.")
+            if not cleaned.get("aws_secret_access_key"):
+                self.add_error("aws_secret_access_key", "AWS secret access key is required.")
+            if not cleaned.get("aws_default_region"):
+                cleaned["aws_default_region"] = "us-east-1"
+        return cleaned
 
     def save(self, commit=True):
         instance = super().save(commit=False)
-        instance._raw_api_token = self.cleaned_data["api_token"]
+        provider = self.cleaned_data["provider"]
+        if provider == CloudAccount.Provider.DIGITALOCEAN:
+            instance._raw_api_token = self.cleaned_data["api_token"]
+            instance.encrypted_aws_access_key_id = ""
+            instance.encrypted_aws_secret_access_key = ""
+            instance.aws_default_region = ""
+        elif provider == CloudAccount.Provider.AWS:
+            instance._raw_aws_access_key_id = self.cleaned_data["aws_access_key_id"]
+            instance._raw_aws_secret_access_key = self.cleaned_data["aws_secret_access_key"]
+            instance.aws_default_region = self.cleaned_data.get("aws_default_region") or "us-east-1"
+            instance.encrypted_api_token = ""
         if commit:
             instance.save()
         return instance
 
 
 class ProvisionDropletForm(forms.ModelForm):
-    """Form for provisioning a new DigitalOcean Droplet."""
+    """Form for provisioning a managed cloud server."""
 
     region = forms.ChoiceField(choices=DO_REGIONS, label="Region")
     size = forms.ChoiceField(choices=DO_SIZES, label="Size")
@@ -101,10 +144,43 @@ class ProvisionDropletForm(forms.ModelForm):
 
     def __init__(self, *args, organization=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self._organization = organization
         if organization:
             self.fields["cloud_account"].queryset = CloudAccount.objects.filter(
                 organization=organization, is_verified=True
             )
-        self.fields["cloud_account"].label = "Cloud Account (DO)"
+        self.fields["cloud_account"].label = "Cloud Account"
         self.fields["region"].widget.attrs["class"] = _SELECT
         self.fields["size"].widget.attrs["class"] = _SELECT
+
+        selected_id = None
+        if self.is_bound:
+            selected_id = self.data.get("cloud_account")
+        elif self.initial.get("cloud_account"):
+            selected_id = str(self.initial.get("cloud_account"))
+        else:
+            first = self.fields["cloud_account"].queryset.first()
+            selected_id = str(first.pk) if first else None
+        self._set_dynamic_choices(selected_id)
+
+    def _set_dynamic_choices(self, cloud_account_id):
+        default_regions = DO_REGIONS
+        default_sizes = DO_SIZES
+        if not cloud_account_id:
+            self.fields["region"].choices = default_regions
+            self.fields["size"].choices = default_sizes
+            return
+        try:
+            account = CloudAccount.objects.get(
+                pk=cloud_account_id,
+                organization=self._organization,
+                is_verified=True,
+            )
+            provider = get_provider(account)
+            regions = provider.list_regions()
+            sizes = provider.list_sizes()
+            self.fields["region"].choices = regions or default_regions
+            self.fields["size"].choices = sizes or default_sizes
+        except Exception:
+            self.fields["region"].choices = default_regions
+            self.fields["size"].choices = default_sizes

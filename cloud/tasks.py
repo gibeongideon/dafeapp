@@ -96,7 +96,7 @@ def validate_cloud_account(self, account_id: int):
 @shared_task(bind=True, max_retries=3)
 def provision_do_server(self, cloud_server_id: int):
     """
-    Provision a DigitalOcean droplet, apply firewall, poll until active.
+    Provision a managed cloud server, apply firewall, poll until active/running.
     """
     import time
 
@@ -129,21 +129,12 @@ def provision_do_server(self, cloud_server_id: int):
         # Apply firewall
         provider.create_firewall(droplet_id)
 
-        # Poll for active status (max 5 min)
+        # Poll for running status (max 5 min)
         for _ in range(30):
             time.sleep(10)
             status = provider.get_server_status(droplet_id)
-            if status == "active":
-                # Fetch IP — re-use the provider session to get droplet details
-                resp = provider._session.get(
-                    f"https://api.digitalocean.com/v2/droplets/{droplet_id}", timeout=10
-                )
-                if resp.status_code == 200:
-                    networks = resp.json().get("droplet", {}).get("networks", {})
-                    v4 = networks.get("v4", [])
-                    public_ips = [n["ip_address"] for n in v4 if n.get("type") == "public"]
-                    if public_ips:
-                        cloud_server.ip_address = public_ips[0]
+            if status in ("active", "running"):
+                cloud_server.ip_address = provider.get_server_ip(droplet_id) or None
                 cloud_server.status = CloudServer.Status.RUNNING
                 cloud_server.save(update_fields=["status", "ip_address", "updated_at"])
 

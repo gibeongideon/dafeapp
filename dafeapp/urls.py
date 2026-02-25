@@ -38,6 +38,7 @@ urlpatterns = [
     # subscriptions REST API endpoints will be added in a future phase
     path("api/tenants/", include("tenants.urls", namespace="tenants")),
     path("cloud/", include("cloud.urls", namespace="cloud")),
+    path("deployments/", include(("deployments.urls", "deployments"), namespace="deployments_ui")),
     path("api/deployments/", include("deployments.urls", namespace="deployments")),
     path("api/dns/", include("dns.urls", namespace="dns")),
     path("api/backups/", include("backups.urls", namespace="backups")),

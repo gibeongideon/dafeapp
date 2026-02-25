@@ -11,9 +11,11 @@ def get_provider(cloud_account) -> AbstractCloudProvider:
     Raises ValueError if the provider is unknown.
     """
     from cloud.digitalocean import DigitalOceanProvider
+    from cloud.aws import AWSProvider
 
     provider_map = {
         "DIGITALOCEAN": DigitalOceanProvider,
+        "AWS": AWSProvider,
     }
     cls = provider_map.get(cloud_account.provider)
     if cls is None:

@@ -70,11 +70,15 @@ class SubscriptionEnforcer:
         if self.plan.max_instances is None:
             return  # unlimited
 
-        from deployments.models import Instance
+        from deployments.models import Instance, OdooInstance
 
-        current_count = Instance.objects.filter(
+        legacy_count = Instance.objects.filter(
             organization=self.organization
         ).exclude(status=Instance.Status.DELETED).count()
+        odoo_count = OdooInstance.objects.filter(
+            organization=self.organization
+        ).exclude(status=OdooInstance.Status.DELETED).count()
+        current_count = legacy_count + odoo_count
 
         if current_count >= self.plan.max_instances:
             raise SubscriptionLimitError(
@@ -134,11 +138,15 @@ class SubscriptionEnforcer:
 
     def current_instance_count(self):
         """Live count of non-deleted instances."""
-        from deployments.models import Instance
+        from deployments.models import Instance, OdooInstance
 
-        return Instance.objects.filter(
+        legacy_count = Instance.objects.filter(
             organization=self.organization
         ).exclude(status=Instance.Status.DELETED).count()
+        odoo_count = OdooInstance.objects.filter(
+            organization=self.organization
+        ).exclude(status=OdooInstance.Status.DELETED).count()
+        return legacy_count + odoo_count
 
     def current_backup_count_this_month(self):
         """Number of backup usage records in the current calendar month."""

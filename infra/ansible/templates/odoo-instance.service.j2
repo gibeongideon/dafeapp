@@ -1,0 +1,18 @@
+[Unit]
+Description=Odoo Instance {{ db_name }} (v{{ odoo_version }})
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User={{ odoo_user }}
+Group={{ odoo_user }}
+WorkingDirectory={{ odoo_home }}/src/odoo
+ExecStart={{ odoo_home }}/venv/bin/python3 {{ odoo_home }}/src/odoo/odoo-bin -c {{ config_path }}
+Restart=always
+RestartSec=5
+KillMode=mixed
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

@@ -233,6 +233,7 @@ scenvs
 .env_dev
 env/
 venv/
+lvenc/
 ENV/
 env.bak/
 venv.bak/

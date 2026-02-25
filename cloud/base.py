@@ -42,3 +42,15 @@ class AbstractCloudProvider(ABC):
         Return the current status string for a server
         (e.g. 'new', 'active', 'off', 'archive').
         """
+
+    @abstractmethod
+    def get_server_ip(self, provider_server_id: str) -> str:
+        """Return the server public IPv4 address (empty string if unavailable)."""
+
+    def list_regions(self) -> list[tuple[str, str]]:
+        """Return provider regions as (value, label) tuples."""
+        return []
+
+    def list_sizes(self, region: str = "") -> list[tuple[str, str]]:
+        """Return provider instance sizes as (value, label) tuples."""
+        return []

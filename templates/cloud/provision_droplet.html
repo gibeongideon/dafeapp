@@ -1,6 +1,6 @@
 {% extends "dashboard/layout.html" %}
 
-{% block page_title %}Provision Droplet{% endblock %}
+{% block page_title %}Create Managed Instance{% endblock %}
 
 {% block content %}
 <div class="max-w-xl mx-auto">
@@ -9,13 +9,13 @@
   <div class="flex items-center gap-2 text-sm text-gray-400 mb-6">
     <a href="{% url 'cloud:dashboard' %}" class="hover:text-gray-700">Infrastructure</a>
     <span>/</span>
-    <span class="text-gray-700">Provision Droplet</span>
+    <span class="text-gray-700">Create Managed Instance</span>
   </div>
 
   <div class="bg-white border border-gray-200 rounded-xl p-6">
-    <h2 class="text-base font-semibold text-gray-900 mb-1">New DigitalOcean Droplet</h2>
+    <h2 class="text-base font-semibold text-gray-900 mb-1">New Managed Instance</h2>
     <p class="text-sm text-gray-500 mb-6">
-      DafeApp will provision an Ubuntu 22.04 droplet and apply the required firewall rules automatically.
+      DafeApp will provision infrastructure and apply the required firewall rules automatically.
     </p>
 
     <form method="post">
@@ -30,7 +30,7 @@
       <div class="space-y-4">
 
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Droplet name</label>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Instance name</label>
           {{ form.name }}
           {% if form.name.errors %}<p class="text-xs text-red-500 mt-1">{{ form.name.errors.0 }}</p>{% endif %}
         </div>
@@ -65,4 +65,31 @@
   </div>
 
 </div>
+<script>
+  (() => {
+    const accountSelect = document.getElementById("id_cloud_account");
+    const regionSelect = document.getElementById("id_region");
+    const sizeSelect = document.getElementById("id_size");
+    const setOptions = (el, options) => {
+      el.innerHTML = "";
+      options.forEach(([value, label]) => {
+        const opt = document.createElement("option");
+        opt.value = value;
+        opt.textContent = label;
+        el.appendChild(opt);
+      });
+    };
+    const loadOptions = async () => {
+      const accountId = accountSelect.value;
+      if (!accountId) return;
+      const resp = await fetch(`/cloud/accounts/${accountId}/options/`, {headers: {"X-Requested-With": "XMLHttpRequest"}});
+      if (!resp.ok) return;
+      const data = await resp.json();
+      if (Array.isArray(data.regions) && data.regions.length) setOptions(regionSelect, data.regions);
+      if (Array.isArray(data.sizes) && data.sizes.length) setOptions(sizeSelect, data.sizes);
+    };
+    accountSelect.addEventListener("change", loadOptions);
+    loadOptions();
+  })();
+</script>
 {% endblock %}

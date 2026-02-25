@@ -1,0 +1,133 @@
+---
+- name: Bootstrap Odoo server (version-specific)
+  hosts: all
+  become: true
+  vars:
+    odoo_version: "{{ odoo_version | default('18') }}"
+    odoo_user: "odoo{{ odoo_version }}"
+    odoo_home: "/opt/odoo{{ odoo_version }}"
+    odoo_repo: "https://github.com/odoo/odoo.git"
+    odoo_branch: "{{ odoo_version }}.0"
+    odoo_config_path: "/etc/odoo{{ odoo_version }}.conf"
+    dns_domain: "{{ dns_domain | default('') }}"
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install required system packages
+      apt:
+        name:
+          - git
+          - curl
+          - nginx
+          - ufw
+          - postgresql
+          - postgresql-contrib
+          - python3
+          - python3-venv
+          - python3-pip
+          - build-essential
+          - libpq-dev
+          - libxml2-dev
+          - libxslt1-dev
+          - libldap2-dev
+          - libsasl2-dev
+          - libffi-dev
+          - libssl-dev
+          - zlib1g-dev
+          - certbot
+          - python3-certbot-nginx
+        state: present
+
+    - name: Ensure Odoo system user exists
+      user:
+        name: "{{ odoo_user }}"
+        shell: /bin/bash
+        home: "{{ odoo_home }}"
+        create_home: true
+        system: true
+
+    - name: Ensure Odoo directories exist
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ odoo_user }}"
+        group: "{{ odoo_user }}"
+        mode: "0755"
+      loop:
+        - "{{ odoo_home }}"
+        - "{{ odoo_home }}/src"
+        - "{{ odoo_home }}/venv"
+        - "{{ odoo_home }}/instances"
+        - "{{ odoo_home }}/logs"
+
+    - name: Ensure postgres role exists for Odoo
+      become_user: postgres
+      shell: "psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='{{ odoo_user }}'\" | grep -q 1 || createuser -s {{ odoo_user }}"
+      args:
+        executable: /bin/bash
+
+    - name: Clone Odoo source
+      git:
+        repo: "{{ odoo_repo }}"
+        dest: "{{ odoo_home }}/src/odoo"
+        version: "{{ odoo_branch }}"
+        depth: 1
+      become_user: "{{ odoo_user }}"
+
+    - name: Create Python venv for Odoo
+      command: "python3 -m venv {{ odoo_home }}/venv"
+      args:
+        creates: "{{ odoo_home }}/venv/bin/activate"
+
+    - name: Install Python dependencies
+      pip:
+        requirements: "{{ odoo_home }}/src/odoo/requirements.txt"
+        virtualenv: "{{ odoo_home }}/venv"
+        virtualenv_python: python3
+
+    - name: Render base Odoo config
+      template:
+        src: templates/odoo-base.conf.j2
+        dest: "{{ odoo_config_path }}"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Allow SSH
+      ufw:
+        rule: allow
+        port: "22"
+        proto: tcp
+
+    - name: Allow HTTP
+      ufw:
+        rule: allow
+        port: "80"
+        proto: tcp
+
+    - name: Allow HTTPS
+      ufw:
+        rule: allow
+        port: "443"
+        proto: tcp
+
+    - name: Enable UFW
+      ufw:
+        state: enabled
+
+    - name: Ensure nginx is running
+      systemd:
+        name: nginx
+        enabled: true
+        state: started
+
+    - name: Server bootstrap summary
+      debug:
+        msg:
+          - "Odoo {{ odoo_version }} base stack installed"
+          - "Config: {{ odoo_config_path }}"
+          - "DNS domain hint: {{ dns_domain if dns_domain else 'not set' }}"
