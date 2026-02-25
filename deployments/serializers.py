@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from deployments.models import Instance, OdooInstance, OdooServer, TerraformRun
+from deployments.models import Infrastructure, Instance, OdooInstance, OdooServer, TerraformRun
 
 
 class InstanceSerializer(serializers.ModelSerializer):
@@ -45,6 +45,7 @@ class OdooServerSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
+            "infrastructure",
             "odoo_version",
             "region",
             "size",
@@ -53,6 +54,11 @@ class OdooServerSerializer(serializers.ModelSerializer):
             "dns_domain",
             "firewall_configured",
             "status",
+            "max_instances",
+            "capacity_cpu_cores",
+            "capacity_ram_mb",
+            "min_port",
+            "max_port",
             "terraform_state_path",
             "provisioning_log",
             "created_at",
@@ -71,12 +77,30 @@ class OdooInstanceSerializer(serializers.ModelSerializer):
             "db_name",
             "domain",
             "http_port",
+            "requested_cpu_cores",
+            "requested_ram_mb",
             "systemd_service",
             "nginx_site",
             "ssl_enabled",
             "status",
             "provisioning_log",
             "server",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class InfrastructureSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Infrastructure
+        fields = [
+            "id",
+            "name",
+            "infra_type",
+            "external_server",
+            "cloud_account",
+            "is_connected",
+            "validation_log",
             "created_at",
             "updated_at",
         ]

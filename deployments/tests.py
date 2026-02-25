@@ -7,7 +7,7 @@ from django.urls import reverse
 from unittest.mock import patch
 
 from cloud.models import CloudAccount
-from deployments.models import Instance, OdooInstance, OdooServer, TerraformRun
+from deployments.models import Infrastructure, Instance, OdooInstance, OdooServer, TerraformRun
 from organizations.models import Organization, OrganizationMembership
 from subscriptions.models import Plan, Subscription
 
@@ -125,6 +125,13 @@ class OdooVersionedFlowTests(TestCase):
             encrypted_api_token="dummy",
             is_verified=True,
         )
+        cls.infrastructure = Infrastructure.objects.create(
+            organization=cls.org,
+            name="Managed DO Infra",
+            infra_type=Infrastructure.InfraType.MANAGED,
+            cloud_account=cls.account,
+            is_connected=True,
+        )
 
     def setUp(self):
         self.client.force_login(self.user)
@@ -138,7 +145,7 @@ class OdooVersionedFlowTests(TestCase):
             reverse("deployments:odoo-server-create"),
             data={
                 "name": "odoo19-prod",
-                "cloud_account": self.account.id,
+                "infrastructure_id": self.infrastructure.id,
                 "odoo_version": "19",
                 "region": "nyc3",
                 "size": "s-2vcpu-4gb",
@@ -154,13 +161,14 @@ class OdooVersionedFlowTests(TestCase):
     def test_create_odoo_instance_on_ready_server(self, mock_dispatch):
         server = OdooServer.objects.create(
             organization=self.org,
+            infrastructure=self.infrastructure,
             cloud_account=self.account,
             name="odoo18-prod",
             odoo_version="18",
             region="nyc3",
             size="s-2vcpu-4gb",
             ip_address="203.0.113.10",
-            status=OdooServer.Status.READY,
+            status=OdooServer.Status.PROVISIONED,
             created_by=self.user,
         )
         resp = self.client.post(
@@ -181,13 +189,14 @@ class OdooVersionedFlowTests(TestCase):
     def test_open_odoo_instance_console_ui(self):
         server = OdooServer.objects.create(
             organization=self.org,
+            infrastructure=self.infrastructure,
             cloud_account=self.account,
             name="odoo19-console",
             odoo_version="19",
             region="nyc3",
             size="s-2vcpu-4gb",
             ip_address="203.0.113.20",
-            status=OdooServer.Status.READY,
+            status=OdooServer.Status.PROVISIONED,
             created_by=self.user,
         )
         instance = OdooInstance.objects.create(
@@ -207,3 +216,21 @@ class OdooVersionedFlowTests(TestCase):
         self.assertContains(resp, "Development")
         self.assertContains(resp, "GitHistory")
         self.assertContains(resp, "Setting")
+
+    def test_infrastructure_delete_requires_force_if_servers_exist(self):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-del",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            status=OdooServer.Status.PROVISIONED,
+        )
+        resp = self.client.post(
+            reverse("deployments:infrastructure-delete", kwargs={"infrastructure_id": self.infrastructure.id}),
+            data={},
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertTrue(OdooServer.objects.filter(pk=server.pk).exists())

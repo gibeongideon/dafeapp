@@ -12,6 +12,11 @@ urlpatterns = [
     path("runs/<int:run_id>/", views.TerraformRunDetailAPIView.as_view(), name="run-detail"),
     path("odoo/servers/", views.OdooServerListAPIView.as_view(), name="odoo-server-list"),
     path("odoo/servers/create/", views.OdooServerCreateAPIView.as_view(), name="odoo-server-create"),
+    path("odoo/servers/<int:server_id>/delete/", views.OdooServerDeleteAPIView.as_view(), name="odoo-server-delete"),
     path("odoo/instances/", views.OdooInstanceListAPIView.as_view(), name="odoo-instance-list"),
     path("odoo/instances/create/", views.OdooInstanceCreateAPIView.as_view(), name="odoo-instance-create"),
+    path("odoo/instances/<int:instance_id>/delete/", views.OdooInstanceDeleteAPIView.as_view(), name="odoo-instance-delete"),
+    path("infrastructure/", views.InfrastructureListAPIView.as_view(), name="infrastructure-list"),
+    path("infrastructure/create/", views.InfrastructureCreateAPIView.as_view(), name="infrastructure-create"),
+    path("infrastructure/<int:infrastructure_id>/delete/", views.InfrastructureDeleteAPIView.as_view(), name="infrastructure-delete"),
 ]

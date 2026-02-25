@@ -9,8 +9,9 @@ from django.views.generic import TemplateView
 
 from cloud.models import CloudAccount
 from cloud.providers import get_provider
-from deployments.models import Instance, OdooInstance, OdooServer, TerraformRun
+from deployments.models import Infrastructure, Instance, OdooInstance, OdooServer, TerraformRun
 from deployments.serializers import (
+    InfrastructureSerializer,
     InstanceSerializer,
     OdooInstanceSerializer,
     OdooServerSerializer,
@@ -32,6 +33,34 @@ def _dispatch(task, *args):
         task(*args)
 
 
+def _active_instances_for_server(server: OdooServer):
+    return server.instances.exclude(status=OdooInstance.Status.DELETED)
+
+
+def _next_available_port(server: OdooServer) -> int | None:
+    used = set(
+        _active_instances_for_server(server).values_list("http_port", flat=True)
+    )
+    for port in range(server.min_port, server.max_port + 1):
+        if port not in used:
+            return port
+    return None
+
+
+def _capacity_check(server: OdooServer, cpu: int, ram_mb: int) -> tuple[bool, str]:
+    active = _active_instances_for_server(server)
+    count = active.count()
+    if count >= server.max_instances:
+        return False, f"Max instances per server reached ({count}/{server.max_instances})."
+    used_cpu = sum(active.values_list("requested_cpu_cores", flat=True))
+    used_ram = sum(active.values_list("requested_ram_mb", flat=True))
+    if used_cpu + cpu > server.capacity_cpu_cores:
+        return False, f"CPU capacity exceeded ({used_cpu + cpu}/{server.capacity_cpu_cores} cores)."
+    if used_ram + ram_mb > server.capacity_ram_mb:
+        return False, f"RAM capacity exceeded ({used_ram + ram_mb}/{server.capacity_ram_mb} MB)."
+    return True, ""
+
+
 class DeploymentCreateView(LoginRequiredMixin, TemplateView):
     template_name = "deployments/create_instance.html"
 
@@ -51,6 +80,17 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
         org = self.request.organization
         accounts = CloudAccount.objects.filter(organization=org, is_verified=True)
         ctx["accounts"] = accounts
+        from cloud.models import ExternalServer
+
+        ctx["external_servers"] = ExternalServer.objects.filter(
+            organization=org, is_verified=True
+        ).order_by("-created_at")
+        ctx["infrastructures"] = Infrastructure.objects.filter(
+            organization=org
+        ).select_related("cloud_account", "external_server")[:100]
+        ctx["odoo_servers"] = OdooServer.objects.filter(
+            organization=org
+        ).select_related("infrastructure", "cloud_account").order_by("-created_at")[:100]
         ctx["odoo_instances"] = (
             OdooInstance.objects.filter(organization=org)
             .select_related("server")
@@ -143,12 +183,15 @@ class OdooServerCreateAPIView(LoginRequiredMixin, View):
         if request.org_role not in ("SUPER_ADMIN", "ADMIN", "MANAGER"):
             return JsonResponse({"error": "Permission denied."}, status=403)
 
-        account = get_object_or_404(
-            CloudAccount,
-            pk=request.POST.get("cloud_account"),
+        infrastructure = get_object_or_404(
+            Infrastructure,
+            pk=request.POST.get("infrastructure_id"),
             organization=org,
-            is_verified=True,
         )
+        ok, err = infrastructure.validate_connection_target()
+        if not ok:
+            return JsonResponse({"error": err}, status=400)
+        account = infrastructure.managed_account
         odoo_version = (request.POST.get("odoo_version") or "").strip()
         if odoo_version not in ("18", "19"):
             return JsonResponse({"error": "odoo_version must be '18' or '19'."}, status=400)
@@ -162,6 +205,7 @@ class OdooServerCreateAPIView(LoginRequiredMixin, View):
 
         server = OdooServer.objects.create(
             organization=org,
+            infrastructure=infrastructure,
             cloud_account=account,
             name=name,
             odoo_version=odoo_version,
@@ -207,15 +251,31 @@ class OdooInstanceCreateAPIView(LoginRequiredMixin, View):
             pk=request.POST.get("server_id"),
             organization=org,
         )
-        if server.status != OdooServer.Status.READY:
-            return JsonResponse({"error": "Server is not READY yet."}, status=400)
+        if server.status != OdooServer.Status.PROVISIONED:
+            return JsonResponse({"error": "Server is not PROVISIONED yet."}, status=400)
 
         name = (request.POST.get("name") or "").strip()
         db_name = (request.POST.get("db_name") or "").strip()
         domain = (request.POST.get("domain") or "").strip()
-        port = int(request.POST.get("http_port") or 8069)
+        req_cpu = int(request.POST.get("requested_cpu_cores") or 1)
+        req_ram = int(request.POST.get("requested_ram_mb") or 1024)
+        port_raw = request.POST.get("http_port")
         if not name or not db_name:
             return JsonResponse({"error": "name and db_name are required."}, status=400)
+        if domain and OdooInstance.objects.filter(organization=org, domain=domain).exclude(status=OdooInstance.Status.DELETED).exists():
+            return JsonResponse({"error": "Domain is already used by another instance."}, status=400)
+
+        port = int(port_raw) if port_raw else _next_available_port(server)
+        if port is None:
+            return JsonResponse({"error": "No available port on this server."}, status=400)
+        if port < server.min_port or port > server.max_port:
+            return JsonResponse({"error": f"Port must be within {server.min_port}-{server.max_port}."}, status=400)
+        if _active_instances_for_server(server).filter(http_port=port).exists():
+            return JsonResponse({"error": "Selected port is already in use on this server."}, status=400)
+
+        ok, capacity_msg = _capacity_check(server, req_cpu, req_ram)
+        if not ok:
+            return JsonResponse({"error": capacity_msg}, status=400)
 
         inst = OdooInstance.objects.create(
             organization=org,
@@ -224,6 +284,8 @@ class OdooInstanceCreateAPIView(LoginRequiredMixin, View):
             db_name=db_name,
             domain=domain,
             http_port=port,
+            requested_cpu_cores=req_cpu,
+            requested_ram_mb=req_ram,
             created_by=request.user,
         )
         _dispatch(create_odoo_instance, inst.id)
@@ -272,10 +334,142 @@ class OdooInstanceConsoleView(LoginRequiredMixin, TemplateView):
             "GitHistory",
             "Shell",
             "Monitor",
-            "Logs",
-            "Backups",
+            "logs",
+            "backups",
             "Upgrade",
-            "Tools",
-            "Setting",
+            "tools",
+            "setting",
         ]
         return ctx
+
+
+class InfrastructureCreateAPIView(LoginRequiredMixin, View):
+    def post(self, request):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if request.org_role not in ("SUPER_ADMIN", "ADMIN"):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        name = (request.POST.get("name") or "").strip()
+        infra_type = (request.POST.get("infra_type") or "").strip()
+        if infra_type not in (Infrastructure.InfraType.PYOS, Infrastructure.InfraType.MANAGED):
+            return JsonResponse({"error": "infra_type must be PYOS or MANAGED."}, status=400)
+        if not name:
+            return JsonResponse({"error": "name is required."}, status=400)
+
+        ext = None
+        account = None
+        if infra_type == Infrastructure.InfraType.PYOS:
+            from cloud.models import ExternalServer
+            ext = get_object_or_404(ExternalServer, pk=request.POST.get("external_server_id"), organization=org)
+            if not ext.is_verified:
+                return JsonResponse({"error": "PYOS infrastructure requires a verified external server."}, status=400)
+        else:
+            account = get_object_or_404(CloudAccount, pk=request.POST.get("cloud_account_id"), organization=org, is_verified=True)
+
+        infra = Infrastructure.objects.create(
+            organization=org,
+            name=name,
+            infra_type=infra_type,
+            external_server=ext,
+            cloud_account=account,
+            is_connected=True,
+            validation_log="Validated at creation.",
+            created_by=request.user,
+        )
+        ok, err = infra.validate_connection_target()
+        if not ok:
+            infra.delete()
+            return JsonResponse({"error": err}, status=400)
+        return JsonResponse(InfrastructureSerializer(infra).data, status=201)
+
+
+class InfrastructureListAPIView(LoginRequiredMixin, View):
+    def get(self, request):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        data = InfrastructureSerializer(
+            Infrastructure.objects.filter(organization=org)[:100], many=True
+        ).data
+        return JsonResponse({"results": data})
+
+
+class OdooInstanceDeleteAPIView(LoginRequiredMixin, View):
+    def post(self, request, instance_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if request.org_role not in ("SUPER_ADMIN", "ADMIN", "MANAGER"):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+        instance = get_object_or_404(OdooInstance, pk=instance_id, organization=org)
+        if instance.status == OdooInstance.Status.DELETED:
+            return JsonResponse({"ok": True, "message": "Instance already deleted."})
+        instance.status = OdooInstance.Status.DELETED
+        instance.provisioning_log = (instance.provisioning_log + "\n" + "Container stopped and removed (placeholder).").strip()
+        instance.save(update_fields=["status", "provisioning_log", "updated_at"])
+        return JsonResponse({"ok": True, "message": "Instance deleted and port freed."})
+
+
+class OdooServerDeleteAPIView(LoginRequiredMixin, View):
+    def post(self, request, server_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if request.org_role not in ("SUPER_ADMIN", "ADMIN"):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        server = get_object_or_404(
+            OdooServer.objects.select_related("infrastructure", "cloud_account"),
+            pk=server_id,
+            organization=org,
+        )
+        for inst in server.instances.exclude(status=OdooInstance.Status.DELETED):
+            inst.status = OdooInstance.Status.DELETED
+            inst.provisioning_log = (inst.provisioning_log + "\n" + "Deleted due to server deletion.").strip()
+            inst.save(update_fields=["status", "provisioning_log", "updated_at"])
+
+        infra_type = server.infrastructure.infra_type if server.infrastructure else (
+            Infrastructure.InfraType.MANAGED if server.cloud_account else Infrastructure.InfraType.PYOS
+        )
+        if infra_type == Infrastructure.InfraType.MANAGED and server.provider_server_id and server.cloud_account:
+            try:
+                provider = get_provider(server.cloud_account)
+                provider.destroy_server(server.provider_server_id)
+            except Exception:
+                pass
+
+        server.status = OdooServer.Status.DELETED
+        server.provisioning_log = (server.provisioning_log + "\n" + "Server deleted.").strip()
+        server.save(update_fields=["status", "provisioning_log", "updated_at"])
+        return JsonResponse({"ok": True, "message": "Server and child instances deleted."})
+
+
+class InfrastructureDeleteAPIView(LoginRequiredMixin, View):
+    def post(self, request, infrastructure_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if request.org_role not in ("SUPER_ADMIN", "ADMIN"):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        force = str(request.POST.get("force", "")).lower() in ("1", "true", "yes")
+        infra = get_object_or_404(Infrastructure, pk=infrastructure_id, organization=org)
+        servers = infra.servers.exclude(status=OdooServer.Status.DELETED)
+        if servers.exists() and not force:
+            return JsonResponse(
+                {"error": "Infrastructure has servers. Set force=true to delete recursively."},
+                status=400,
+            )
+        if force:
+            for server in servers:
+                for inst in server.instances.exclude(status=OdooInstance.Status.DELETED):
+                    inst.status = OdooInstance.Status.DELETED
+                    inst.provisioning_log = (inst.provisioning_log + "\n" + "Deleted due to infrastructure force delete.").strip()
+                    inst.save(update_fields=["status", "provisioning_log", "updated_at"])
+                server.status = OdooServer.Status.DELETED
+                server.provisioning_log = (server.provisioning_log + "\n" + "Deleted due to infrastructure force delete.").strip()
+                server.save(update_fields=["status", "provisioning_log", "updated_at"])
+        infra.delete()
+        return JsonResponse({"ok": True, "message": "Infrastructure deleted."})

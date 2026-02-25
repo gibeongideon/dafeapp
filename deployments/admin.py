@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from deployments.models import Instance, OdooInstance, OdooServer, TerraformRun
+from deployments.models import Infrastructure, Instance, OdooInstance, OdooServer, TerraformRun
 
 
 @admin.register(Instance)
@@ -31,6 +31,7 @@ class OdooServerAdmin(admin.ModelAdmin):
     list_display = [
         "name",
         "organization",
+        "infrastructure",
         "odoo_version",
         "cloud_account",
         "region",
@@ -56,3 +57,18 @@ class OdooInstanceAdmin(admin.ModelAdmin):
     ]
     list_filter = ["status", "ssl_enabled"]
     search_fields = ["name", "db_name", "domain", "organization__name", "server__name"]
+
+
+@admin.register(Infrastructure)
+class InfrastructureAdmin(admin.ModelAdmin):
+    list_display = [
+        "name",
+        "organization",
+        "infra_type",
+        "external_server",
+        "cloud_account",
+        "is_connected",
+        "created_at",
+    ]
+    list_filter = ["infra_type", "is_connected"]
+    search_fields = ["name", "organization__name"]

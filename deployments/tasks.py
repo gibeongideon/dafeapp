@@ -16,7 +16,7 @@ from django.utils import timezone
 from audit.models import AuditLog
 from cloud.providers import get_provider
 from core.utils import log_audit
-from deployments.models import Instance, OdooInstance, OdooServer, TerraformRun
+from deployments.models import Infrastructure, Instance, OdooInstance, OdooServer, TerraformRun
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +173,8 @@ def _provider_native_provision(instance: Instance, run: TerraformRun) -> tuple[b
 
 
 def _provider_native_provision_server(server: OdooServer) -> tuple[bool, str, str, str]:
+    if not server.cloud_account:
+        return False, "", "", "Infrastructure has no managed cloud account."
     provider = get_provider(server.cloud_account)
     created = provider.create_server(name=server.name, region=server.region, size=server.size)
     provider_id = str(created.get("id") or "")
@@ -346,11 +348,51 @@ def terraform_apply_instance(self, run_id: int):
 
 @shared_task(bind=True, max_retries=0)
 def provision_odoo_server(self, server_id: int):
-    server = OdooServer.objects.select_related("organization", "cloud_account").get(pk=server_id)
+    server = OdooServer.objects.select_related(
+        "organization",
+        "cloud_account",
+        "infrastructure",
+        "infrastructure__cloud_account",
+        "infrastructure__external_server",
+    ).get(pk=server_id)
     org = server.organization
 
     server.status = OdooServer.Status.PROVISIONING
     server.save(update_fields=["status", "updated_at"])
+
+    infra = server.infrastructure
+    if not infra:
+        server.status = OdooServer.Status.FAILED
+        server.provisioning_log = _append_text(server.provisioning_log, "Server is missing infrastructure.")
+        server.save(update_fields=["status", "provisioning_log", "updated_at"])
+        return
+
+    ok, err = infra.validate_connection_target()
+    if not ok:
+        server.status = OdooServer.Status.FAILED
+        server.provisioning_log = _append_text(server.provisioning_log, err)
+        server.save(update_fields=["status", "provisioning_log", "updated_at"])
+        return
+
+    managed_account = server.effective_cloud_account
+    if managed_account and not server.cloud_account_id:
+        server.cloud_account = managed_account
+        server.save(update_fields=["cloud_account"])
+
+    if infra.infra_type == Infrastructure.InfraType.PYOS:
+        ext = infra.external_server
+        server.ip_address = ext.host
+        server.firewall_configured = True
+        server.provisioning_log = _append_text(
+            server.provisioning_log,
+            "Using PYOS infrastructure connection. Compute already exists; proceeding to configuration.",
+        )
+        server.status = OdooServer.Status.CONFIGURING
+        server.save(
+            update_fields=["ip_address", "firewall_configured", "provisioning_log", "status", "updated_at"]
+        )
+        _queue_or_run(configure_odoo_server, server.id)
+        return
 
     state_root = Path(settings.BASE_DIR) / ".terraform_state" / f"org_{org.id}" / f"odoo_server_{server.id}"
     state_root.mkdir(parents=True, exist_ok=True)
@@ -362,7 +404,7 @@ def provision_odoo_server(self, server_id: int):
         "name": server.name,
         "region": server.region,
         "size": server.size,
-        "provider": server.cloud_account.provider,
+        "provider": managed_account.provider if managed_account else "",
         "organization_id": org.id,
         "odoo_version": server.odoo_version,
     }
@@ -371,7 +413,7 @@ def provision_odoo_server(self, server_id: int):
     server.terraform_state_path = str(module_dir / "terraform.tfstate")
     server.save(update_fields=["terraform_state_path"])
 
-    tf_env = _terraform_provider_env(server.cloud_account, server.region)
+    tf_env = _terraform_provider_env(managed_account, server.region)
 
     if (module_dir / "main.tf").exists():
         code, out, err = _run_cmd(["terraform", f"-chdir={module_dir}", "init", "-input=false"], module_dir, extra_env=tf_env)
@@ -462,10 +504,10 @@ def configure_odoo_server(self, server_id: int):
 
     playbook = os.getenv("ANSIBLE_ODOO_SERVER_PLAYBOOK", "").strip()
     if not playbook:
-        server.status = OdooServer.Status.READY
+        server.status = OdooServer.Status.PROVISIONED
         server.provisioning_log = _append_text(
             server.provisioning_log,
-            "ANSIBLE_ODOO_SERVER_PLAYBOOK not set. Marked READY without server bootstrap.",
+            "ANSIBLE_ODOO_SERVER_PLAYBOOK not set. Marked PROVISIONED without server bootstrap.",
         )
         server.save(update_fields=["status", "provisioning_log", "updated_at"])
         return
@@ -480,7 +522,7 @@ def configure_odoo_server(self, server_id: int):
         },
     )
     server.provisioning_log = _append_text(server.provisioning_log, f"[ansible server]\n{log_blob}".strip())
-    server.status = OdooServer.Status.READY if ok else OdooServer.Status.FAILED
+    server.status = OdooServer.Status.PROVISIONED if ok else OdooServer.Status.FAILED
     server.save(update_fields=["status", "provisioning_log", "updated_at"])
 
     log_audit(
@@ -497,7 +539,7 @@ def configure_odoo_server(self, server_id: int):
 def create_odoo_instance(self, instance_id: int):
     instance = OdooInstance.objects.select_related("organization", "server").get(pk=instance_id)
     server = instance.server
-    if server.status != OdooServer.Status.READY or not server.ip_address:
+    if server.status != OdooServer.Status.PROVISIONED or not server.ip_address:
         instance.status = OdooInstance.Status.FAILED
         instance.provisioning_log = "Server is not ready for instance creation."
         instance.save(update_fields=["status", "provisioning_log", "updated_at"])

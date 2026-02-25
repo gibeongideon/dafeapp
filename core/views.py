@@ -146,6 +146,37 @@ class AuditLogView(LoginRequiredMixin, TemplateView):
         return ctx
 
 
+class ConnectionsView(LoginRequiredMixin, TemplateView):
+    """
+    Unified connection hub (VCS + Cloud/PYOS connection management).
+    """
+    template_name = "dashboard/connections.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        resp = super().dispatch(request, *args, **kwargs)
+        if not request.user.is_authenticated:
+            return resp
+        if not request.organization:
+            return redirect("organizations:select")
+        if request.org_role not in ("SUPER_ADMIN", "ADMIN"):
+            messages.error(request, "Access denied.")
+            return redirect("core:dashboard")
+        return resp
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        from users.models import VCSAccount
+
+        connected = set(
+            VCSAccount.objects.filter(user=self.request.user, is_active=True)
+            .values_list("provider", flat=True)
+        )
+        ctx["github_connected"] = "github" in connected
+        ctx["gitlab_connected"] = "gitlab" in connected
+        ctx["can_manage_cloud"] = getattr(self.request, "org_role", None) == "SUPER_ADMIN"
+        return ctx
+
+
 class VCSManagementView(LoginRequiredMixin, TemplateView):
     """
     Dashboard page for managing connected VCS (GitHub/GitLab) accounts.
