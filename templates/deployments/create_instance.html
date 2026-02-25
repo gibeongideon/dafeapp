@@ -75,6 +75,44 @@
       </tbody>
     </table>
   </div>
+
+  <div class="bg-white border border-gray-200 rounded-xl overflow-hidden">
+    <div class="px-5 py-3 border-b border-gray-100">
+      <h3 class="text-sm font-semibold text-gray-900">Odoo Instances</h3>
+    </div>
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="bg-gray-50 border-b border-gray-100">
+          <th class="text-left px-5 py-3 text-xs text-gray-500 uppercase">Instance</th>
+          <th class="text-left px-5 py-3 text-xs text-gray-500 uppercase">Server</th>
+          <th class="text-left px-5 py-3 text-xs text-gray-500 uppercase">Version</th>
+          <th class="text-left px-5 py-3 text-xs text-gray-500 uppercase">Status</th>
+          <th class="text-right px-5 py-3 text-xs text-gray-500 uppercase">Open</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100">
+        {% for oi in odoo_instances %}
+        <tr>
+          <td class="px-5 py-3">
+            <div class="font-medium text-gray-900">{{ oi.name }}</div>
+            <div class="text-xs text-gray-500">{{ oi.db_name }}</div>
+          </td>
+          <td class="px-5 py-3 text-gray-700">{{ oi.server.name }}</td>
+          <td class="px-5 py-3 text-gray-700">Odoo {{ oi.server.odoo_version }}</td>
+          <td class="px-5 py-3 text-gray-700">{{ oi.get_status_display }}</td>
+          <td class="px-5 py-3 text-right">
+            <a href="{% url 'deployments_ui:odoo-instance-console' oi.id %}"
+               class="inline-flex items-center px-3 py-1.5 text-xs font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700 transition-colors">
+              Open
+            </a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="px-5 py-6 text-sm text-gray-400">No Odoo instances yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
 
 <script>

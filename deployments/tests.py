@@ -177,3 +177,33 @@ class OdooVersionedFlowTests(TestCase):
         obj = OdooInstance.objects.get(server=server, db_name="sales_db")
         self.assertEqual(obj.http_port, 8071)
         mock_dispatch.assert_called_once()
+
+    def test_open_odoo_instance_console_ui(self):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            cloud_account=self.account,
+            name="odoo19-console",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            ip_address="203.0.113.20",
+            status=OdooServer.Status.READY,
+            created_by=self.user,
+        )
+        instance = OdooInstance.objects.create(
+            organization=self.org,
+            server=server,
+            name="inventory",
+            db_name="inventory_db",
+            status=OdooInstance.Status.RUNNING,
+            created_by=self.user,
+        )
+        resp = self.client.get(
+            reverse("deployments_ui:odoo-instance-console", kwargs={"instance_id": instance.id})
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Production")
+        self.assertContains(resp, "Staging")
+        self.assertContains(resp, "Development")
+        self.assertContains(resp, "GitHistory")
+        self.assertContains(resp, "Setting")

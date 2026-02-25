@@ -51,6 +51,11 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
         org = self.request.organization
         accounts = CloudAccount.objects.filter(organization=org, is_verified=True)
         ctx["accounts"] = accounts
+        ctx["odoo_instances"] = (
+            OdooInstance.objects.filter(organization=org)
+            .select_related("server")
+            .order_by("-created_at")[:20]
+        )
         ctx["recent_runs"] = TerraformRun.objects.filter(
             instance__organization=org
         ).select_related("instance")[:15]
@@ -236,3 +241,41 @@ class OdooInstanceListAPIView(LoginRequiredMixin, View):
             qs = qs.filter(server_id=server_id)
         data = OdooInstanceSerializer(qs[:200], many=True).data
         return JsonResponse({"results": data})
+
+
+class OdooInstanceConsoleView(LoginRequiredMixin, TemplateView):
+    template_name = "deployments/odoo_instance_console.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        resp = super().dispatch(request, *args, **kwargs)
+        if not request.user.is_authenticated:
+            return resp
+        if not getattr(request, "organization", None):
+            return redirect("organizations:select")
+        if request.org_role not in ("SUPER_ADMIN", "ADMIN", "MANAGER", "USER"):
+            messages.error(request, "You do not have permission to open this instance.")
+            return redirect("core:dashboard")
+        return resp
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        org = self.request.organization
+        instance = get_object_or_404(
+            OdooInstance.objects.select_related("server"),
+            pk=self.kwargs["instance_id"],
+            organization=org,
+        )
+        ctx["odoo_instance"] = instance
+        ctx["odoo_server"] = instance.server
+        ctx["env_sections"] = ["Production", "Staging", "Development"]
+        ctx["tool_tabs"] = [
+            "GitHistory",
+            "Shell",
+            "Monitor",
+            "Logs",
+            "Backups",
+            "Upgrade",
+            "Tools",
+            "Setting",
+        ]
+        return ctx
