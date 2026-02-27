@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}
+{% if process == "connect" %}{% trans "Connect Account" %}{% else %}{% trans "Sign In" %}{% endif %}
+{% endblock %}
+
+{% block body %}
+<main class="min-h-screen flex items-center justify-center px-4 py-10 bg-gray-50">
+  <section class="w-full max-w-md bg-white border border-gray-200 rounded-2xl shadow-sm p-7">
+    <div class="space-y-2">
+      {% if process == "connect" %}
+      <h1 class="text-xl font-semibold text-gray-900">
+        {% blocktrans with provider.name as provider %}Connect {{ provider }}{% endblocktrans %}
+      </h1>
+      <p class="text-sm text-gray-600">
+        {% blocktrans with provider.name as provider %}You are about to connect your {{ provider }} account to DafeApp.{% endblocktrans %}
+      </p>
+      {% else %}
+      <h1 class="text-xl font-semibold text-gray-900">
+        {% blocktrans with provider.name as provider %}Sign in with {{ provider }}{% endblocktrans %}
+      </h1>
+      <p class="text-sm text-gray-600">
+        {% blocktrans with provider.name as provider %}Continue to sign in using your {{ provider }} account.{% endblocktrans %}
+      </p>
+      {% endif %}
+    </div>
+
+    <form method="post" class="mt-6 space-y-3">
+      {% csrf_token %}
+      {% if redirect_field_value %}
+      <input type="hidden" name="{{ redirect_field_name }}" value="{{ redirect_field_value }}">
+      {% endif %}
+      <button type="submit"
+              class="w-full inline-flex justify-center items-center px-4 py-2.5 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700 transition-colors">
+        {% trans "Continue" %}
+      </button>
+      <a href="{% if process == 'connect' %}{% url 'core:connections' %}{% else %}{% url 'users:login' %}{% endif %}"
+         class="w-full inline-flex justify-center items-center px-4 py-2.5 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors">
+        {% trans "Cancel" %}
+      </a>
+    </form>
+  </section>
+</main>
+{% endblock %}
