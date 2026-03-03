@@ -70,7 +70,7 @@ class AWSProvider(AbstractCloudProvider):
         except Exception as exc:
             return False, f"AWS credential validation failed: {exc}"
 
-    def create_server(self, name: str, region: str, size: str) -> dict:
+    def create_server(self, name: str, region: str, size: str, ssh_key_ids: list | None = None) -> dict:
         image_id = os.getenv("AWS_DEFAULT_AMI_ID", "ami-0fc5d935ebf8bc3bc")
         ec2 = self._ec2(region)
         resp = ec2.run_instances(

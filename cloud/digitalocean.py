@@ -85,7 +85,21 @@ class DigitalOceanProvider(AbstractCloudProvider):
         except requests.RequestException as exc:
             return False, f"Network error: {exc}"
 
-    def create_server(self, name: str, region: str, size: str) -> dict:
+    def list_ssh_keys(self) -> list[str]:
+        """GET /v2/account/keys — return fingerprints of all SSH keys in the DO account."""
+        try:
+            resp = self._session.get(f"{API_BASE}/account/keys", timeout=10)
+            resp.raise_for_status()
+            return [
+                key["fingerprint"]
+                for key in resp.json().get("ssh_keys", [])
+                if key.get("fingerprint")
+            ]
+        except requests.RequestException as exc:
+            logger.warning("DO list_ssh_keys failed: %s", exc)
+            return []
+
+    def create_server(self, name: str, region: str, size: str, ssh_key_ids: list | None = None) -> dict:
         """POST /v2/droplets — ubuntu-24-04-x64 (required by odoo_install.sh), returns droplet dict."""
         payload = {
             "name": name,
@@ -96,6 +110,8 @@ class DigitalOceanProvider(AbstractCloudProvider):
             "ipv6": False,
             "monitoring": True,
         }
+        if ssh_key_ids:
+            payload["ssh_keys"] = ssh_key_ids
         try:
             resp = self._session.post(f"{API_BASE}/droplets", json=payload, timeout=30)
             resp.raise_for_status()

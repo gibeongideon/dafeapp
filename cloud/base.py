@@ -16,9 +16,10 @@ class AbstractCloudProvider(ABC):
         """
 
     @abstractmethod
-    def create_server(self, name: str, region: str, size: str) -> dict:
+    def create_server(self, name: str, region: str, size: str, ssh_key_ids: list | None = None) -> dict:
         """
         Provision a new server.
+        ssh_key_ids: provider SSH key IDs/fingerprints to inject into the server.
         Returns a provider-specific dict containing at minimum 'id'.
         """
 
@@ -53,4 +54,8 @@ class AbstractCloudProvider(ABC):
 
     def list_sizes(self, region: str = "") -> list[tuple[str, str]]:
         """Return provider instance sizes as (value, label) tuples."""
+        return []
+
+    def list_ssh_keys(self) -> list[str]:
+        """Return provider SSH key IDs/fingerprints registered in the account."""
         return []

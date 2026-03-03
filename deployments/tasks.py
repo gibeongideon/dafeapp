@@ -154,7 +154,8 @@ def _provider_native_provision(instance: Instance, run: TerraformRun) -> tuple[b
         return False, "", "No cloud account set on instance."
 
     provider = get_provider(account)
-    created = provider.create_server(name=instance.name, region=instance.region, size=instance.size)
+    ssh_key_ids = provider.list_ssh_keys() or None
+    created = provider.create_server(name=instance.name, region=instance.region, size=instance.size, ssh_key_ids=ssh_key_ids)
     provider_id = str(created.get("id") or "")
     if not provider_id:
         return False, "", "Provider did not return a server id."
@@ -176,7 +177,14 @@ def _provider_native_provision_server(server: OdooServer) -> tuple[bool, str, st
     if not server.cloud_account:
         return False, "", "", "Infrastructure has no managed cloud account."
     provider = get_provider(server.cloud_account)
-    created = provider.create_server(name=server.name, region=server.region, size=server.size)
+    ssh_key_ids = provider.list_ssh_keys()
+    if not ssh_key_ids:
+        logger.warning(
+            "No SSH keys found in cloud account '%s'. "
+            "Add an SSH key to your DigitalOcean account so Ansible can connect.",
+            server.cloud_account.name,
+        )
+    created = provider.create_server(name=server.name, region=server.region, size=server.size, ssh_key_ids=ssh_key_ids or None)
     provider_id = str(created.get("id") or "")
     if not provider_id:
         return False, "", "", "Provider did not return a server id."
@@ -201,10 +209,27 @@ def _queue_or_run(task, *args):
 
 
 def _run_ansible_playbook(playbook: str, ip: str, extra_vars: dict) -> tuple[bool, str]:
-    args = ["ansible-playbook", playbook, "-i", f"{ip},"]
+    ssh_user = os.getenv("ANSIBLE_SSH_USER", "root").strip()
+    ssh_key = os.getenv("ANSIBLE_SSH_KEY_PATH", "").strip()
+
+    args = [
+        "ansible-playbook", playbook,
+        "-i", f"{ip},",
+        "--user", ssh_user,
+        # Disable host-key checking for freshly provisioned servers
+        "--ssh-extra-args", "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+    ]
+    if ssh_key:
+        args.extend(["--private-key", ssh_key])
+
     for key, value in extra_vars.items():
         args.extend(["-e", f"{key}={value}"])
-    code, out, err = _run_cmd(args, Path(settings.BASE_DIR))
+
+    code, out, err = _run_cmd(
+        args,
+        Path(settings.BASE_DIR),
+        extra_env={"ANSIBLE_HOST_KEY_CHECKING": "False"},
+    )
     log_blob = _append_text(out.strip(), err.strip())
     return code == 0, log_blob
 
