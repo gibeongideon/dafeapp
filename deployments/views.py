@@ -193,8 +193,8 @@ class OdooServerCreateAPIView(LoginRequiredMixin, View):
             return JsonResponse({"error": err}, status=400)
         account = infrastructure.managed_account
         odoo_version = (request.POST.get("odoo_version") or "").strip()
-        if odoo_version not in ("18", "19"):
-            return JsonResponse({"error": "odoo_version must be '18' or '19'."}, status=400)
+        if odoo_version not in ("17", "18", "19"):
+            return JsonResponse({"error": "odoo_version must be '17', '18', or '19'."}, status=400)
 
         name = (request.POST.get("name") or "").strip()
         region = (request.POST.get("region") or "").strip()
@@ -225,7 +225,7 @@ class OdooServerListAPIView(LoginRequiredMixin, View):
             return JsonResponse({"error": "No active organization."}, status=400)
         version = (request.GET.get("odoo_version") or "").strip()
         qs = OdooServer.objects.filter(organization=org)
-        if version in ("18", "19"):
+        if version in ("17", "18", "19"):
             qs = qs.filter(odoo_version=version)
         data = OdooServerSerializer(qs[:100], many=True).data
         return JsonResponse({"results": data})

@@ -11,4 +11,5 @@ urlpatterns = [
     path("users/", views.UserManagementView.as_view(), name="users"),
     path("audit/", views.AuditLogView.as_view(), name="audit"),
     path("vcs/", views.VCSManagementView.as_view(), name="vcs"),
+    path("docs/installation/", views.InstallationDocsView.as_view(), name="docs-installation"),
 ]

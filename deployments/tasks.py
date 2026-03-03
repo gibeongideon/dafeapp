@@ -512,14 +512,24 @@ def configure_odoo_server(self, server_id: int):
         server.save(update_fields=["status", "provisioning_log", "updated_at"])
         return
 
+    # Build extra-vars for the playbook.
+    # setup_odoo_server_bare.yml needs dns_domain → website_name mapping and
+    # an admin_email for certbot. The original setup_odoo_server.yml only uses
+    # odoo_version / server_name / dns_domain, so the extra keys are ignored.
+    admin_email = os.getenv("ODOO_ADMIN_EMAIL", "odoo@example.com").strip()
+    extra_vars = {
+        "odoo_version": server.odoo_version,
+        "server_name": server.name,
+        "dns_domain": server.dns_domain,
+        # Bare-metal playbook extras:
+        "website_name": server.dns_domain if server.dns_domain else "_",
+        "admin_email": admin_email,
+    }
+
     ok, log_blob = _run_ansible_playbook(
         playbook,
         str(server.ip_address),
-        {
-            "odoo_version": server.odoo_version,
-            "server_name": server.name,
-            "dns_domain": server.dns_domain,
-        },
+        extra_vars,
     )
     server.provisioning_log = _append_text(server.provisioning_log, f"[ansible server]\n{log_blob}".strip())
     server.status = OdooServer.Status.PROVISIONED if ok else OdooServer.Status.FAILED

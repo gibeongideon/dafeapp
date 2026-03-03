@@ -1,0 +1,515 @@
+{% extends "dashboard/layout.html" %}
+{% block title %}Installation Guide{% endblock %}
+{% block page_title %}Odoo Installation Guide{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-8" x-data="{ tab: 'overview' }">
+
+  <!-- ── Page header ─────────────────────────────────────────────────── -->
+  <div class="bg-white rounded-xl border border-gray-200 p-6">
+    <div class="flex items-start gap-4">
+      <div class="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center shrink-0">
+        <svg class="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+        </svg>
+      </div>
+      <div>
+        <h2 class="text-xl font-bold text-gray-900">Odoo Server Installation</h2>
+        <p class="text-gray-500 mt-1 text-sm">
+          Deploy Odoo directly on Ubuntu 22.04 / 24.04 via SSH —
+          works with DigitalOcean Droplets, AWS EC2, and any PYOS server added to DafeApp.
+        </p>
+        <div class="flex flex-wrap gap-2 mt-3">
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
+            <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>Bare-metal (Ubuntu)
+          </span>
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+            <span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span>DigitalOcean
+          </span>
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-700">
+            <span class="w-1.5 h-1.5 rounded-full bg-orange-500"></span>AWS EC2
+          </span>
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-700">
+            <span class="w-1.5 h-1.5 rounded-full bg-purple-500"></span>Odoo 18 / 19
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Tab bar ──────────────────────────────────────────────────────── -->
+  <div class="flex gap-1 bg-gray-100 p-1 rounded-xl w-full overflow-x-auto">
+    {% for t in tabs %}
+    <button @click="tab = '{{ t.id }}'"
+            :class="tab === '{{ t.id }}' ? 'bg-white shadow text-blue-600 font-semibold' : 'text-gray-600 hover:text-gray-900'"
+            class="px-4 py-2 rounded-lg text-sm transition whitespace-nowrap">
+      {{ t.label }}
+    </button>
+    {% endfor %}
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       TAB: Overview
+  ════════════════════════════════════════════════════════════════════ -->
+  <div x-show="tab === 'overview'" x-transition>
+    <div class="grid md:grid-cols-2 gap-6">
+
+      <!-- Path A -->
+      <div class="bg-white rounded-xl border border-gray-200 p-6">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-9 h-9 bg-blue-100 rounded-lg flex items-center justify-center">
+            <svg class="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+            </svg>
+          </div>
+          <h3 class="font-semibold text-gray-900">Path A — Via DafeApp UI</h3>
+        </div>
+        <p class="text-sm text-gray-600 mb-4">
+          DafeApp provisions the server (Terraform) and bootstraps Odoo (Ansible) automatically.
+          Best for managed cloud accounts on DigitalOcean or AWS.
+        </p>
+        <ol class="space-y-2 text-sm text-gray-700">
+          <li class="flex gap-2"><span class="text-blue-500 font-bold shrink-0">1.</span>Add a Cloud Account (DO or AWS) under Connections.</li>
+          <li class="flex gap-2"><span class="text-blue-500 font-bold shrink-0">2.</span>Create an Infrastructure record (type: Managed).</li>
+          <li class="flex gap-2"><span class="text-blue-500 font-bold shrink-0">3.</span>Create an Odoo Server — DafeApp runs Terraform + Ansible.</li>
+          <li class="flex gap-2"><span class="text-blue-500 font-bold shrink-0">4.</span>Add Odoo Instances to the provisioned server.</li>
+        </ol>
+        <a href="{% url 'deployments_ui:create-instance' %}"
+           class="mt-4 inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 hover:underline">
+          Go to Servers &rarr;
+        </a>
+      </div>
+
+      <!-- Path B -->
+      <div class="bg-white rounded-xl border border-gray-200 p-6">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-9 h-9 bg-slate-100 rounded-lg flex items-center justify-center">
+            <svg class="w-5 h-5 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+            </svg>
+          </div>
+          <h3 class="font-semibold text-gray-900">Path B — Manual CLI (SSH)</h3>
+        </div>
+        <p class="text-sm text-gray-600 mb-4">
+          Use <code class="bg-gray-100 px-1.5 py-0.5 rounded text-xs font-mono">scripts/deploy_bare.sh</code>
+          to deploy Odoo directly to any SSH-accessible server in one command.
+          Ideal for PYOS / bring-your-own servers.
+        </p>
+        <ol class="space-y-2 text-sm text-gray-700">
+          <li class="flex gap-2"><span class="text-slate-500 font-bold shrink-0">1.</span>Spin up an Ubuntu 22.04 or 24.04 server.</li>
+          <li class="flex gap-2"><span class="text-slate-500 font-bold shrink-0">2.</span>Run <code class="bg-gray-100 px-1 rounded text-xs font-mono">deploy_bare.sh --ip &lt;IP&gt; --key &lt;KEY&gt;</code>.</li>
+          <li class="flex gap-2"><span class="text-slate-500 font-bold shrink-0">3.</span>Optionally add the server to DafeApp as a PYOS External Server.</li>
+        </ol>
+        <button @click="tab = 'manual'" class="mt-4 inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:underline">
+          See manual guide &rarr;
+        </button>
+      </div>
+    </div>
+
+    <!-- Architecture diagram (text) -->
+    <div class="bg-slate-900 rounded-xl p-6 mt-6">
+      <p class="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-4">Provisioning Flow</p>
+      <pre class="text-green-400 text-xs font-mono leading-6 overflow-x-auto">
+DafeApp UI
+  └─ POST /api/deployments/odoo-servers/
+       └─ provision_odoo_server (Celery task)
+            ├─ PYOS infrastructure
+            │    └─ configure_odoo_server
+            │         └─ Ansible: setup_odoo_server_bare.yml
+            │              └─ uploads InstallScript/odoo_install.sh
+            │                   └─ Odoo 18 / 19 running on :8069
+            │
+            └─ MANAGED infrastructure (DO / AWS)
+                 └─ Terraform: infra/terraform/odoo_server/
+                 │    ├─ digitalocean_droplet  (DigitalOcean)
+                 │    └─ aws_instance          (AWS EC2)
+                 └─ configure_odoo_server
+                      └─ Ansible: setup_odoo_server_bare.yml
+                           └─ Odoo 18 / 19 running on :8069</pre>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       TAB: Prerequisites
+  ════════════════════════════════════════════════════════════════════ -->
+  <div x-show="tab === 'prerequisites'" x-transition>
+    <div class="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
+
+      <!-- Server -->
+      <div class="p-6">
+        <h3 class="font-semibold text-gray-900 mb-3">Remote Server</h3>
+        <div class="grid sm:grid-cols-2 gap-4 text-sm">
+          <div class="space-y-2">
+            <p class="font-medium text-gray-700">Operating system</p>
+            <ul class="space-y-1 text-gray-600">
+              <li class="flex items-center gap-2"><span class="text-green-500">&#10003;</span>Ubuntu 24.04 LTS (recommended)</li>
+              <li class="flex items-center gap-2"><span class="text-green-500">&#10003;</span>Ubuntu 22.04 LTS</li>
+              <li class="flex items-center gap-2"><span class="text-red-400">&#10007;</span>Ubuntu 20.04 (unsupported)</li>
+              <li class="flex items-center gap-2"><span class="text-red-400">&#10007;</span>Debian / CentOS (use debian script instead)</li>
+            </ul>
+          </div>
+          <div class="space-y-2">
+            <p class="font-medium text-gray-700">Minimum resources</p>
+            <ul class="space-y-1 text-gray-600">
+              <li class="flex items-center gap-2"><span class="text-blue-400">&#9656;</span>2 vCPU (4 recommended)</li>
+              <li class="flex items-center gap-2"><span class="text-blue-400">&#9656;</span>2 GB RAM minimum (4 GB recommended)</li>
+              <li class="flex items-center gap-2"><span class="text-blue-400">&#9656;</span>30 GB disk (SSD preferred)</li>
+              <li class="flex items-center gap-2"><span class="text-blue-400">&#9656;</span>Ports open: 22 (SSH), 80, 443, 8069</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- Local machine -->
+      <div class="p-6">
+        <h3 class="font-semibold text-gray-900 mb-3">Local Machine (for CLI path)</h3>
+        <div class="grid sm:grid-cols-3 gap-4 text-sm text-gray-600">
+          <div class="bg-gray-50 rounded-lg p-3">
+            <p class="font-medium text-gray-700 mb-1">Required</p>
+            <ul class="space-y-1">
+              <li><code class="text-xs font-mono bg-white border rounded px-1">bash</code> shell</li>
+              <li><code class="text-xs font-mono bg-white border rounded px-1">ssh</code> / <code class="text-xs font-mono bg-white border rounded px-1">scp</code></li>
+              <li>SSH private key for the server</li>
+            </ul>
+          </div>
+          <div class="bg-gray-50 rounded-lg p-3">
+            <p class="font-medium text-gray-700 mb-1">For Ansible path</p>
+            <ul class="space-y-1">
+              <li><code class="text-xs font-mono bg-white border rounded px-1">ansible &ge; 2.14</code></li>
+              <li><code class="text-xs font-mono bg-white border rounded px-1">pip install ansible</code></li>
+            </ul>
+          </div>
+          <div class="bg-gray-50 rounded-lg p-3">
+            <p class="font-medium text-gray-700 mb-1">For Terraform path</p>
+            <ul class="space-y-1">
+              <li><code class="text-xs font-mono bg-white border rounded px-1">terraform &ge; 1.5</code></li>
+              <li>DO or AWS credentials in <code class="text-xs font-mono bg-white border rounded px-1">.env</code></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- SSH key -->
+      <div class="p-6">
+        <h3 class="font-semibold text-gray-900 mb-3">SSH Key Setup</h3>
+        <p class="text-sm text-gray-600 mb-3">Generate a key if you don't have one, then add the public key to your server.</p>
+        <div class="bg-slate-900 rounded-lg p-4 font-mono text-xs text-green-400 space-y-1 overflow-x-auto">
+          <p><span class="text-slate-500"># Generate a new key pair</span></p>
+          <p>ssh-keygen -t ed25519 -C "dafeapp-odoo" -f ~/.ssh/dafeapp_odoo</p>
+          <p>&nbsp;</p>
+          <p><span class="text-slate-500"># Copy public key to server (password login must be enabled first)</span></p>
+          <p>ssh-copy-id -i ~/.ssh/dafeapp_odoo.pub ubuntu@&lt;SERVER_IP&gt;</p>
+          <p>&nbsp;</p>
+          <p><span class="text-slate-500"># Or paste the public key when creating the server in your cloud console</span></p>
+          <p>cat ~/.ssh/dafeapp_odoo.pub</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       TAB: Manual CLI
+  ════════════════════════════════════════════════════════════════════ -->
+  <div x-show="tab === 'manual'" x-transition>
+    <div class="space-y-6">
+
+      <!-- Quick start -->
+      <div class="bg-white rounded-xl border border-gray-200 p-6">
+        <h3 class="font-semibold text-gray-900 mb-1">Quick Start — <code class="text-blue-600 text-sm font-mono">scripts/deploy_bare.sh</code></h3>
+        <p class="text-sm text-gray-500 mb-4">One script deploys Odoo to any SSH-accessible Ubuntu server. It patches and runs <code class="font-mono text-xs bg-gray-100 rounded px-1">InstallScript/odoo_install.sh</code> on the remote.</p>
+
+        <!-- Minimal -->
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Minimal (community, no nginx)</p>
+        <div class="bg-slate-900 rounded-lg p-4 font-mono text-xs text-green-400 overflow-x-auto mb-4">
+          <p>./scripts/deploy_bare.sh \</p>
+          <p>&nbsp; --ip 165.22.100.50 \</p>
+          <p>&nbsp; --key ~/.ssh/dafeapp_odoo</p>
+        </div>
+
+        <!-- With nginx + ssl -->
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">With Nginx + SSL (Let's Encrypt)</p>
+        <div class="bg-slate-900 rounded-lg p-4 font-mono text-xs text-green-400 overflow-x-auto mb-4">
+          <p>./scripts/deploy_bare.sh \</p>
+          <p>&nbsp; --ip 165.22.100.50 \</p>
+          <p>&nbsp; --user ubuntu \</p>
+          <p>&nbsp; --key ~/.ssh/dafeapp_odoo \</p>
+          <p>&nbsp; --version 19 \</p>
+          <p>&nbsp; --domain odoo.example.com \</p>
+          <p>&nbsp; --email admin@example.com</p>
+        </div>
+
+        <!-- All options table -->
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">All Options</p>
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs text-left">
+            <thead>
+              <tr class="bg-gray-50 text-gray-600 uppercase tracking-wide">
+                <th class="px-3 py-2 rounded-l font-semibold">Flag</th>
+                <th class="px-3 py-2 font-semibold">Env var override</th>
+                <th class="px-3 py-2 font-semibold">Default</th>
+                <th class="px-3 py-2 rounded-r font-semibold">Description</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100 font-mono">
+              {% for opt in cli_options %}
+              <tr class="hover:bg-gray-50">
+                <td class="px-3 py-2 text-blue-600">{{ opt.flag }}</td>
+                <td class="px-3 py-2 text-purple-600">{{ opt.env }}</td>
+                <td class="px-3 py-2 text-gray-500">{{ opt.default }}</td>
+                <td class="px-3 py-2 text-gray-600 font-sans">{{ opt.desc }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Post-install info -->
+      <div class="bg-white rounded-xl border border-gray-200 p-6">
+        <h3 class="font-semibold text-gray-900 mb-3">Post-Install Reference</h3>
+        <div class="grid sm:grid-cols-2 gap-6 text-sm">
+          <div>
+            <p class="font-medium text-gray-700 mb-2">File locations on the server</p>
+            <dl class="space-y-1 font-mono text-xs">
+              <div class="flex gap-2"><dt class="text-gray-500 w-28 shrink-0">Config:</dt><dd class="text-gray-800">/etc/odoo-server.conf</dd></div>
+              <div class="flex gap-2"><dt class="text-gray-500 w-28 shrink-0">Logs:</dt><dd class="text-gray-800">/var/log/odoo/</dd></div>
+              <div class="flex gap-2"><dt class="text-gray-500 w-28 shrink-0">Source code:</dt><dd class="text-gray-800">/odoo/odoo-server/</dd></div>
+              <div class="flex gap-2"><dt class="text-gray-500 w-28 shrink-0">Custom addons:</dt><dd class="text-gray-800">/odoo/custom/addons/</dd></div>
+            </dl>
+          </div>
+          <div>
+            <p class="font-medium text-gray-700 mb-2">Service management</p>
+            <div class="bg-slate-900 rounded-lg p-3 font-mono text-xs text-green-400 space-y-1">
+              <p>sudo service odoo-server start</p>
+              <p>sudo service odoo-server stop</p>
+              <p>sudo service odoo-server restart</p>
+              <p>sudo service odoo-server status</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       TAB: DigitalOcean
+  ════════════════════════════════════════════════════════════════════ -->
+  <div x-show="tab === 'digitalocean'" x-transition>
+    <div class="space-y-6">
+
+      <div class="bg-white rounded-xl border border-gray-200 p-6">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-9 h-9 bg-blue-500 rounded-lg flex items-center justify-center text-white font-bold text-sm">DO</div>
+          <h3 class="font-semibold text-gray-900">DigitalOcean Setup</h3>
+        </div>
+
+        <!-- Step 1 -->
+        <div class="space-y-4">
+          <div class="border-l-4 border-blue-500 pl-4">
+            <p class="font-medium text-gray-800 text-sm">Step 1 — Generate a Personal Access Token</p>
+            <p class="text-gray-600 text-xs mt-1">Go to <strong>DigitalOcean Console → API → Personal Access Tokens → Generate New Token</strong>. Enable <em>Write</em> scope.</p>
+            <div class="bg-slate-900 rounded-lg p-3 mt-2 font-mono text-xs text-green-400">
+              <p><span class="text-slate-500"># Add to .env</span></p>
+              <p>DIGITALOCEAN_TOKEN=dop_v1_xxxxxxxxxxxxxxxxxxxxxxxx</p>
+            </div>
+          </div>
+
+          <div class="border-l-4 border-blue-500 pl-4">
+            <p class="font-medium text-gray-800 text-sm">Step 2 — Configure DafeApp</p>
+            <div class="bg-slate-900 rounded-lg p-3 mt-2 font-mono text-xs text-green-400 space-y-0.5">
+              <p><span class="text-slate-500"># .env</span></p>
+              <p>DIGITALOCEAN_TOKEN=dop_v1_xxxxxxxx</p>
+              <p>TERRAFORM_SERVER_MODULE_DIR=/path/to/dafeapp/infra/terraform/odoo_server</p>
+              <p>ANSIBLE_ODOO_SERVER_PLAYBOOK=/path/to/dafeapp/infra/ansible/setup_odoo_server_bare.yml</p>
+              <p>TERRAFORM_SSH_USER=ubuntu</p>
+              <p>TERRAFORM_SSH_KEY_PATH=~/.ssh/dafeapp_odoo</p>
+              <p>&nbsp;</p>
+              <p><span class="text-slate-500"># Optional: DNS auto-creation</span></p>
+              <p>DNS_PROVIDER=digitalocean</p>
+              <p>DNS_ROOT_DOMAIN=example.com</p>
+              <p>DNS_CREATE_HOOK_CMD=/path/to/dafeapp/scripts/create_dns_record.sh</p>
+            </div>
+          </div>
+
+          <div class="border-l-4 border-blue-500 pl-4">
+            <p class="font-medium text-gray-800 text-sm">Step 3 — Recommended Droplet Sizes</p>
+            <div class="overflow-x-auto mt-2">
+              <table class="w-full text-xs">
+                <thead>
+                  <tr class="bg-gray-50 text-gray-600">
+                    <th class="px-3 py-2 text-left font-semibold">Slug</th>
+                    <th class="px-3 py-2 text-left font-semibold">vCPU</th>
+                    <th class="px-3 py-2 text-left font-semibold">RAM</th>
+                    <th class="px-3 py-2 text-left font-semibold">Disk</th>
+                    <th class="px-3 py-2 text-left font-semibold">Use case</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 font-mono">
+                  <tr class="hover:bg-gray-50"><td class="px-3 py-2">s-2vcpu-4gb</td><td class="px-3 py-2">2</td><td class="px-3 py-2">4 GB</td><td class="px-3 py-2">80 GB</td><td class="px-3 py-2 font-sans text-gray-600">Dev / test</td></tr>
+                  <tr class="hover:bg-gray-50"><td class="px-3 py-2">s-4vcpu-8gb</td><td class="px-3 py-2">4</td><td class="px-3 py-2">8 GB</td><td class="px-3 py-2">160 GB</td><td class="px-3 py-2 font-sans text-gray-600">Small production</td></tr>
+                  <tr class="hover:bg-gray-50"><td class="px-3 py-2">s-8vcpu-16gb</td><td class="px-3 py-2">8</td><td class="px-3 py-2">16 GB</td><td class="px-3 py-2">320 GB</td><td class="px-3 py-2 font-sans text-gray-600">Medium production</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="border-l-4 border-blue-500 pl-4">
+            <p class="font-medium text-gray-800 text-sm">Step 4 — Manual CLI (no DafeApp)</p>
+            <div class="bg-slate-900 rounded-lg p-3 mt-2 font-mono text-xs text-green-400">
+              <p><span class="text-slate-500"># Create a droplet via doctl first, then deploy</span></p>
+              <p>doctl compute droplet create odoo-prod \</p>
+              <p>&nbsp; --size s-4vcpu-8gb --image ubuntu-24-04-x64 \</p>
+              <p>&nbsp; --region nyc3 --ssh-keys &lt;KEY_ID&gt;</p>
+              <p>&nbsp;</p>
+              <p>DROPLET_IP=$(doctl compute droplet get odoo-prod --format PublicIPv4 --no-header)</p>
+              <p>&nbsp;</p>
+              <p>./scripts/deploy_bare.sh \</p>
+              <p>&nbsp; --ip "$DROPLET_IP" --key ~/.ssh/dafeapp_odoo \</p>
+              <p>&nbsp; --version 19 --domain odoo.example.com --email admin@example.com</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       TAB: AWS
+  ════════════════════════════════════════════════════════════════════ -->
+  <div x-show="tab === 'aws'" x-transition>
+    <div class="space-y-6">
+
+      <div class="bg-white rounded-xl border border-gray-200 p-6">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-9 h-9 bg-orange-500 rounded-lg flex items-center justify-center text-white font-bold text-xs">AWS</div>
+          <h3 class="font-semibold text-gray-900">AWS EC2 Setup</h3>
+        </div>
+
+        <div class="space-y-4">
+          <div class="border-l-4 border-orange-500 pl-4">
+            <p class="font-medium text-gray-800 text-sm">Step 1 — IAM Credentials</p>
+            <p class="text-gray-600 text-xs mt-1">
+              Create an IAM user (or role) with <strong>EC2 full access</strong>.
+              For Terraform you also need <strong>VPC read</strong> permissions.
+            </p>
+            <div class="bg-slate-900 rounded-lg p-3 mt-2 font-mono text-xs text-green-400 space-y-0.5">
+              <p><span class="text-slate-500"># Add to .env</span></p>
+              <p>AWS_ACCESS_KEY_ID=AKIAXXXXXXXXXXXXXXXX</p>
+              <p>AWS_SECRET_ACCESS_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</p>
+              <p>AWS_DEFAULT_REGION=us-east-1</p>
+            </div>
+          </div>
+
+          <div class="border-l-4 border-orange-500 pl-4">
+            <p class="font-medium text-gray-800 text-sm">Step 2 — Configure DafeApp</p>
+            <div class="bg-slate-900 rounded-lg p-3 mt-2 font-mono text-xs text-green-400 space-y-0.5">
+              <p><span class="text-slate-500"># .env</span></p>
+              <p>AWS_ACCESS_KEY_ID=AKIAXXXXXXXXXXXXXXXX</p>
+              <p>AWS_SECRET_ACCESS_KEY=xxxxxxxx</p>
+              <p>AWS_DEFAULT_REGION=us-east-1</p>
+              <p>TERRAFORM_SERVER_MODULE_DIR=/path/to/dafeapp/infra/terraform/odoo_server</p>
+              <p>ANSIBLE_ODOO_SERVER_PLAYBOOK=/path/to/dafeapp/infra/ansible/setup_odoo_server_bare.yml</p>
+              <p>TERRAFORM_SSH_USER=ubuntu</p>
+              <p>TERRAFORM_SSH_KEY_PATH=~/.ssh/dafeapp_odoo.pem</p>
+              <p>&nbsp;</p>
+              <p><span class="text-slate-500"># Optional: Route53 DNS</span></p>
+              <p>DNS_PROVIDER=route53</p>
+              <p>AWS_ROUTE53_ZONE_ID=Z1XXXXXXXXXXXXXXXX</p>
+              <p>DNS_CREATE_HOOK_CMD=/path/to/dafeapp/scripts/create_dns_record.sh</p>
+            </div>
+          </div>
+
+          <div class="border-l-4 border-orange-500 pl-4">
+            <p class="font-medium text-gray-800 text-sm">Step 3 — Recommended Instance Types</p>
+            <div class="overflow-x-auto mt-2">
+              <table class="w-full text-xs">
+                <thead>
+                  <tr class="bg-gray-50 text-gray-600">
+                    <th class="px-3 py-2 text-left font-semibold">Type</th>
+                    <th class="px-3 py-2 text-left font-semibold">vCPU</th>
+                    <th class="px-3 py-2 text-left font-semibold">RAM</th>
+                    <th class="px-3 py-2 text-left font-semibold">Use case</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 font-mono">
+                  <tr class="hover:bg-gray-50"><td class="px-3 py-2">t3.medium</td><td class="px-3 py-2">2</td><td class="px-3 py-2">4 GB</td><td class="px-3 py-2 font-sans text-gray-600">Dev / test</td></tr>
+                  <tr class="hover:bg-gray-50"><td class="px-3 py-2">t3.large</td><td class="px-3 py-2">2</td><td class="px-3 py-2">8 GB</td><td class="px-3 py-2 font-sans text-gray-600">Small production</td></tr>
+                  <tr class="hover:bg-gray-50"><td class="px-3 py-2">t3.xlarge</td><td class="px-3 py-2">4</td><td class="px-3 py-2">16 GB</td><td class="px-3 py-2 font-sans text-gray-600">Medium production</td></tr>
+                  <tr class="hover:bg-gray-50"><td class="px-3 py-2">m5.xlarge</td><td class="px-3 py-2">4</td><td class="px-3 py-2">16 GB</td><td class="px-3 py-2 font-sans text-gray-600">High-traffic production</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="border-l-4 border-orange-500 pl-4">
+            <p class="font-medium text-gray-800 text-sm">Step 4 — Manual CLI (no DafeApp)</p>
+            <div class="bg-slate-900 rounded-lg p-3 mt-2 font-mono text-xs text-green-400">
+              <p><span class="text-slate-500"># Launch EC2 instance via AWS CLI</span></p>
+              <p>aws ec2 run-instances \</p>
+              <p>&nbsp; --image-id ami-0c7217cdde317cfec \</p>
+              <p>&nbsp; --instance-type t3.large \</p>
+              <p>&nbsp; --key-name dafeapp_odoo \</p>
+              <p>&nbsp; --security-group-ids sg-xxxxxxxxxx \</p>
+              <p>&nbsp; --region us-east-1 \</p>
+              <p>&nbsp; --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=odoo-prod}]'</p>
+              <p>&nbsp;</p>
+              <p>EC2_IP=$(aws ec2 describe-instances \</p>
+              <p>&nbsp; --filters "Name=tag:Name,Values=odoo-prod" "Name=instance-state-name,Values=running" \</p>
+              <p>&nbsp; --query "Reservations[0].Instances[0].PublicIpAddress" --output text)</p>
+              <p>&nbsp;</p>
+              <p>./scripts/deploy_bare.sh \</p>
+              <p>&nbsp; --ip "$EC2_IP" --key ~/.ssh/dafeapp_odoo.pem \</p>
+              <p>&nbsp; --version 19 --domain odoo.example.com --email admin@example.com</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       TAB: Env Config
+  ════════════════════════════════════════════════════════════════════ -->
+  <div x-show="tab === 'config'" x-transition>
+    <div class="bg-white rounded-xl border border-gray-200 p-6">
+      <h3 class="font-semibold text-gray-900 mb-4">Environment Variable Reference</h3>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm text-left">
+          <thead>
+            <tr class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wide">
+              <th class="px-4 py-3 font-semibold rounded-l">Variable</th>
+              <th class="px-4 py-3 font-semibold">Required</th>
+              <th class="px-4 py-3 font-semibold">Default</th>
+              <th class="px-4 py-3 font-semibold rounded-r">Description</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-100">
+            {% for ev in env_vars %}
+            <tr class="hover:bg-gray-50 align-top">
+              <td class="px-4 py-3 font-mono text-xs text-blue-700 whitespace-nowrap">{{ ev.name }}</td>
+              <td class="px-4 py-3 text-xs">
+                {% if ev.required %}
+                <span class="px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-medium">Yes</span>
+                {% else %}
+                <span class="px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">No</span>
+                {% endif %}
+              </td>
+              <td class="px-4 py-3 font-mono text-xs text-gray-500">{{ ev.default }}</td>
+              <td class="px-4 py-3 text-xs text-gray-600">{{ ev.desc }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

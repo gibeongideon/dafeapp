@@ -151,6 +151,7 @@ class TerraformRun(models.Model):
 
 class OdooServer(models.Model):
     class OdooVersion(models.TextChoices):
+        V17 = "17", "Odoo 17"
         V18 = "18", "Odoo 18"
         V19 = "19", "Odoo 19"
 

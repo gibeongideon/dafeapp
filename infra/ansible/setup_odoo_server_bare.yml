@@ -1,0 +1,196 @@
+---
+# ---------------------------------------------------------------------------
+# Ansible Playbook: setup_odoo_server_bare.yml
+#
+# Installs Odoo directly on an Ubuntu 22.04/24.04 server (bare-metal / no Docker)
+# by uploading the version-specific odoo_install.sh from installscript/{ver}.0/
+#
+# Script layout:
+#   installscript/17.0/InstallScript/odoo_install.sh  ← Odoo 17
+#   installscript/18.0/InstallScript/odoo_install.sh  ← Odoo 18
+#   installscript/19.0/InstallScript/odoo_install.sh  ← Odoo 19
+#
+# Called by DafeApp via:
+#   ANSIBLE_ODOO_SERVER_PLAYBOOK=.../setup_odoo_server_bare.yml
+#
+# Extra vars passed by DafeApp tasks.py:
+#   odoo_version  - major version number only: "17", "18", or "19"
+#   server_name   - server label (informational)
+#   dns_domain    - FQDN if SSL is wanted; empty string disables nginx+ssl
+#
+# Optional extra vars (override defaults):
+#   odoo_port     - Odoo HTTP port (default: 8069)
+#   admin_email   - Let's Encrypt / certbot email (required when ssl=true)
+#   is_enterprise - "True" / "False"  (default: False)
+#   ssh_user      - remote user (default: ubuntu)
+# ---------------------------------------------------------------------------
+- name: Install Odoo (bare-metal) using InstallScript/odoo_install.sh
+  hosts: all
+  become: true
+
+  vars:
+    # --- DafeApp-supplied vars (tasks.py passes these) -------------------
+    odoo_version:   "{{ odoo_version   | default('19') }}"
+    dns_domain:     "{{ dns_domain     | default('') }}"
+
+    # --- Derived nginx / SSL flags ----------------------------------------
+    # Nginx is enabled whenever a domain name is provided.
+    install_nginx:  "{{ 'True' if dns_domain | length > 0 else 'False' }}"
+    # SSL is enabled when a domain AND a real admin email are supplied.
+    enable_ssl:     "{{ 'True' if (dns_domain | length > 0 and admin_email is defined and admin_email != 'odoo@example.com') else 'False' }}"
+    website_name:   "{{ dns_domain if dns_domain | length > 0 else '_' }}"
+
+    # --- Configurable overrides ------------------------------------------
+    odoo_port:      "{{ odoo_port      | default('8069') }}"
+    admin_email:    "{{ admin_email    | default('odoo@example.com') }}"
+    is_enterprise:  "{{ is_enterprise  | default('False') }}"
+
+    # --- Script paths -------------------------------------------------------
+    # Each Odoo version has its own installer under installscript/{ver}.0/
+    # Layout: installscript/17.0/InstallScript/odoo_install.sh (v17)
+    #         installscript/18.0/InstallScript/odoo_install.sh (v18)
+    #         installscript/19.0/InstallScript/odoo_install.sh (v19)
+    remote_script_dir:   "/opt/dafeapp-install"
+    install_script_name: "odoo_install.sh"
+    install_script_src:  "{{ playbook_dir }}/../../../installscript/{{ odoo_version }}.0/InstallScript/odoo_install.sh"
+
+  tasks:
+    # ------------------------------------------------------------------
+    # 1. Sanity-check: only Ubuntu 22.04 / 24.04 supported
+    # ------------------------------------------------------------------
+    - name: Check OS family
+      assert:
+        that: ansible_os_family == "Debian"
+        fail_msg: "This playbook requires Ubuntu (Debian family). Got: {{ ansible_os_family }}"
+
+    - name: Check OS version
+      assert:
+        that: ansible_distribution_version in ["22.04", "24.04"]
+        fail_msg: >
+          odoo_install.sh targets Ubuntu 22.04 or 24.04.
+          Detected: {{ ansible_distribution }} {{ ansible_distribution_version }}
+
+    # ------------------------------------------------------------------
+    # 2. Ensure the remote staging directory exists
+    # ------------------------------------------------------------------
+    - name: Create remote install staging directory
+      file:
+        path: "{{ remote_script_dir }}"
+        state: directory
+        mode: "0755"
+
+    # ------------------------------------------------------------------
+    # 3. Upload odoo_install.sh from local InstallScript/ folder
+    # ------------------------------------------------------------------
+    - name: Upload odoo_install.sh to server
+      copy:
+        src: "{{ install_script_src }}"
+        dest: "{{ remote_script_dir }}/{{ install_script_name }}"
+        mode: "0755"
+
+    # ------------------------------------------------------------------
+    # 4. Patch configurable variables inside the uploaded script
+    #    (the script stores config as shell vars at the top of the file)
+    # ------------------------------------------------------------------
+    - name: Set OE_VERSION
+      replace:
+        path: "{{ remote_script_dir }}/{{ install_script_name }}"
+        regexp: '^OE_VERSION="[^"]*"'
+        replace: 'OE_VERSION="{{ odoo_version }}.0"'
+
+    - name: Set OE_PORT
+      replace:
+        path: "{{ remote_script_dir }}/{{ install_script_name }}"
+        regexp: '^OE_PORT="[^"]*"'
+        replace: 'OE_PORT="{{ odoo_port }}"'
+
+    - name: Set INSTALL_NGINX
+      replace:
+        path: "{{ remote_script_dir }}/{{ install_script_name }}"
+        regexp: '^INSTALL_NGINX="[^"]*"'
+        replace: 'INSTALL_NGINX="{{ install_nginx }}"'
+
+    - name: Set ENABLE_SSL
+      replace:
+        path: "{{ remote_script_dir }}/{{ install_script_name }}"
+        regexp: '^ENABLE_SSL="[^"]*"'
+        replace: 'ENABLE_SSL="{{ enable_ssl }}"'
+
+    - name: Set ADMIN_EMAIL
+      replace:
+        path: "{{ remote_script_dir }}/{{ install_script_name }}"
+        regexp: '^ADMIN_EMAIL="[^"]*"'
+        replace: 'ADMIN_EMAIL="{{ admin_email }}"'
+
+    - name: Set WEBSITE_NAME
+      replace:
+        path: "{{ remote_script_dir }}/{{ install_script_name }}"
+        regexp: '^WEBSITE_NAME="[^"]*"'
+        replace: 'WEBSITE_NAME="{{ website_name }}"'
+
+    - name: Set IS_ENTERPRISE
+      replace:
+        path: "{{ remote_script_dir }}/{{ install_script_name }}"
+        regexp: '^IS_ENTERPRISE="[^"]*"'
+        replace: 'IS_ENTERPRISE="{{ is_enterprise }}"'
+
+    # ------------------------------------------------------------------
+    # 5. Run the installer
+    #    async=3600 → wait up to 1 hour (git clone + pip can be slow)
+    #    poll=30    → check every 30 seconds
+    # ------------------------------------------------------------------
+    - name: Execute Odoo installer (this takes 5-15 minutes)
+      command: "bash {{ remote_script_dir }}/{{ install_script_name }}"
+      async: 3600
+      poll: 30
+      register: install_result
+
+    - name: Show installer output (stdout)
+      debug:
+        msg: "{{ install_result.stdout_lines[-30:] }}"
+      when: install_result.stdout_lines is defined
+
+    # ------------------------------------------------------------------
+    # 6. Capture the generated admin password from the Odoo config file
+    # ------------------------------------------------------------------
+    - name: Read Odoo config (to capture generated admin password)
+      slurp:
+        src: "/etc/odoo-server.conf"
+      register: odoo_conf_raw
+      ignore_errors: true
+
+    - name: Extract admin_passwd from config
+      set_fact:
+        odoo_admin_passwd: >-
+          {{ (odoo_conf_raw.content | b64decode)
+             | regex_search('admin_passwd = (.+)', '\\1')
+             | first | default('(could not read)') }}
+      when: odoo_conf_raw is succeeded
+
+    # ------------------------------------------------------------------
+    # 7. Allow Odoo port through UFW (if UFW is active)
+    # ------------------------------------------------------------------
+    - name: Allow Odoo port in UFW
+      ufw:
+        rule: allow
+        port: "{{ odoo_port }}"
+        proto: tcp
+      ignore_errors: true
+
+    # ------------------------------------------------------------------
+    # 8. Summary
+    # ------------------------------------------------------------------
+    - name: Installation summary
+      debug:
+        msg:
+          - "=========================================="
+          - "Odoo {{ odoo_version }} installed (bare-metal)"
+          - "Port          : {{ odoo_port }}"
+          - "Nginx         : {{ install_nginx }}"
+          - "SSL           : {{ enable_ssl }}"
+          - "Domain        : {{ website_name }}"
+          - "Service       : sudo service odoo-server start|stop|restart"
+          - "Config file   : /etc/odoo-server.conf"
+          - "Log file      : /var/log/odoo/odoo-server.log"
+          - "Admin password: {{ odoo_admin_passwd | default('check /etc/odoo-server.conf') }}"
+          - "=========================================="
