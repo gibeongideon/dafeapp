@@ -17,10 +17,11 @@
   become: true
 
   vars:
-    db_name:      "{{ db_name }}"
-    http_port:    "{{ (http_port | default(8069)) | int }}"
-    service_name: "odoo-{{ db_name }}"
-    config_file:  "/etc/odoo-{{ db_name }}.conf"
+    db_name:       "{{ db_name }}"
+    http_port:     "{{ (http_port | default(8069)) | int }}"
+    service_name:  "odoo-{{ db_name }}"
+    config_file:   "/etc/odoo-{{ db_name }}.conf"
+    instance_dir:  "/odoo/instances/{{ db_name }}"
 
   tasks:
     - name: Stop and disable Odoo instance service
@@ -52,6 +53,11 @@
       args:
         executable: /bin/bash
 
+    - name: Remove isolated instance directory (data, addons, logs)
+      file:
+        path: "{{ instance_dir }}"
+        state: absent
+
     - name: Close instance port in UFW
       ufw:
         rule: allow
@@ -66,4 +72,5 @@
           - "Instance {{ db_name }} removed."
           - "Service {{ service_name }} stopped and deleted."
           - "Database {{ db_name }} dropped."
+          - "Instance directory {{ instance_dir }} deleted."
           - "Port {{ http_port }} closed."

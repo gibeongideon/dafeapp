@@ -7,8 +7,9 @@ Requires=postgresql.service
 Type=simple
 User={{ odoo_user }}
 Group={{ odoo_user }}
-WorkingDirectory={{ odoo_home }}/odoo-server
-ExecStart=/usr/bin/python3 {{ odoo_bin }} -c {{ config_file }}
+WorkingDirectory={{ shared_src }}
+; Use this instance's own Python virtualenv — isolated from all other instances
+ExecStart={{ venv_dir }}/bin/python {{ odoo_bin }} -c {{ config_file }}
 Restart=always
 RestartSec=5
 KillMode=mixed

@@ -2,14 +2,17 @@
 # ---------------------------------------------------------------------------
 # Ansible Playbook: create_odoo_instance_direct.yml
 #
-# Creates a new Odoo instance with direct IP:PORT access (no nginx, no domain,
-# no SSL). Designed for servers provisioned by setup_odoo_server_bare.yml.
-#
-# Each instance gets:
-#   - A dedicated PostgreSQL database
-#   - A config file:    /etc/odoo-{db_name}.conf
-#   - A systemd service: odoo-{db_name}.service
-#   - Direct access via: http://SERVER_IP:{http_port}
+# Creates a new Odoo instance with a fully isolated environment:
+#   - Dedicated Python virtualenv  (/odoo/instances/{db_name}/venv/)
+#   - Own copy of core addons      (/odoo/instances/{db_name}/addons/core/)
+#   - Own custom addons directory  (/odoo/instances/{db_name}/addons/custom/)
+#   - Separate data directory      (/odoo/instances/{db_name}/data/)
+#   - Separate log directory       (/odoo/instances/{db_name}/logs/)
+#   - Separate PostgreSQL database
+#   - Separate config:             /etc/odoo-{db_name}.conf
+#   - Separate systemd service:    odoo-{db_name}.service
+#   - db_filter locked to this instance only
+#   - Access via:                  http://SERVER_IP:{http_port}
 #
 # Extra vars passed by DafeApp tasks.py:
 #   odoo_version   - major version: "17", "18", or "19"
@@ -17,7 +20,7 @@
 #   instance_name  - human-readable label
 #   http_port      - TCP port for this instance (e.g. 8069, 8070, ...)
 # ---------------------------------------------------------------------------
-- name: Create Odoo instance (direct IP, no nginx)
+- name: Create Odoo instance (isolated Python + addons environment)
   hosts: all
   become: true
 
@@ -27,12 +30,22 @@
     instance_name: "{{ instance_name | default('instance') }}"
     http_port:     "{{ (http_port    | default(8069)) | int }}"
 
-    # Paths created by odoo_install.sh (bare-metal)
-    odoo_user:    "odoo"
-    odoo_home:    "/odoo"
-    odoo_bin:     "/odoo/odoo-server/odoo-bin"
-    addons_path:  "/odoo/odoo-server/addons,/odoo/custom/addons"
-    log_dir:      "/var/log/odoo"
+    # Shared Odoo installation (source + binary, created by odoo_install.sh)
+    odoo_user:       "odoo"
+    odoo_home:       "/odoo"
+    odoo_bin:        "/odoo/odoo-server/odoo-bin"
+    shared_src:      "/odoo/odoo-server"
+    shared_addons:   "/odoo/odoo-server/addons"
+    requirements:    "/odoo/odoo-server/requirements.txt"
+
+    # Per-instance isolated directories
+    instance_dir:    "/odoo/instances/{{ db_name }}"
+    venv_dir:        "/odoo/instances/{{ db_name }}/venv"
+    core_addons_dir: "/odoo/instances/{{ db_name }}/addons/core"
+    custom_addons_dir: "/odoo/instances/{{ db_name }}/addons/custom"
+    data_dir:        "/odoo/instances/{{ db_name }}/data"
+    log_dir:         "/odoo/instances/{{ db_name }}/logs"
+
     config_file:  "/etc/odoo-{{ db_name }}.conf"
     service_name: "odoo-{{ db_name }}"
 
@@ -40,9 +53,41 @@
 
   tasks:
     # ------------------------------------------------------------------
-    # 1. Ensure log directory exists
+    # 1. Create isolated per-instance directory tree
     # ------------------------------------------------------------------
-    - name: Ensure Odoo log directory exists
+    - name: Create instance base directory
+      file:
+        path: "{{ instance_dir }}"
+        state: directory
+        owner: "{{ odoo_user }}"
+        group: "{{ odoo_user }}"
+        mode: "0750"
+
+    - name: Create instance addons parent directory
+      file:
+        path: "{{ instance_dir }}/addons"
+        state: directory
+        owner: "{{ odoo_user }}"
+        group: "{{ odoo_user }}"
+        mode: "0755"
+
+    - name: Create instance custom addons directory
+      file:
+        path: "{{ custom_addons_dir }}"
+        state: directory
+        owner: "{{ odoo_user }}"
+        group: "{{ odoo_user }}"
+        mode: "0755"
+
+    - name: Create instance data directory (filestore, sessions)
+      file:
+        path: "{{ data_dir }}"
+        state: directory
+        owner: "{{ odoo_user }}"
+        group: "{{ odoo_user }}"
+        mode: "0750"
+
+    - name: Create instance log directory
       file:
         path: "{{ log_dir }}"
         state: directory
@@ -51,7 +96,53 @@
         mode: "0755"
 
     # ------------------------------------------------------------------
-    # 2. Create PostgreSQL database owned by the odoo user
+    # 2. Copy core addons (isolated copy — changes here don't affect
+    #    other instances or the shared source)
+    # ------------------------------------------------------------------
+    - name: Copy core Odoo addons into instance directory
+      shell: |
+        rsync -a --delete "{{ shared_addons }}/" "{{ core_addons_dir }}/"
+        chown -R {{ odoo_user }}:{{ odoo_user }} "{{ core_addons_dir }}"
+      args:
+        executable: /bin/bash
+        creates: "{{ core_addons_dir }}/base"
+
+    # ------------------------------------------------------------------
+    # 3. Create dedicated Python virtualenv
+    # ------------------------------------------------------------------
+    - name: Create Python virtualenv for instance
+      become_user: "{{ odoo_user }}"
+      command: python3 -m venv "{{ venv_dir }}"
+      args:
+        creates: "{{ venv_dir }}/bin/python"
+
+    - name: Upgrade pip and wheel in instance venv
+      become_user: "{{ odoo_user }}"
+      pip:
+        name:
+          - pip
+          - wheel
+          - setuptools
+        state: latest
+        virtualenv: "{{ venv_dir }}"
+
+    - name: Install Odoo Python requirements into instance venv
+      become_user: "{{ odoo_user }}"
+      pip:
+        requirements: "{{ requirements }}"
+        virtualenv: "{{ venv_dir }}"
+        extra_args: "--quiet"
+
+    - name: Install extra Odoo packages into instance venv
+      become_user: "{{ odoo_user }}"
+      pip:
+        name:
+          - phonenumbers
+          - psycopg2-binary
+        virtualenv: "{{ venv_dir }}"
+
+    # ------------------------------------------------------------------
+    # 4. Create PostgreSQL database owned by the odoo user
     # ------------------------------------------------------------------
     - name: Create PostgreSQL database for instance
       become_user: postgres
@@ -62,7 +153,7 @@
         executable: /bin/bash
 
     # ------------------------------------------------------------------
-    # 3. Render Odoo config file
+    # 5. Render Odoo config file
     # ------------------------------------------------------------------
     - name: Render Odoo instance config
       template:
@@ -73,7 +164,7 @@
         mode: "0640"
 
     # ------------------------------------------------------------------
-    # 4. Render systemd service unit
+    # 6. Render systemd service unit
     # ------------------------------------------------------------------
     - name: Render systemd service file
       template:
@@ -84,7 +175,7 @@
         mode: "0644"
 
     # ------------------------------------------------------------------
-    # 5. Reload systemd and start the service
+    # 7. Reload systemd and start the service
     # ------------------------------------------------------------------
     - name: Reload systemd daemon
       systemd:
@@ -97,7 +188,7 @@
         state: started
 
     # ------------------------------------------------------------------
-    # 6. Open the instance port in UFW (if UFW is active)
+    # 8. Open the instance port in UFW
     # ------------------------------------------------------------------
     - name: Allow instance port through UFW
       ufw:
@@ -107,16 +198,21 @@
       ignore_errors: true
 
     # ------------------------------------------------------------------
-    # 7. Summary
+    # 9. Summary
     # ------------------------------------------------------------------
     - name: Instance creation summary
       debug:
         msg:
-          - "======================================"
-          - "Odoo instance created (direct IP mode)"
-          - "Service  : {{ service_name }}"
-          - "Database : {{ db_name }}"
-          - "Port     : {{ http_port }}"
-          - "Config   : {{ config_file }}"
-          - "Access   : http://SERVER_IP:{{ http_port }}"
-          - "======================================"
+          - "================================================"
+          - "Odoo instance created (fully isolated)"
+          - "Service      : {{ service_name }}"
+          - "Database     : {{ db_name }}"
+          - "Port         : {{ http_port }}"
+          - "Python venv  : {{ venv_dir }}"
+          - "Core addons  : {{ core_addons_dir }}"
+          - "Custom addons: {{ custom_addons_dir }}"
+          - "Data dir     : {{ data_dir }}"
+          - "Logs         : {{ log_dir }}/{{ db_name }}.log"
+          - "Config       : {{ config_file }}"
+          - "Access       : http://SERVER_IP:{{ http_port }}"
+          - "================================================"
