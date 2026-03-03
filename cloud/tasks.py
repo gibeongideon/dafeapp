@@ -82,6 +82,17 @@ def validate_cloud_account(self, account_id: int):
         logger.error("CloudAccount %s not found", account_id)
         return
 
+    # Sanity-check: if the raw token is empty after decryption the encryption key
+    # is wrong/missing rather than the token itself being invalid.
+    if account.provider == "DIGITALOCEAN" and not account.encrypted_api_token:
+        message = "No API token stored — please re-add the account."
+        account.is_verified = False
+        account.verification_error = message
+        account.last_verified_at = timezone.now()
+        account.save(update_fields=["is_verified", "verification_error", "last_verified_at"])
+        log_audit(None, AuditLog.Action.CLOUD_ACCT_VERIFY, None, f"Account '{account.name}': {message}", organization=account.organization)
+        return
+
     provider = get_provider(account)
     success, message = provider.validate_credentials()
 

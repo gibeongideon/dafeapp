@@ -262,13 +262,13 @@
           <div class="flex items-center gap-2">
             {% if account.is_verified %}
             <span class="flex items-center gap-1 text-[10px] font-semibold text-gray-700">
-              <span class="w-1.5 h-1.5 rounded-full bg-gray-900 inline-block"></span>
+              <span class="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"></span>
               Verified
             </span>
             {% else %}
-            <span class="flex items-center gap-1 text-[10px] font-medium text-gray-400">
-              <span class="w-1.5 h-1.5 rounded-full bg-gray-300 inline-block"></span>
-              Unverified
+            <span class="flex items-center gap-1 text-[10px] font-medium text-red-500" title="{{ account.verification_error }}">
+              <span class="w-1.5 h-1.5 rounded-full bg-red-400 inline-block"></span>
+              {% if account.verification_error %}Failed{% else %}Unverified{% endif %}
             </span>
             {% endif %}
             <form method="post" action="{% url 'cloud:verify-account' account.pk %}">
@@ -279,6 +279,11 @@
               </button>
             </form>
           </div>
+          {% if account.verification_error and not account.is_verified %}
+          <p class="text-[10px] text-red-400 mt-1 w-full truncate" title="{{ account.verification_error }}">
+            {{ account.verification_error|truncatechars:60 }}
+          </p>
+          {% endif %}
         </div>
         {% endfor %}
       </div>

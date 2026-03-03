@@ -17,7 +17,7 @@ from deployments.serializers import (
     OdooServerSerializer,
     TerraformRunSerializer,
 )
-from deployments.tasks import create_odoo_instance, provision_odoo_server, terraform_apply_instance
+from deployments.tasks import create_odoo_instance, delete_odoo_instance, provision_odoo_server, terraform_apply_instance
 from subscriptions.exceptions import SubscriptionError, SubscriptionLimitError
 from subscriptions.services import SubscriptionEnforcer
 
@@ -183,15 +183,6 @@ class OdooServerCreateAPIView(LoginRequiredMixin, View):
         if request.org_role not in ("SUPER_ADMIN", "ADMIN", "MANAGER"):
             return JsonResponse({"error": "Permission denied."}, status=403)
 
-        infrastructure = get_object_or_404(
-            Infrastructure,
-            pk=request.POST.get("infrastructure_id"),
-            organization=org,
-        )
-        ok, err = infrastructure.validate_connection_target()
-        if not ok:
-            return JsonResponse({"error": err}, status=400)
-        account = infrastructure.managed_account
         odoo_version = (request.POST.get("odoo_version") or "").strip()
         if odoo_version not in ("17", "18", "19"):
             return JsonResponse({"error": "odoo_version must be '17', '18', or '19'."}, status=400)
@@ -202,6 +193,34 @@ class OdooServerCreateAPIView(LoginRequiredMixin, View):
         dns_domain = (request.POST.get("dns_domain") or "").strip()
         if not name or not region or not size:
             return JsonResponse({"error": "name, region and size are required."}, status=400)
+
+        # Resolve infrastructure — accept either an existing infra id or a
+        # bare cloud_account_id (auto-creates or reuses a MANAGED infrastructure).
+        infra_id = (request.POST.get("infrastructure_id") or "").strip()
+        account_id = (request.POST.get("cloud_account_id") or "").strip()
+
+        if infra_id:
+            infrastructure = get_object_or_404(Infrastructure, pk=infra_id, organization=org)
+            ok, err = infrastructure.validate_connection_target()
+            if not ok:
+                return JsonResponse({"error": err}, status=400)
+            account = infrastructure.managed_account
+        elif account_id:
+            account = get_object_or_404(CloudAccount, pk=account_id, organization=org, is_verified=True)
+            # Reuse or create a MANAGED infrastructure for this account.
+            infrastructure, _ = Infrastructure.objects.get_or_create(
+                organization=org,
+                infra_type=Infrastructure.InfraType.MANAGED,
+                cloud_account=account,
+                defaults={
+                    "name": f"managed-{account_id}",
+                    "is_connected": True,
+                    "validation_log": "Auto-created by server provisioning.",
+                    "created_by": request.user,
+                },
+            )
+        else:
+            return JsonResponse({"error": "Provide infrastructure_id or cloud_account_id."}, status=400)
 
         server = OdooServer.objects.create(
             organization=org,
@@ -406,10 +425,9 @@ class OdooInstanceDeleteAPIView(LoginRequiredMixin, View):
         instance = get_object_or_404(OdooInstance, pk=instance_id, organization=org)
         if instance.status == OdooInstance.Status.DELETED:
             return JsonResponse({"ok": True, "message": "Instance already deleted."})
-        instance.status = OdooInstance.Status.DELETED
-        instance.provisioning_log = (instance.provisioning_log + "\n" + "Container stopped and removed (placeholder).").strip()
-        instance.save(update_fields=["status", "provisioning_log", "updated_at"])
-        return JsonResponse({"ok": True, "message": "Instance deleted and port freed."})
+        # Dispatch async cleanup (stop service, drop DB, free port).
+        _dispatch(delete_odoo_instance, instance.id)
+        return JsonResponse({"ok": True, "message": "Instance deletion queued."})
 
 
 class OdooServerDeleteAPIView(LoginRequiredMixin, View):

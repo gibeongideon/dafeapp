@@ -68,6 +68,10 @@ class OdooServerSerializer(serializers.ModelSerializer):
 
 class OdooInstanceSerializer(serializers.ModelSerializer):
     server = OdooServerSerializer(read_only=True)
+    access_url = serializers.SerializerMethodField()
+
+    def get_access_url(self, obj):
+        return obj.access_url
 
     class Meta:
         model = OdooInstance
@@ -77,6 +81,7 @@ class OdooInstanceSerializer(serializers.ModelSerializer):
             "db_name",
             "domain",
             "http_port",
+            "access_url",
             "requested_cpu_cores",
             "requested_ram_mb",
             "systemd_service",

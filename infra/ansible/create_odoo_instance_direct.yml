@@ -1,0 +1,122 @@
+---
+# ---------------------------------------------------------------------------
+# Ansible Playbook: create_odoo_instance_direct.yml
+#
+# Creates a new Odoo instance with direct IP:PORT access (no nginx, no domain,
+# no SSL). Designed for servers provisioned by setup_odoo_server_bare.yml.
+#
+# Each instance gets:
+#   - A dedicated PostgreSQL database
+#   - A config file:    /etc/odoo-{db_name}.conf
+#   - A systemd service: odoo-{db_name}.service
+#   - Direct access via: http://SERVER_IP:{http_port}
+#
+# Extra vars passed by DafeApp tasks.py:
+#   odoo_version   - major version: "17", "18", or "19"
+#   db_name        - PostgreSQL database name (unique on this server)
+#   instance_name  - human-readable label
+#   http_port      - TCP port for this instance (e.g. 8069, 8070, ...)
+# ---------------------------------------------------------------------------
+- name: Create Odoo instance (direct IP, no nginx)
+  hosts: all
+  become: true
+
+  vars:
+    odoo_version:  "{{ odoo_version  | default('19') }}"
+    db_name:       "{{ db_name       | default('odoo_db') }}"
+    instance_name: "{{ instance_name | default('instance') }}"
+    http_port:     "{{ (http_port    | default(8069)) | int }}"
+
+    # Paths created by odoo_install.sh (bare-metal)
+    odoo_user:    "odoo"
+    odoo_home:    "/odoo"
+    odoo_bin:     "/odoo/odoo-server/odoo-bin"
+    addons_path:  "/odoo/odoo-server/addons,/odoo/custom/addons"
+    log_dir:      "/var/log/odoo"
+    config_file:  "/etc/odoo-{{ db_name }}.conf"
+    service_name: "odoo-{{ db_name }}"
+
+    admin_passwd: "{{ lookup('password', '/tmp/.odoo_pw_' ~ db_name ~ ' chars=ascii_letters,digits length=20') }}"
+
+  tasks:
+    # ------------------------------------------------------------------
+    # 1. Ensure log directory exists
+    # ------------------------------------------------------------------
+    - name: Ensure Odoo log directory exists
+      file:
+        path: "{{ log_dir }}"
+        state: directory
+        owner: "{{ odoo_user }}"
+        group: "{{ odoo_user }}"
+        mode: "0755"
+
+    # ------------------------------------------------------------------
+    # 2. Create PostgreSQL database owned by the odoo user
+    # ------------------------------------------------------------------
+    - name: Create PostgreSQL database for instance
+      become_user: postgres
+      shell: |
+        psql -tAc "SELECT 1 FROM pg_database WHERE datname='{{ db_name }}'" | grep -q 1 \
+          || createdb -O {{ odoo_user }} {{ db_name }}
+      args:
+        executable: /bin/bash
+
+    # ------------------------------------------------------------------
+    # 3. Render Odoo config file
+    # ------------------------------------------------------------------
+    - name: Render Odoo instance config
+      template:
+        src: templates/odoo-instance-direct.conf.j2
+        dest: "{{ config_file }}"
+        owner: "{{ odoo_user }}"
+        group: "{{ odoo_user }}"
+        mode: "0640"
+
+    # ------------------------------------------------------------------
+    # 4. Render systemd service unit
+    # ------------------------------------------------------------------
+    - name: Render systemd service file
+      template:
+        src: templates/odoo-instance-direct.service.j2
+        dest: "/etc/systemd/system/{{ service_name }}.service"
+        owner: root
+        group: root
+        mode: "0644"
+
+    # ------------------------------------------------------------------
+    # 5. Reload systemd and start the service
+    # ------------------------------------------------------------------
+    - name: Reload systemd daemon
+      systemd:
+        daemon_reload: true
+
+    - name: Enable and start Odoo instance service
+      systemd:
+        name: "{{ service_name }}"
+        enabled: true
+        state: started
+
+    # ------------------------------------------------------------------
+    # 6. Open the instance port in UFW (if UFW is active)
+    # ------------------------------------------------------------------
+    - name: Allow instance port through UFW
+      ufw:
+        rule: allow
+        port: "{{ http_port }}"
+        proto: tcp
+      ignore_errors: true
+
+    # ------------------------------------------------------------------
+    # 7. Summary
+    # ------------------------------------------------------------------
+    - name: Instance creation summary
+      debug:
+        msg:
+          - "======================================"
+          - "Odoo instance created (direct IP mode)"
+          - "Service  : {{ service_name }}"
+          - "Database : {{ db_name }}"
+          - "Port     : {{ http_port }}"
+          - "Config   : {{ config_file }}"
+          - "Access   : http://SERVER_IP:{{ http_port }}"
+          - "======================================"

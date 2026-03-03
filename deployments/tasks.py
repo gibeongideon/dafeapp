@@ -558,13 +558,20 @@ def create_odoo_instance(self, instance_id: int):
     instance.status = OdooInstance.Status.CONFIGURING
     instance.save(update_fields=["status", "updated_at"])
 
-    playbook = os.getenv("ANSIBLE_ODOO_INSTANCE_PLAYBOOK", "").strip()
+    # Choose playbook:
+    #   - direct (no nginx/domain): ANSIBLE_ODOO_INSTANCE_DIRECT_PLAYBOOK
+    #   - domain-based (nginx + SSL): ANSIBLE_ODOO_INSTANCE_PLAYBOOK
+    direct_playbook = os.getenv("ANSIBLE_ODOO_INSTANCE_DIRECT_PLAYBOOK", "").strip()
+    domain_playbook = os.getenv("ANSIBLE_ODOO_INSTANCE_PLAYBOOK", "").strip()
+    use_direct = not instance.domain and bool(direct_playbook)
+    playbook = direct_playbook if use_direct else domain_playbook
+
     if not playbook:
         instance.systemd_service = f"odoo-{instance.db_name}"
-        instance.nginx_site = instance.domain or f"{instance.name}.local"
-        instance.ssl_enabled = bool(instance.domain)
+        instance.nginx_site = ""
+        instance.ssl_enabled = False
         instance.status = OdooInstance.Status.RUNNING
-        instance.provisioning_log = "ANSIBLE_ODOO_INSTANCE_PLAYBOOK not set. Marked RUNNING with generated metadata."
+        instance.provisioning_log = "No Ansible playbook configured. Marked RUNNING with generated metadata."
         instance.save(
             update_fields=[
                 "systemd_service",
@@ -577,23 +584,22 @@ def create_odoo_instance(self, instance_id: int):
         )
         return
 
-    ok, log_blob = _run_ansible_playbook(
-        playbook,
-        str(server.ip_address),
-        {
-            "odoo_version": server.odoo_version,
-            "db_name": instance.db_name,
-            "instance_name": instance.name,
-            "domain": instance.domain,
-            "http_port": instance.http_port,
-        },
-    )
+    extra_vars = {
+        "odoo_version": server.odoo_version,
+        "db_name": instance.db_name,
+        "instance_name": instance.name,
+        "http_port": instance.http_port,
+    }
+    if not use_direct:
+        extra_vars["domain"] = instance.domain
+
+    ok, log_blob = _run_ansible_playbook(playbook, str(server.ip_address), extra_vars)
     instance.provisioning_log = f"[ansible instance]\n{log_blob}".strip()
     if ok:
         instance.status = OdooInstance.Status.RUNNING
         instance.systemd_service = f"odoo-{instance.db_name}"
-        instance.nginx_site = instance.domain or f"{instance.name}.local"
-        instance.ssl_enabled = bool(instance.domain)
+        instance.nginx_site = "" if use_direct else (instance.domain or f"{instance.name}.local")
+        instance.ssl_enabled = False if use_direct else bool(instance.domain)
     else:
         instance.status = OdooInstance.Status.FAILED
     instance.save(
@@ -606,3 +612,36 @@ def create_odoo_instance(self, instance_id: int):
             "updated_at",
         ]
     )
+
+
+@shared_task(bind=True, max_retries=0)
+def delete_odoo_instance(self, instance_id: int):
+    """Run the direct-IP deletion playbook then mark the instance DELETED."""
+    instance = OdooInstance.objects.select_related("organization", "server").get(pk=instance_id)
+    server = instance.server
+
+    if not server.ip_address:
+        # Server IP gone (server deleted); nothing to clean up remotely.
+        instance.status = OdooInstance.Status.DELETED
+        instance.provisioning_log = _append_text(instance.provisioning_log, "Server IP unavailable; skipped remote cleanup.")
+        instance.save(update_fields=["status", "provisioning_log", "updated_at"])
+        return
+
+    playbook = os.getenv("ANSIBLE_ODOO_INSTANCE_DELETE_PLAYBOOK", "").strip()
+    if not playbook:
+        instance.status = OdooInstance.Status.DELETED
+        instance.provisioning_log = _append_text(instance.provisioning_log, "No delete playbook configured; marked DELETED.")
+        instance.save(update_fields=["status", "provisioning_log", "updated_at"])
+        return
+
+    ok, log_blob = _run_ansible_playbook(
+        playbook,
+        str(server.ip_address),
+        {
+            "db_name": instance.db_name,
+            "http_port": instance.http_port,
+        },
+    )
+    instance.provisioning_log = _append_text(instance.provisioning_log, f"[ansible delete]\n{log_blob}")
+    instance.status = OdooInstance.Status.DELETED
+    instance.save(update_fields=["status", "provisioning_log", "updated_at"])

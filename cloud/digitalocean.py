@@ -86,12 +86,12 @@ class DigitalOceanProvider(AbstractCloudProvider):
             return False, f"Network error: {exc}"
 
     def create_server(self, name: str, region: str, size: str) -> dict:
-        """POST /v2/droplets — ubuntu-22-04-x64, returns droplet dict."""
+        """POST /v2/droplets — ubuntu-24-04-x64 (required by odoo_install.sh), returns droplet dict."""
         payload = {
             "name": name,
             "region": region,
             "size": size,
-            "image": "ubuntu-22-04-x64",
+            "image": "ubuntu-24-04-x64",
             "backups": False,
             "ipv6": False,
             "monitoring": True,
@@ -105,13 +105,14 @@ class DigitalOceanProvider(AbstractCloudProvider):
             raise
 
     def create_firewall(self, provider_server_id: str) -> dict:
-        """POST /v2/firewalls — allow 22/80/443 TCP inbound for the droplet."""
+        """POST /v2/firewalls — allow 22/80/443 + Odoo port range 8069-8100 TCP inbound."""
         payload = {
             "name": f"dafeapp-fw-{provider_server_id}",
             "inbound_rules": [
                 {"protocol": "tcp", "ports": "22", "sources": {"addresses": ["0.0.0.0/0", "::/0"]}},
                 {"protocol": "tcp", "ports": "80", "sources": {"addresses": ["0.0.0.0/0", "::/0"]}},
                 {"protocol": "tcp", "ports": "443", "sources": {"addresses": ["0.0.0.0/0", "::/0"]}},
+                {"protocol": "tcp", "ports": "8069-8100", "sources": {"addresses": ["0.0.0.0/0", "::/0"]}},
             ],
             "outbound_rules": [
                 {"protocol": "tcp", "ports": "all", "destinations": {"addresses": ["0.0.0.0/0", "::/0"]}},

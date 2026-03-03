@@ -277,5 +277,13 @@ class OdooInstance(models.Model):
             models.Index(fields=["server", "status"]),
         ]
 
+    @property
+    def access_url(self) -> str:
+        """Direct IP:PORT access URL — empty if server IP not yet assigned."""
+        ip = self.server.ip_address if self.server_id else None
+        if ip:
+            return f"http://{ip}:{self.http_port}"
+        return ""
+
     def __str__(self):
         return f"{self.name} ({self.db_name}) [{self.status}]"

@@ -6,8 +6,8 @@
 <div class="max-w-7xl mx-auto space-y-6">
   <div class="flex items-center justify-between">
     <div>
-      <h2 class="text-lg font-semibold text-gray-900">Server Kanban</h2>
-      <p class="text-sm text-gray-500">All servers in one board. Click Create Server to add new version-locked nodes.</p>
+      <h2 class="text-lg font-semibold text-gray-900">Odoo Servers</h2>
+      <p class="text-sm text-gray-500">Provision DigitalOcean droplets dedicated to an Odoo version. Each server hosts multiple instances accessible via IP:PORT.</p>
     </div>
     <button id="open-create-server"
             class="inline-flex items-center px-4 py-2.5 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700 transition-colors">
@@ -15,6 +15,7 @@
     </button>
   </div>
 
+  <!-- Server Kanban -->
   <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
     {% for s in odoo_servers %}
     <article class="bg-white border border-gray-200 rounded-xl p-4">
@@ -25,57 +26,74 @@
           {% elif s.cloud_account and s.cloud_account.provider == "AWS" %}
           <span class="inline-flex items-center justify-center w-8 h-8 rounded-md bg-orange-100 text-orange-700 text-[11px] font-bold">AWS</span>
           {% else %}
-          <span class="inline-flex items-center justify-center w-8 h-8 rounded-md bg-gray-100 text-gray-700 text-[11px] font-bold">PY</span>
+          <span class="inline-flex items-center justify-center w-8 h-8 rounded-md bg-gray-100 text-gray-700 text-[11px] font-bold">VPS</span>
           {% endif %}
           <div>
             <p class="text-sm font-semibold text-gray-900">{{ s.name }}</p>
             <p class="text-[11px] text-gray-500">Odoo {{ s.odoo_version }} · {{ s.region }} · {{ s.size }}</p>
           </div>
         </div>
-        <span class="px-2 py-1 rounded-md text-[11px] font-medium {% if s.status == 'PROVISIONED' %}bg-green-100 text-green-700{% elif s.status == 'FAILED' %}bg-red-100 text-red-700{% elif s.status == 'CONFIGURING' %}bg-yellow-100 text-yellow-700{% else %}bg-gray-100 text-gray-700{% endif %}">
+        <span class="px-2 py-1 rounded-md text-[11px] font-medium
+          {% if s.status == 'PROVISIONED' %}bg-green-100 text-green-700
+          {% elif s.status == 'FAILED' %}bg-red-100 text-red-700
+          {% elif s.status in 'CONFIGURING PROVISIONING' %}bg-yellow-100 text-yellow-700
+          {% else %}bg-gray-100 text-gray-700{% endif %}">
           {{ s.get_status_display }}
         </span>
       </div>
 
       <div class="mt-3 text-xs text-gray-600 space-y-1.5">
         <div class="flex items-center justify-between">
-          <span>IP</span>
-          <span class="font-mono text-[11px]">{{ s.ip_address|default:"pending" }}</span>
+          <span class="text-gray-500">IP Address</span>
+          <span class="font-mono text-[11px] text-gray-800">{{ s.ip_address|default:"—" }}</span>
         </div>
         <div class="flex items-center justify-between">
-          <span>Instances</span>
+          <span class="text-gray-500">Port Range</span>
+          <span class="font-mono text-[11px] text-gray-800">{{ s.min_port }}–{{ s.max_port }}</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-gray-500">Instances</span>
           <span>{{ s.instances.count }}/{{ s.max_instances }}</span>
         </div>
+        {% if s.ip_address %}
         <div class="flex items-center justify-between">
-          <span>CPU Cap</span>
-          <span>{{ s.capacity_cpu_cores }} cores</span>
+          <span class="text-gray-500">Example access</span>
+          <span class="font-mono text-[11px] text-blue-600">http://{{ s.ip_address }}:{{ s.min_port }}</span>
         </div>
-        <div class="flex items-center justify-between">
-          <span>RAM Cap</span>
-          <span>{{ s.capacity_ram_mb }} MB</span>
-        </div>
+        {% endif %}
       </div>
 
-      <div class="mt-4 pt-3 border-t border-gray-100">
+      <div class="mt-4 pt-3 border-t border-gray-100 flex gap-2">
         <button type="button"
-                class="open-instance-modal w-full inline-flex items-center justify-center px-3 py-2 text-xs font-medium rounded-lg transition-colors {% if s.status == 'PROVISIONED' %}text-white bg-gray-900 hover:bg-gray-700{% else %}text-gray-400 bg-gray-100 cursor-not-allowed{% endif %}"
+                class="open-instance-modal flex-1 inline-flex items-center justify-center px-3 py-2 text-xs font-medium rounded-lg transition-colors
+                  {% if s.status == 'PROVISIONED' %}text-white bg-gray-900 hover:bg-gray-700{% else %}text-gray-400 bg-gray-100 cursor-not-allowed{% endif %}"
                 data-server-id="{{ s.id }}"
                 data-server-name="{{ s.name }}"
+                data-server-ip="{{ s.ip_address|default:'' }}"
+                data-server-min-port="{{ s.min_port }}"
                 {% if s.status != 'PROVISIONED' %}disabled{% endif %}>
-          Create Odoo Instance
+          + Instance
+        </button>
+        <button type="button"
+                class="delete-server-btn px-3 py-2 text-xs font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
+                data-server-id="{{ s.id }}"
+                data-server-name="{{ s.name }}">
+          Delete
         </button>
       </div>
     </article>
     {% empty %}
-    <div class="md:col-span-2 xl:col-span-3 bg-gray-50 border border-gray-200 rounded-xl p-8 text-center text-sm text-gray-500">
-      No servers yet. Click Create Server to get started.
+    <div class="md:col-span-2 xl:col-span-3 bg-gray-50 border border-gray-200 rounded-xl p-8 text-center">
+      <p class="text-sm text-gray-500">No servers yet. Click <strong>Create Server</strong> to provision a DigitalOcean droplet with Odoo 19.</p>
     </div>
     {% endfor %}
   </div>
 
+  <!-- Instances Table -->
   <div class="bg-white border border-gray-200 rounded-xl overflow-hidden">
-    <div class="px-5 py-3 border-b border-gray-100">
+    <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
       <h3 class="text-sm font-semibold text-gray-900">Odoo Instances</h3>
+      <p class="text-xs text-gray-400">Access each instance directly via its IP:PORT link</p>
     </div>
     <table class="w-full text-sm">
       <thead>
@@ -83,35 +101,72 @@
           <th class="text-left px-5 py-3 text-xs text-gray-500 uppercase">Instance</th>
           <th class="text-left px-5 py-3 text-xs text-gray-500 uppercase">Server</th>
           <th class="text-left px-5 py-3 text-xs text-gray-500 uppercase">Port</th>
+          <th class="text-left px-5 py-3 text-xs text-gray-500 uppercase">Access URL</th>
           <th class="text-left px-5 py-3 text-xs text-gray-500 uppercase">Status</th>
-          <th class="text-right px-5 py-3 text-xs text-gray-500 uppercase">Open</th>
+          <th class="text-right px-5 py-3 text-xs text-gray-500 uppercase">Actions</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-gray-100">
         {% for oi in odoo_instances %}
-        <tr>
+        <tr id="instance-row-{{ oi.id }}">
           <td class="px-5 py-3">
             <div class="font-medium text-gray-900">{{ oi.name }}</div>
             <div class="text-xs text-gray-500">{{ oi.db_name }}</div>
           </td>
-          <td class="px-5 py-3 text-gray-700">{{ oi.server.name }}</td>
+          <td class="px-5 py-3 text-gray-700 text-xs">{{ oi.server.name }}</td>
           <td class="px-5 py-3 font-mono text-xs text-gray-600">{{ oi.http_port }}</td>
-          <td class="px-5 py-3 text-gray-700">{{ oi.get_status_display }}</td>
-          <td class="px-5 py-3 text-right">
-            <a href="{% url 'deployments_ui:odoo-instance-console' oi.id %}"
-               class="inline-flex items-center px-3 py-1.5 text-xs font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700 transition-colors">
-              Open
+          <td class="px-5 py-3">
+            {% if oi.server.ip_address and oi.status == 'RUNNING' %}
+            <a href="http://{{ oi.server.ip_address }}:{{ oi.http_port }}"
+               target="_blank" rel="noopener noreferrer"
+               class="inline-flex items-center gap-1 font-mono text-xs text-blue-600 hover:text-blue-800 hover:underline">
+              http://{{ oi.server.ip_address }}:{{ oi.http_port }}
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
             </a>
+            {% elif oi.server.ip_address %}
+            <span class="font-mono text-xs text-gray-400">http://{{ oi.server.ip_address }}:{{ oi.http_port }}</span>
+            {% else %}
+            <span class="text-xs text-gray-400">pending IP</span>
+            {% endif %}
+          </td>
+          <td class="px-5 py-3">
+            <span class="px-2 py-0.5 rounded text-[11px] font-medium
+              {% if oi.status == 'RUNNING' %}bg-green-100 text-green-700
+              {% elif oi.status == 'FAILED' %}bg-red-100 text-red-700
+              {% elif oi.status == 'CONFIGURING' %}bg-yellow-100 text-yellow-700
+              {% elif oi.status == 'DELETED' %}bg-gray-100 text-gray-400
+              {% else %}bg-gray-100 text-gray-600{% endif %}">
+              {{ oi.get_status_display }}
+            </span>
+          </td>
+          <td class="px-5 py-3 text-right">
+            <div class="flex items-center justify-end gap-2">
+              {% if oi.status != 'DELETED' %}
+              <a href="{% url 'deployments_ui:odoo-instance-console' oi.id %}"
+                 class="inline-flex items-center px-3 py-1.5 text-xs font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700 transition-colors">
+                Manage
+              </a>
+              <button type="button"
+                      class="delete-instance-btn px-2 py-1.5 text-xs font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
+                      data-instance-id="{{ oi.id }}"
+                      data-instance-name="{{ oi.name }}">
+                Del
+              </button>
+              {% endif %}
+            </div>
           </td>
         </tr>
         {% empty %}
-        <tr><td colspan="5" class="px-5 py-6 text-sm text-gray-400">No Odoo instances yet.</td></tr>
+        <tr><td colspan="6" class="px-5 py-6 text-sm text-gray-400 text-center">No Odoo instances yet. Create a server first, then add instances.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 </div>
 
+<!-- ═══════════════════════════════════════════════════════
+     MODAL: Create Instance
+     ═══════════════════════════════════════════════════════ -->
 <div id="instance-modal" class="fixed inset-0 bg-black/40 hidden z-50">
   <div class="min-h-full flex items-center justify-center p-4">
     <div class="w-full max-w-xl bg-white rounded-xl border border-gray-200">
@@ -120,38 +175,31 @@
         <button id="close-instance-modal" class="text-gray-500 hover:text-gray-700 text-sm">Close</button>
       </div>
       <div class="p-5 space-y-4">
+        <div class="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2.5">
+          <p class="text-xs text-blue-600 mb-1">Access URL (auto-assigned next port)</p>
+          <a id="instance-access-preview"
+             class="font-mono text-sm font-semibold text-blue-700 hover:underline break-all"
+             href="#" target="_blank" rel="noopener">http://SERVER_IP:PORT</a>
+        </div>
         <div class="text-xs text-gray-500">
           Server: <span id="instance-server-name" class="font-medium text-gray-700"></span>
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="block text-xs font-medium text-gray-600 mb-1">Instance Name</label>
-            <input id="instance-name" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+            <input id="instance-name" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" placeholder="e.g. acme-prod" />
           </div>
           <div>
             <label class="block text-xs font-medium text-gray-600 mb-1">Database Name</label>
-            <input id="instance-db-name" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+            <input id="instance-db-name" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" placeholder="e.g. acme_prod" />
           </div>
         </div>
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="block text-xs font-medium text-gray-600 mb-1">Domain (optional)</label>
-            <input id="instance-domain" placeholder="app.example.com" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-gray-600 mb-1">Port (optional)</label>
-            <input id="instance-port" type="number" placeholder="auto" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
-          </div>
-        </div>
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="block text-xs font-medium text-gray-600 mb-1">CPU Cores</label>
-            <input id="instance-cpu" type="number" min="1" value="1" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-gray-600 mb-1">RAM (MB)</label>
-            <input id="instance-ram" type="number" min="256" step="256" value="1024" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
-          </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">
+            Port
+            <span class="text-gray-400 font-normal">— leave blank to auto-assign</span>
+          </label>
+          <input id="instance-port" type="number" placeholder="auto" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
         </div>
       </div>
       <div class="px-5 py-4 border-t border-gray-100 flex items-center justify-between">
@@ -165,22 +213,26 @@
   </div>
 </div>
 
+<!-- ═══════════════════════════════════════════════════════
+     MODAL: Create Server — Step 1: Select source
+     ═══════════════════════════════════════════════════════ -->
 <div id="server-source-modal" class="fixed inset-0 bg-black/40 hidden z-50">
   <div class="min-h-full flex items-center justify-center p-4">
     <div class="w-full max-w-2xl bg-white rounded-xl border border-gray-200">
       <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-        <h3 class="text-sm font-semibold text-gray-900">Create Server · Select Source</h3>
+        <h3 class="text-sm font-semibold text-gray-900">Create Server · Select Infrastructure</h3>
         <button id="close-source-modal" class="text-gray-500 hover:text-gray-700 text-sm">Close</button>
       </div>
       <div class="p-5 space-y-4">
         <div class="grid grid-cols-2 gap-3">
           <button id="pick-cloud" type="button" class="px-3 py-2 rounded-lg border border-gray-300 text-sm font-medium hover:bg-gray-50">Cloud Provider</button>
-          <button id="pick-pyos" type="button" class="px-3 py-2 rounded-lg border border-gray-300 text-sm font-medium hover:bg-gray-50">PYOS (SSH)</button>
+          <button id="pick-pyos" type="button" class="px-3 py-2 rounded-lg border border-gray-300 text-sm font-medium hover:bg-gray-50">PYOS (SSH/VPS)</button>
         </div>
 
+        <!-- Cloud panel -->
         <div id="cloud-panel" class="hidden space-y-3">
           <div class="flex items-center justify-between">
-            <p class="text-xs text-gray-500">Choose provider block, then select an existing account.</p>
+            <p class="text-xs text-gray-500">Select a verified cloud account (DigitalOcean recommended).</p>
             <a href="{% url 'cloud:add-account' %}" class="text-xs text-gray-700 underline">Connect new account</a>
           </div>
           <div class="grid grid-cols-2 md:grid-cols-4 gap-2" id="provider-kanban">
@@ -205,14 +257,15 @@
           </div>
           <div class="flex justify-end">
             <button id="next-cloud-details" type="button" class="px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700">
-              Next: Create Server
+              Next: Configure Server
             </button>
           </div>
         </div>
 
+        <!-- PYOS panel -->
         <div id="pyos-panel" class="hidden space-y-3">
           <div class="flex items-center justify-between">
-            <p class="text-xs text-gray-500">Choose an existing verified VPS connection.</p>
+            <p class="text-xs text-gray-500">Use an existing verified VPS (SSH).</p>
             <a href="{% url 'cloud:add-server' %}" class="text-xs text-gray-700 underline">Connect new VPS</a>
           </div>
           <div>
@@ -226,7 +279,7 @@
           </div>
           <div class="flex justify-end">
             <button id="next-pyos-details" type="button" class="px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700">
-              Next: Create Server
+              Next: Configure Server
             </button>
           </div>
         </div>
@@ -237,363 +290,371 @@
   </div>
 </div>
 
+<!-- ═══════════════════════════════════════════════════════
+     MODAL: Create Server — Step 2: Details
+     ═══════════════════════════════════════════════════════ -->
 <div id="server-details-modal" class="fixed inset-0 bg-black/40 hidden z-50">
   <div class="min-h-full flex items-center justify-center p-4">
     <div class="w-full max-w-xl bg-white rounded-xl border border-gray-200">
       <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-        <h3 class="text-sm font-semibold text-gray-900">Create Server · Details</h3>
+        <h3 class="text-sm font-semibold text-gray-900">Create Server · Configuration</h3>
         <button id="close-details-modal" class="text-gray-500 hover:text-gray-700 text-sm">Close</button>
       </div>
       <div class="p-5 space-y-4">
-        <div class="text-xs text-gray-500">
-          <span id="details-source-label">Source:</span>
-        </div>
+        <p id="details-source-label" class="text-xs text-gray-500"></p>
+
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="block text-xs font-medium text-gray-600 mb-1">Server Name</label>
-            <input id="server-name" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+            <input id="server-name" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" placeholder="e.g. odoo19-prod" />
           </div>
           <div>
             <label class="block text-xs font-medium text-gray-600 mb-1">Odoo Version</label>
             <select id="server-version" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white">
+              <option value="19">19 (Latest)</option>
               <option value="18">18</option>
-              <option value="19">19</option>
             </select>
           </div>
         </div>
+
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="block text-xs font-medium text-gray-600 mb-1">Region</label>
             <select id="server-region" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white">
-              <option value="nyc3">New York 3</option>
+              <option value="nyc3">New York 3 (nyc3)</option>
             </select>
           </div>
           <div>
             <label class="block text-xs font-medium text-gray-600 mb-1">Size</label>
             <select id="server-size" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white">
-              <option value="s-2vcpu-4gb">2 vCPU / 4 GB</option>
+              <option value="s-2vcpu-4gb">2 vCPU / 4 GB ($24/mo)</option>
+              <option value="s-4vcpu-8gb">4 vCPU / 8 GB ($48/mo)</option>
             </select>
           </div>
         </div>
-        <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">DNS (optional)</label>
-          <input id="server-dns" placeholder="odoo19.example.com" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+
+        <div class="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 text-xs text-blue-700">
+          Instances will be accessible via <strong>http://SERVER_IP:PORT</strong> (ports 8069–8100).
+          This server will be dedicated to Odoo <span id="version-label">19</span> only.
         </div>
       </div>
       <div class="px-5 py-4 border-t border-gray-100 flex items-center justify-between">
         <p id="details-modal-msg" class="text-xs text-gray-500"></p>
         <button id="submit-create-server" type="button"
                 class="px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700">
-          Create Server
+          Provision Server
         </button>
       </div>
     </div>
   </div>
 </div>
 
+<!-- Delete confirm -->
+<div id="confirm-modal" class="fixed inset-0 bg-black/40 hidden z-50">
+  <div class="min-h-full flex items-center justify-center p-4">
+    <div class="w-full max-w-sm bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+      <h3 class="text-sm font-semibold text-gray-900" id="confirm-title">Confirm Delete</h3>
+      <p class="text-sm text-gray-600" id="confirm-body"></p>
+      <div class="flex gap-3 justify-end">
+        <button id="confirm-cancel" class="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
+        <button id="confirm-ok" class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700">Delete</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
-  (() => {
-    const csrftoken = "{{ csrf_token }}";
-    const sourceModal = document.getElementById("server-source-modal");
-    const detailsModal = document.getElementById("server-details-modal");
-    const openBtn = document.getElementById("open-create-server");
-    const closeSourceBtn = document.getElementById("close-source-modal");
-    const closeDetailsBtn = document.getElementById("close-details-modal");
-    const pickCloud = document.getElementById("pick-cloud");
-    const pickPyos = document.getElementById("pick-pyos");
-    const cloudPanel = document.getElementById("cloud-panel");
-    const pyosPanel = document.getElementById("pyos-panel");
-    const nextCloudBtn = document.getElementById("next-cloud-details");
-    const nextPyosBtn = document.getElementById("next-pyos-details");
-    const providerCards = document.querySelectorAll(".provider-card");
-    const accountEl = document.getElementById("cloud-account");
-    const pyosServerEl = document.getElementById("pyos-server");
-    const nameEl = document.getElementById("server-name");
-    const versionEl = document.getElementById("server-version");
-    const regionEl = document.getElementById("server-region");
-    const sizeEl = document.getElementById("server-size");
-    const dnsEl = document.getElementById("server-dns");
-    const sourceMsgEl = document.getElementById("source-modal-msg");
-    const detailsMsgEl = document.getElementById("details-modal-msg");
-    const detailsSourceLabel = document.getElementById("details-source-label");
-    const instanceModal = document.getElementById("instance-modal");
-    const closeInstanceModalBtn = document.getElementById("close-instance-modal");
-    const instanceServerNameEl = document.getElementById("instance-server-name");
-    const instanceNameEl = document.getElementById("instance-name");
-    const instanceDbNameEl = document.getElementById("instance-db-name");
-    const instanceDomainEl = document.getElementById("instance-domain");
-    const instancePortEl = document.getElementById("instance-port");
-    const instanceCpuEl = document.getElementById("instance-cpu");
-    const instanceRamEl = document.getElementById("instance-ram");
-    const instanceMsgEl = document.getElementById("instance-modal-msg");
-    const submitCreateInstanceBtn = document.getElementById("submit-create-instance");
-    const openInstanceModalBtns = document.querySelectorAll(".open-instance-modal");
-    let selectedServerId = "";
-    let mode = null;
-    let selectedProvider = "";
-    let selectedAccountId = "";
-    let selectedExternalId = "";
+(() => {
+  const csrf = "{{ csrf_token }}";
 
-    const infrastructures = [
-      {% for infra in infrastructures %}
-      {id: {{ infra.id }}, type: "{{ infra.infra_type }}", accountId: {% if infra.cloud_account %}{{ infra.cloud_account.id }}{% else %}null{% endif %}, externalId: {% if infra.external_server %}{{ infra.external_server.id }}{% else %}null{% endif %}},
-      {% endfor %}
-    ];
+  // ─── helpers ─────────────────────────────────────────────────────────────
+  const $ = (id) => document.getElementById(id);
+  const show = (el) => el.classList.remove("hidden");
+  const hide = (el) => el.classList.add("hidden");
+  const setMsg = (el, text, isError = false) => {
+    el.textContent = text;
+    el.className = isError ? "text-xs text-red-600" : "text-xs text-gray-500";
+  };
 
-    const setOptions = (el, rows) => {
-      el.innerHTML = "";
-      rows.forEach(([value, label]) => {
-        const opt = document.createElement("option");
-        opt.value = value;
-        opt.textContent = label;
-        el.appendChild(opt);
-      });
-    };
+  async function postForm(endpoint, payload) {
+    const fd = new FormData();
+    Object.entries(payload).forEach(([k, v]) => {
+      if (v !== null && v !== undefined && v !== "") fd.append(k, String(v));
+    });
+    const res = await fetch(endpoint, { method: "POST", headers: { "X-CSRFToken": csrf }, body: fd });
+    const data = await res.json().catch(() => ({}));
+    return { ok: res.ok, data };
+  }
 
-    const defaultRegionSize = () => {
-      setOptions(regionEl, [["nyc3", "New York 3"]]);
-      setOptions(sizeEl, [["s-2vcpu-4gb", "2 vCPU / 4 GB"]]);
-    };
+  function setOptions(el, rows) {
+    el.innerHTML = "";
+    rows.forEach(([value, label]) => {
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = label;
+      el.appendChild(opt);
+    });
+  }
 
-    const filterAccountsByProvider = () => {
-      const provider = selectedProvider;
-      [...accountEl.options].forEach((opt, idx) => {
-        if (idx === 0) return;
-        const visible = !provider || opt.dataset.provider === provider;
-        opt.hidden = !visible;
+  // ─── state ───────────────────────────────────────────────────────────────
+  let mode = null;          // "cloud" | "pyos"
+  let selectedAccountId = "";
+  let selectedExternalId = "";
+  let selectedServerId = "";
+  let selectedServerIp = "";
+  let selectedServerMinPort = 8069;
+
+  const infrastructures = [
+    {% for infra in infrastructures %}
+    { id: {{ infra.id }}, type: "{{ infra.infra_type }}", accountId: {% if infra.cloud_account %}{{ infra.cloud_account.id }}{% else %}null{% endif %}, externalId: {% if infra.external_server %}{{ infra.external_server.id }}{% else %}null{% endif %} },
+    {% endfor %}
+  ];
+
+  // ─── source modal ────────────────────────────────────────────────────────
+  const sourceModal   = $("server-source-modal");
+  const detailsModal  = $("server-details-modal");
+  const instanceModal = $("instance-modal");
+  const confirmModal  = $("confirm-modal");
+
+  $("open-create-server").addEventListener("click", () => {
+    show(sourceModal);
+    hide(detailsModal);
+    showCloud();
+    selectedAccountId = "";
+    selectedExternalId = "";
+    $("source-modal-msg").textContent = "";
+  });
+
+  $("close-source-modal").addEventListener("click", () => hide(sourceModal));
+  $("close-details-modal").addEventListener("click", () => hide(detailsModal));
+  $("close-instance-modal").addEventListener("click", () => hide(instanceModal));
+  $("confirm-cancel").addEventListener("click", () => hide(confirmModal));
+
+  [sourceModal, detailsModal, instanceModal, confirmModal].forEach(m => {
+    m.addEventListener("click", (e) => { if (e.target === m) hide(m); });
+  });
+
+  // provider / source selection
+  const pickCloud = $("pick-cloud");
+  const pickPyos  = $("pick-pyos");
+  const cloudPanel = $("cloud-panel");
+  const pyosPanel  = $("pyos-panel");
+  const accountEl  = $("cloud-account");
+  const pyosEl     = $("pyos-server");
+  const regionEl   = $("server-region");
+  const sizeEl     = $("server-size");
+  const versionEl  = $("server-version");
+  const versionLabel = $("version-label");
+
+  versionEl.addEventListener("change", () => { versionLabel.textContent = versionEl.value; });
+
+  function activateBtn(active, inactive) {
+    active.classList.add("bg-gray-900", "text-white", "border-gray-900");
+    inactive.classList.remove("bg-gray-900", "text-white", "border-gray-900");
+  }
+
+  function showCloud() {
+    mode = "cloud";
+    show(cloudPanel); hide(pyosPanel);
+    activateBtn(pickCloud, pickPyos);
+    $("source-modal-msg").textContent = "";
+  }
+  function showPyos() {
+    mode = "pyos";
+    show(pyosPanel); hide(cloudPanel);
+    activateBtn(pickPyos, pickCloud);
+    $("source-modal-msg").textContent = "";
+    setOptions(regionEl, [["pyos", "PYOS (self-hosted)"]]);
+    setOptions(sizeEl,   [["self-hosted", "Self-hosted"]]);
+  }
+
+  pickCloud.addEventListener("click", showCloud);
+  pickPyos.addEventListener("click", showPyos);
+
+  document.querySelectorAll(".provider-card").forEach(card => {
+    card.addEventListener("click", () => {
+      document.querySelectorAll(".provider-card").forEach(c => c.classList.remove("bg-gray-900","text-white","border-gray-900"));
+      card.classList.add("bg-gray-900","text-white","border-gray-900");
+      const prov = card.dataset.provider || "";
+      [...accountEl.options].forEach((opt, i) => {
+        if (i === 0) return;
+        opt.hidden = prov && opt.dataset.provider !== prov;
       });
       accountEl.value = "";
-      defaultRegionSize();
-    };
-
-    const loadOptionsForAccount = async () => {
-      const accountId = accountEl.value;
-      if (!accountId) return defaultRegionSize();
-      const res = await fetch(`/cloud/accounts/${accountId}/options/`);
-      if (!res.ok) return defaultRegionSize();
-      const data = await res.json();
-      if (Array.isArray(data.regions) && data.regions.length) setOptions(regionEl, data.regions);
-      if (Array.isArray(data.sizes) && data.sizes.length) setOptions(sizeEl, data.sizes);
-    };
-
-    const showCloud = () => {
-      mode = "cloud";
-      cloudPanel.classList.remove("hidden");
-      pyosPanel.classList.add("hidden");
-      pickCloud.classList.add("bg-gray-900", "text-white", "border-gray-900");
-      pickPyos.classList.remove("bg-gray-900", "text-white", "border-gray-900");
-      sourceMsgEl.textContent = "";
-    };
-    const showPyos = () => {
-      mode = "pyos";
-      pyosPanel.classList.remove("hidden");
-      cloudPanel.classList.add("hidden");
-      pickPyos.classList.add("bg-gray-900", "text-white", "border-gray-900");
-      pickCloud.classList.remove("bg-gray-900", "text-white", "border-gray-900");
-      sourceMsgEl.textContent = "";
-      regionEl.innerHTML = '<option value="pyos">PYOS</option>';
-      sizeEl.innerHTML = '<option value="self-hosted">Self Hosted</option>';
-    };
-
-    const openDetailsModal = () => {
-      sourceModal.classList.add("hidden");
-      detailsModal.classList.remove("hidden");
-      detailsMsgEl.textContent = "";
-      detailsSourceLabel.textContent = mode === "cloud"
-        ? `Source: Cloud account #${selectedAccountId}`
-        : `Source: PYOS VPS #${selectedExternalId}`;
-    };
-
-    openBtn.addEventListener("click", () => {
-      sourceModal.classList.remove("hidden");
-      detailsModal.classList.add("hidden");
-      sourceMsgEl.textContent = "";
-      showCloud();
-      filterAccountsByProvider();
-      selectedAccountId = "";
-      selectedExternalId = "";
     });
-    closeSourceBtn.addEventListener("click", () => sourceModal.classList.add("hidden"));
-    closeDetailsBtn.addEventListener("click", () => detailsModal.classList.add("hidden"));
-    closeInstanceModalBtn.addEventListener("click", () => instanceModal.classList.add("hidden"));
-    sourceModal.addEventListener("click", (e) => { if (e.target === sourceModal) sourceModal.classList.add("hidden"); });
-    detailsModal.addEventListener("click", (e) => { if (e.target === detailsModal) detailsModal.classList.add("hidden"); });
-    instanceModal.addEventListener("click", (e) => { if (e.target === instanceModal) instanceModal.classList.add("hidden"); });
-    pickCloud.addEventListener("click", showCloud);
-    pickPyos.addEventListener("click", showPyos);
-    accountEl.addEventListener("change", async () => {
-      selectedAccountId = accountEl.value;
-      await loadOptionsForAccount();
-    });
-    pyosServerEl.addEventListener("change", () => {
-      selectedExternalId = pyosServerEl.value;
-      regionEl.innerHTML = '<option value="pyos">PYOS</option>';
-      sizeEl.innerHTML = '<option value="self-hosted">Self Hosted</option>';
-    });
-    providerCards.forEach((card) => {
-      card.addEventListener("click", () => {
-        providerCards.forEach((c) => c.classList.remove("bg-gray-900", "text-white", "border-gray-900"));
-        card.classList.add("bg-gray-900", "text-white", "border-gray-900");
-        selectedProvider = card.dataset.provider || "";
-        filterAccountsByProvider();
-      });
-    });
+  });
 
-    nextCloudBtn.addEventListener("click", () => {
-      selectedAccountId = accountEl.value;
-      if (!selectedAccountId) {
-        sourceMsgEl.textContent = "Select a cloud account first.";
-        return;
+  accountEl.addEventListener("change", async () => {
+    selectedAccountId = accountEl.value;
+    if (!selectedAccountId) return;
+    const res = await fetch(`/cloud/accounts/${selectedAccountId}/options/`);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (Array.isArray(data.regions) && data.regions.length) setOptions(regionEl, data.regions);
+    if (Array.isArray(data.sizes)   && data.sizes.length)   setOptions(sizeEl,   data.sizes);
+  });
+
+  pyosEl.addEventListener("change", () => {
+    selectedExternalId = pyosEl.value;
+    setOptions(regionEl, [["pyos", "PYOS"]]);
+    setOptions(sizeEl,   [["self-hosted", "Self Hosted"]]);
+  });
+
+  function openDetailsModal() {
+    hide(sourceModal);
+    show(detailsModal);
+    setMsg($("details-modal-msg"), "");
+    $("details-source-label").textContent = mode === "cloud"
+      ? `Cloud account selected`
+      : `VPS connection selected`;
+  }
+
+  $("next-cloud-details").addEventListener("click", () => {
+    selectedAccountId = accountEl.value;
+    if (!selectedAccountId) { $("source-modal-msg").textContent = "Select a cloud account first."; return; }
+    openDetailsModal();
+  });
+  $("next-pyos-details").addEventListener("click", () => {
+    selectedExternalId = pyosEl.value;
+    if (!selectedExternalId) { $("source-modal-msg").textContent = "Select a VPS connection first."; return; }
+    openDetailsModal();
+  });
+
+  // ─── create server ───────────────────────────────────────────────────────
+  $("submit-create-server").addEventListener("click", async () => {
+    const msgEl = $("details-modal-msg");
+    const name = $("server-name").value.trim();
+    if (!name) { setMsg(msgEl, "Server name is required.", true); return; }
+    setMsg(msgEl, "Provisioning server…");
+
+    let payload = {
+      name,
+      odoo_version: versionEl.value,
+      region: regionEl.value,
+      size: sizeEl.value,
+    };
+
+    if (mode === "cloud") {
+      if (!selectedAccountId) { setMsg(msgEl, "Select a cloud account.", true); return; }
+      // Try to reuse existing infrastructure, otherwise pass cloud_account_id directly
+      const existing = infrastructures.find(i => i.type === "MANAGED" && String(i.accountId) === String(selectedAccountId));
+      if (existing) {
+        payload.infrastructure_id = existing.id;
+      } else {
+        payload.cloud_account_id = selectedAccountId;
       }
-      openDetailsModal();
-    });
-    nextPyosBtn.addEventListener("click", () => {
-      selectedExternalId = pyosServerEl.value;
-      if (!selectedExternalId) {
-        sourceMsgEl.textContent = "Select a VPS connection first.";
-        return;
+    } else {
+      if (!selectedExternalId) { setMsg(msgEl, "Select a VPS.", true); return; }
+      const existing = infrastructures.find(i => i.type === "PYOS" && String(i.externalId) === String(selectedExternalId));
+      if (existing) {
+        payload.infrastructure_id = existing.id;
+      } else {
+        // Auto-create PYOS infrastructure then use it
+        const infraResp = await postForm("/api/deployments/infrastructure/create/", {
+          name: `pyos-${selectedExternalId}`,
+          infra_type: "PYOS",
+          external_server_id: selectedExternalId,
+        });
+        if (!infraResp.ok) { setMsg(msgEl, infraResp.data.error || "Could not create PYOS infrastructure.", true); return; }
+        payload.infrastructure_id = infraResp.data.id;
       }
-      openDetailsModal();
-    });
-
-    async function postForm(endpoint, payload) {
-      const fd = new FormData();
-      Object.entries(payload).forEach(([k, v]) => {
-        if (v !== null && v !== undefined && v !== "") fd.append(k, String(v));
-      });
-      const res = await fetch(endpoint, {method: "POST", headers: {"X-CSRFToken": csrftoken}, body: fd});
-      const data = await res.json().catch(() => ({}));
-      return {ok: res.ok, data};
     }
 
-    document.getElementById("submit-create-server").addEventListener("click", async () => {
-      const name = nameEl.value.trim();
-      if (!name) {
-        detailsMsgEl.textContent = "Server name is required.";
-        detailsMsgEl.className = "text-xs text-red-600";
-        return;
-      }
-      detailsMsgEl.textContent = "Creating server...";
-      detailsMsgEl.className = "text-xs text-gray-500";
+    const resp = await postForm("/api/deployments/odoo/servers/create/", payload);
+    if (!resp.ok) { setMsg(msgEl, resp.data.error || "Server creation failed.", true); return; }
+    setMsg(msgEl, "Server queued for provisioning. Reloading…");
+    setTimeout(() => window.location.reload(), 600);
+  });
 
-      let infrastructureId = null;
-      if (mode === "cloud") {
-        const accountId = selectedAccountId;
-        if (!accountId) {
-          detailsMsgEl.textContent = "Select cloud provider account.";
-          detailsMsgEl.className = "text-xs text-red-600";
-          return;
-        }
-        const existing = infrastructures.find((i) => i.type === "MANAGED" && String(i.accountId) === String(accountId));
-        if (existing) {
-          infrastructureId = existing.id;
-        } else {
-          const infraResp = await postForm("/api/deployments/infrastructure/create/", {
-            name: `managed-${accountId}`,
-            infra_type: "MANAGED",
-            cloud_account_id: accountId
-          });
-          if (!infraResp.ok) {
-            detailsMsgEl.textContent = infraResp.data.error || "Could not create infrastructure.";
-            detailsMsgEl.className = "text-xs text-red-600";
-            return;
-          }
-          infrastructureId = infraResp.data.id;
-        }
-      } else if (mode === "pyos") {
-        const externalId = selectedExternalId;
-        if (!externalId) {
-          detailsMsgEl.textContent = "Select VPS connection.";
-          detailsMsgEl.className = "text-xs text-red-600";
-          return;
-        }
-        const existing = infrastructures.find((i) => i.type === "PYOS" && String(i.externalId) === String(externalId));
-        if (existing) {
-          infrastructureId = existing.id;
-        } else {
-          const infraResp = await postForm("/api/deployments/infrastructure/create/", {
-            name: `pyos-${externalId}`,
-            infra_type: "PYOS",
-            external_server_id: externalId
-          });
-          if (!infraResp.ok) {
-            detailsMsgEl.textContent = infraResp.data.error || "Could not create PYOS infrastructure.";
-            detailsMsgEl.className = "text-xs text-red-600";
-            return;
-          }
-          infrastructureId = infraResp.data.id;
-        }
-      }
-
-      const serverResp = await postForm("/api/deployments/odoo/servers/create/", {
-        name,
-        infrastructure_id: infrastructureId,
-        odoo_version: versionEl.value,
-        region: regionEl.value,
-        size: sizeEl.value,
-        dns_domain: dnsEl.value.trim(),
-      });
-      if (!serverResp.ok) {
-        detailsMsgEl.textContent = serverResp.data.error || "Could not create server.";
-        detailsMsgEl.className = "text-xs text-red-600";
-        return;
-      }
-      detailsMsgEl.textContent = "Server created. Reloading…";
-      detailsMsgEl.className = "text-xs text-green-600";
-      setTimeout(() => window.location.reload(), 500);
+  // ─── create instance modal ───────────────────────────────────────────────
+  document.querySelectorAll(".open-instance-modal").forEach(btn => {
+    btn.addEventListener("click", () => {
+      if (btn.disabled) return;
+      selectedServerId   = btn.dataset.serverId || "";
+      selectedServerIp   = btn.dataset.serverIp || "";
+      selectedServerMinPort = parseInt(btn.dataset.serverMinPort || "8069", 10);
+      $("instance-server-name").textContent = btn.dataset.serverName || "";
+      $("instance-name").value = "";
+      $("instance-db-name").value = "";
+      $("instance-port").value = "";
+      setMsg($("instance-modal-msg"), "");
+      updateAccessPreview();
+      show(instanceModal);
     });
+  });
 
-    openInstanceModalBtns.forEach((btn) => {
-      btn.addEventListener("click", () => {
-        if (btn.disabled) return;
-        selectedServerId = btn.dataset.serverId || "";
-        instanceServerNameEl.textContent = btn.dataset.serverName || "";
-        instanceNameEl.value = "";
-        instanceDbNameEl.value = "";
-        instanceDomainEl.value = "";
-        instancePortEl.value = "";
-        instanceCpuEl.value = "1";
-        instanceRamEl.value = "1024";
-        instanceMsgEl.textContent = "";
-        instanceMsgEl.className = "text-xs text-gray-500";
-        instanceModal.classList.remove("hidden");
-      });
+  function updateAccessPreview() {
+    const port = $("instance-port").value.trim() || selectedServerMinPort;
+    const ip = selectedServerIp || "SERVER_IP";
+    const url = `http://${ip}:${port}`;
+    const el = $("instance-access-preview");
+    el.textContent = url;
+    el.href = selectedServerIp ? url : "#";
+  }
+  $("instance-port").addEventListener("input", updateAccessPreview);
+
+  $("submit-create-instance").addEventListener("click", async () => {
+    const msgEl = $("instance-modal-msg");
+    const name   = $("instance-name").value.trim();
+    const dbName = $("instance-db-name").value.trim();
+    if (!selectedServerId) { setMsg(msgEl, "Server selection missing.", true); return; }
+    if (!name || !dbName)  { setMsg(msgEl, "Instance name and database name are required.", true); return; }
+    setMsg(msgEl, "Creating instance…");
+
+    const resp = await postForm("/api/deployments/odoo/instances/create/", {
+      server_id: selectedServerId,
+      name,
+      db_name: dbName,
+      http_port: $("instance-port").value.trim(),
     });
+    if (!resp.ok) { setMsg(msgEl, resp.data.error || "Instance creation failed.", true); return; }
+    setMsg(msgEl, "Instance queued. Reloading…");
+    setTimeout(() => window.location.reload(), 600);
+  });
 
-    submitCreateInstanceBtn.addEventListener("click", async () => {
-      const name = instanceNameEl.value.trim();
-      const dbName = instanceDbNameEl.value.trim();
-      if (!selectedServerId) {
-        instanceMsgEl.textContent = "Server selection is missing.";
-        instanceMsgEl.className = "text-xs text-red-600";
-        return;
-      }
-      if (!name || !dbName) {
-        instanceMsgEl.textContent = "Instance name and database name are required.";
-        instanceMsgEl.className = "text-xs text-red-600";
-        return;
-      }
-      instanceMsgEl.textContent = "Creating instance...";
-      instanceMsgEl.className = "text-xs text-gray-500";
+  // ─── delete instance ─────────────────────────────────────────────────────
+  let pendingDeleteEndpoint = "";
 
-      const resp = await postForm("/api/deployments/odoo/instances/create/", {
-        server_id: selectedServerId,
-        name,
-        db_name: dbName,
-        domain: instanceDomainEl.value.trim(),
-        http_port: instancePortEl.value.trim(),
-        requested_cpu_cores: instanceCpuEl.value.trim() || "1",
-        requested_ram_mb: instanceRamEl.value.trim() || "1024",
-      });
-      if (!resp.ok) {
-        instanceMsgEl.textContent = resp.data.error || "Could not create instance.";
-        instanceMsgEl.className = "text-xs text-red-600";
-        return;
-      }
-      instanceMsgEl.textContent = "Instance created. Reloading…";
-      instanceMsgEl.className = "text-xs text-green-600";
-      setTimeout(() => window.location.reload(), 500);
+  function showConfirm(title, body, endpoint) {
+    pendingDeleteEndpoint = endpoint;
+    $("confirm-title").textContent = title;
+    $("confirm-body").textContent = body;
+    show(confirmModal);
+  }
+
+  $("confirm-ok").addEventListener("click", async () => {
+    if (!pendingDeleteEndpoint) return;
+    hide(confirmModal);
+    const resp = await postForm(pendingDeleteEndpoint, {});
+    if (resp.ok) {
+      window.location.reload();
+    } else {
+      alert(resp.data.error || "Delete failed.");
+    }
+  });
+
+  document.querySelectorAll(".delete-instance-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      showConfirm(
+        "Delete Instance",
+        `Stop "${btn.dataset.instanceName}", drop its database, and free the port?`,
+        `/api/deployments/odoo/instances/${btn.dataset.instanceId}/delete/`
+      );
     });
-  })();
+  });
+
+  document.querySelectorAll(".delete-server-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      showConfirm(
+        "Delete Server",
+        `Delete server "${btn.dataset.serverName}" and ALL its instances? The cloud droplet will be destroyed.`,
+        `/api/deployments/odoo/servers/${btn.dataset.serverId}/delete/`
+      );
+    });
+  });
+
+  // init
+  showCloud();
+})();
 </script>
 {% endblock %}
