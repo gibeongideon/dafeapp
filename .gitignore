@@ -287,5 +287,3 @@ paypalhttp
 # Django migrations
 */migrations/
 GEMINI.md
-
-/InstallScript

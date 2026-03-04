@@ -142,7 +142,7 @@ class PyOSService:
         else:
             connect_kwargs["password"] = FieldEncryptor.decrypt(self.server.encrypted_password)
 
-        client.connect(**connect_kwargs)
+        client.connect(**connect_kwargs, allow_agent=False, look_for_keys=False)
         return client
 
     def _run(self, client: paramiko.SSHClient, cmd: str) -> tuple[str, str]:
