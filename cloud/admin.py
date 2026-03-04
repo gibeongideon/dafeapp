@@ -13,17 +13,12 @@ class ExternalServerAdmin(admin.ModelAdmin):
     list_filter = ["is_verified", "is_prepared", "preparation_status", "auth_type"]
     search_fields = ["name", "host", "organization__name"]
     readonly_fields = [
-        "encrypted_private_key_display",
         "encrypted_password_display",
         "is_verified", "is_prepared", "verification_error",
         "preparation_status", "preparation_log", "last_verified_at",
         "created_at", "updated_at",
     ]
-    exclude = ["encrypted_private_key", "encrypted_password"]
-
-    def encrypted_private_key_display(self, obj):
-        return "[encrypted]" if obj.encrypted_private_key else "—"
-    encrypted_private_key_display.short_description = "Private Key"
+    exclude = ["encrypted_password"]
 
     def encrypted_password_display(self, obj):
         return "[encrypted]" if obj.encrypted_password else "—"

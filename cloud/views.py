@@ -61,8 +61,12 @@ class CloudDashboardView(CloudSuperAdminMixin, TemplateView):
 class AddExternalServerView(CloudSuperAdminMixin, View):
     template_name = "cloud/add_server.html"
 
+    def _ctx(self, form):
+        key_obj = SystemSSHKey.get_or_create_keypair()
+        return {"form": form, "dafeapp_public_key": key_obj.public_key}
+
     def get(self, request):
-        return render(request, self.template_name, {"form": ExternalServerForm()})
+        return render(request, self.template_name, self._ctx(ExternalServerForm()))
 
     def post(self, request):
         form = ExternalServerForm(request.POST)
@@ -89,7 +93,7 @@ class AddExternalServerView(CloudSuperAdminMixin, View):
             messages.success(request, f"Server '{server.name}' added. Run verification to test the connection.")
             return redirect("cloud:server-detail", pk=server.pk)
 
-        return render(request, self.template_name, {"form": form})
+        return render(request, self.template_name, self._ctx(form))
 
 
 class ServerDetailView(CloudSuperAdminMixin, TemplateView):

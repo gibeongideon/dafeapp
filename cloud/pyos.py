@@ -7,8 +7,6 @@ import socket
 
 import paramiko
 
-from cloud.encryption import FieldEncryptor
-
 logger = logging.getLogger(__name__)
 
 # Commands run sequentially during server preparation
@@ -121,31 +119,6 @@ class PyOSService:
                     "Check FIELD_ENCRYPTION_KEY in .env."
                 )
             pkey = paramiko.Ed25519Key.from_private_key(io.StringIO(private_key_str))
-            transport.auth_publickey(username, pkey)
-
-        elif self.server.auth_type == "SSH_KEY":
-            private_key_str = FieldEncryptor.decrypt(self.server.encrypted_private_key)
-            if not private_key_str or not private_key_str.strip().startswith("-----"):
-                transport.close()
-                raise paramiko.ssh_exception.SSHException(
-                    "Private key decryption failed — FIELD_ENCRYPTION_KEY may be wrong "
-                    "or missing. Re-save the server credentials to fix."
-                )
-            key_file = io.StringIO(private_key_str)
-            pkey = None
-            for key_cls in (paramiko.RSAKey, paramiko.ECDSAKey, paramiko.Ed25519Key):
-                try:
-                    key_file.seek(0)
-                    pkey = key_cls.from_private_key(key_file)
-                    break
-                except paramiko.ssh_exception.SSHException:
-                    continue
-            if pkey is None:
-                transport.close()
-                raise paramiko.ssh_exception.SSHException(
-                    "Could not load private key: unsupported algorithm or invalid key data. "
-                    "Supported types: RSA, ECDSA, Ed25519."
-                )
             transport.auth_publickey(username, pkey)
 
         else:

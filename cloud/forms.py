@@ -11,17 +11,10 @@ _SELECT = "w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white f
 class ExternalServerForm(forms.ModelForm):
     """
     Form for adding a PYOS server.
-    Raw credential fields (private_key / password) are set on the model
-    instance as _raw_* attributes; the model's save() encrypts them.
-    Alpine.js toggles key vs password field based on auth_type.
+    Raw credential field (password) is set on the model instance as _raw_password;
+    the model's save() encrypts it. Alpine.js toggles credential field based on auth_type.
     """
 
-    private_key = forms.CharField(
-        label="SSH Private Key",
-        widget=forms.Textarea(attrs={"rows": 8, "class": f"font-mono text-xs {_INPUT}"}),
-        required=False,
-        help_text="Paste the full PEM-encoded private key (RSA or Ed25519).",
-    )
     password = forms.CharField(
         label="Password",
         widget=forms.PasswordInput(render_value=False, attrs={"class": _INPUT}),
@@ -42,18 +35,14 @@ class ExternalServerForm(forms.ModelForm):
     def clean(self):
         cleaned = super().clean()
         auth_type = cleaned.get("auth_type")
-        if auth_type == ExternalServer.AuthType.SSH_KEY and not cleaned.get("private_key"):
-            self.add_error("private_key", "SSH private key is required for key-based auth.")
         if auth_type == ExternalServer.AuthType.PASSWORD and not cleaned.get("password"):
             self.add_error("password", "Password is required for password-based auth.")
+        # DAFEAPP_KEY: no credential needed — DafeApp's own keypair is used
         return cleaned
 
     def save(self, commit=True):
         instance = super().save(commit=False)
-        pk = self.cleaned_data.get("private_key")
         pw = self.cleaned_data.get("password")
-        if pk:
-            instance._raw_private_key = pk
         if pw:
             instance._raw_password = pw
         if commit:

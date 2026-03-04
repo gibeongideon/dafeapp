@@ -7,7 +7,6 @@ class ExternalServer(models.Model):
     """A user-supplied VPS connected via SSH (PYOS mode)."""
 
     class AuthType(models.TextChoices):
-        SSH_KEY = "SSH_KEY", "SSH Private Key"
         PASSWORD = "PASSWORD", "Password"
         DAFEAPP_KEY = "DAFEAPP_KEY", "DafeApp SSH Key (public key auth)"
 
@@ -27,11 +26,10 @@ class ExternalServer(models.Model):
     port = models.PositiveIntegerField(default=22)
     username = models.CharField(max_length=100, default="root")
     auth_type = models.CharField(
-        max_length=15, choices=AuthType.choices, default=AuthType.SSH_KEY
+        max_length=15, choices=AuthType.choices, default=AuthType.DAFEAPP_KEY
     )
 
-    # Encrypted credential fields — raw values are NEVER stored
-    encrypted_private_key = models.TextField(blank=True)
+    # Encrypted credential field — raw value is NEVER stored
     encrypted_password = models.TextField(blank=True)
 
     is_verified = models.BooleanField(default=False)
@@ -56,17 +54,10 @@ class ExternalServer(models.Model):
         return f"{self.name} ({self.host})"
 
     def save(self, *args, **kwargs):
-        # Encrypt raw credentials set on the instance before persisting
-        raw_key = getattr(self, "_raw_private_key", None)
-        if raw_key:
-            self.encrypted_private_key = FieldEncryptor.encrypt(raw_key)
-            self._raw_private_key = None
-
         raw_password = getattr(self, "_raw_password", None)
         if raw_password:
             self.encrypted_password = FieldEncryptor.encrypt(raw_password)
             self._raw_password = None
-
         super().save(*args, **kwargs)
 
 
@@ -239,13 +230,19 @@ class SystemSSHKey(models.Model):
         if obj:
             return obj
 
-        # Generate a new Ed25519 keypair
-        key = paramiko.Ed25519Key.generate()
+        # Generate a new Ed25519 keypair via the cryptography library,
+        # then load it into paramiko to get the OpenSSH public key string.
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        from cryptography.hazmat.primitives.serialization import (
+            Encoding, NoEncryption, PrivateFormat,
+        )
 
-        buf = io.StringIO()
-        key.write_private_key(buf)
-        private_key_str = buf.getvalue()
+        raw_key = Ed25519PrivateKey.generate()
+        private_key_str = raw_key.private_bytes(
+            Encoding.PEM, PrivateFormat.OpenSSH, NoEncryption()
+        ).decode()
 
+        key = paramiko.Ed25519Key.from_private_key(io.StringIO(private_key_str))
         public_key_str = f"{key.get_name()} {key.get_base64()} dafeapp"
 
         obj = cls(
