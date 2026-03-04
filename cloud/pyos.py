@@ -89,36 +89,44 @@ class PyOSService:
     # ------------------------------------------------------------------
 
     def _get_client(self) -> paramiko.SSHClient:
-        """Build and return a connected SSHClient."""
-        client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        """
+        Build and return a connected SSHClient.
 
-        connect_kwargs = {
-            "hostname": self.server.host,
-            "port": self.server.port,
-            "username": self.server.username,
-            "timeout": 15,
-            "banner_timeout": 15,
-        }
+        Uses paramiko.Transport directly so the SSH agent is never consulted —
+        SSHClient.connect() can trigger agent auth even with allow_agent=False
+        in paramiko 4.x when SSH_AUTH_SOCK is present in the environment.
+        """
+        import io
+
+        sock = socket.create_connection(
+            (self.server.host, self.server.port), timeout=15
+        )
+        transport = paramiko.Transport(sock)
+        try:
+            transport.start_client(timeout=15)
+        except Exception:
+            transport.close()
+            raise
+
+        username = self.server.username
 
         if self.server.auth_type == "DAFEAPP_KEY":
-            import io
             from cloud.models import SystemSSHKey
             system_key = SystemSSHKey.get_or_create_keypair()
             private_key_str = system_key.get_private_key()
             if not private_key_str:
+                transport.close()
                 raise paramiko.ssh_exception.SSHException(
                     "DafeApp system SSH key could not be loaded. "
                     "Check FIELD_ENCRYPTION_KEY in .env."
                 )
-            connect_kwargs["pkey"] = paramiko.Ed25519Key.from_private_key(
-                io.StringIO(private_key_str)
-            )
+            pkey = paramiko.Ed25519Key.from_private_key(io.StringIO(private_key_str))
+            transport.auth_publickey(username, pkey)
 
         elif self.server.auth_type == "SSH_KEY":
-            import io
             private_key_str = FieldEncryptor.decrypt(self.server.encrypted_private_key)
             if not private_key_str or not private_key_str.strip().startswith("-----"):
+                transport.close()
                 raise paramiko.ssh_exception.SSHException(
                     "Private key decryption failed — FIELD_ENCRYPTION_KEY may be wrong "
                     "or missing. Re-save the server credentials to fix."
@@ -133,16 +141,20 @@ class PyOSService:
                 except paramiko.ssh_exception.SSHException:
                     continue
             if pkey is None:
+                transport.close()
                 raise paramiko.ssh_exception.SSHException(
                     "Could not load private key: unsupported algorithm or invalid key data. "
                     "Supported types: RSA, ECDSA, Ed25519."
                 )
-            connect_kwargs["pkey"] = pkey
+            transport.auth_publickey(username, pkey)
 
         else:
-            connect_kwargs["password"] = FieldEncryptor.decrypt(self.server.encrypted_password)
+            password = FieldEncryptor.decrypt(self.server.encrypted_password)
+            transport.auth_password(username, password)
 
-        client.connect(**connect_kwargs, allow_agent=False, look_for_keys=False)
+        # Wrap transport in an SSHClient so _run() (exec_command) works unchanged.
+        client = paramiko.SSHClient()
+        client._transport = transport
         return client
 
     def _run(self, client: paramiko.SSHClient, cmd: str) -> tuple[str, str]:
