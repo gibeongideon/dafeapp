@@ -52,7 +52,7 @@
     #         installscript/19.0/InstallScript/odoo_install.sh (v19)
     remote_script_dir:   "/opt/dafeapp-install"
     install_script_name: "odoo_install.sh"
-    install_script_src:  "{{ playbook_dir }}/../../../installscript/{{ odoo_version }}.0/InstallScript/odoo_install.sh"
+    install_script_src:  "{{ playbook_dir }}/../../installscript/{{ odoo_version }}.0/InstallScript/odoo_install.sh"
 
   tasks:
     # ------------------------------------------------------------------

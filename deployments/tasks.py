@@ -3,6 +3,7 @@ import logging
 import os
 import socket
 import subprocess
+import tempfile
 import time
 from contextlib import suppress
 from pathlib import Path
@@ -209,21 +210,32 @@ def _queue_or_run(task, *args):
         task(*args)
 
 
-def _run_ansible_playbook(playbook: str, ip: str, extra_vars: dict) -> tuple[bool, str]:
-    ssh_user = os.getenv("ANSIBLE_SSH_USER", "root").strip()
-    ssh_key = os.getenv("ANSIBLE_SSH_KEY_PATH", "").strip()
+def _run_ansible_playbook(
+    playbook: str,
+    ip: str,
+    extra_vars: dict,
+    ssh_user: str | None = None,
+    ssh_key_path: str | None = None,
+    ssh_password: str | None = None,
+) -> tuple[bool, str]:
+    effective_user = ssh_user or os.getenv("ANSIBLE_SSH_USER", "root").strip()
+    effective_key = ssh_key_path or os.getenv("ANSIBLE_SSH_KEY_PATH", "").strip()
 
     args = [
         "ansible-playbook", playbook,
         "-i", f"{ip},",
-        "--user", ssh_user,
+        "--user", effective_user,
         # Disable host-key checking for freshly provisioned servers
         "--ssh-extra-args", "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
     ]
-    if ssh_key:
-        args.extend(["--private-key", ssh_key])
+    if effective_key:
+        args.extend(["--private-key", effective_key])
 
-    for key, value in extra_vars.items():
+    merged_vars = dict(extra_vars)
+    if ssh_password and not effective_key:
+        merged_vars["ansible_ssh_pass"] = ssh_password
+
+    for key, value in merged_vars.items():
         args.extend(["-e", f"{key}={value}"])
 
     code, out, err = _run_cmd(
@@ -233,6 +245,46 @@ def _run_ansible_playbook(playbook: str, ip: str, extra_vars: dict) -> tuple[boo
     )
     log_blob = _append_text(out.strip(), err.strip())
     return code == 0, log_blob
+
+
+def _pyos_ssh_creds(ext_server) -> tuple[str | None, str | None, str | None, str | None]:
+    """
+    Extract SSH creds from an ExternalServer for use with Ansible.
+    Returns (ssh_user, key_path, password, temp_key_file).
+    temp_key_file is a path to a NamedTemporaryFile the caller must delete.
+    """
+    from cloud.encryption import FieldEncryptor
+    from cloud.models import SystemSSHKey
+
+    user = ext_server.username or None
+    if ext_server.auth_type == "DAFEAPP_KEY":
+        system_key = SystemSSHKey.get_or_create_keypair()
+        private_key_str = system_key.get_private_key()
+        if not private_key_str:
+            return user, None, None, None
+        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".pem", delete=False)
+        tmp.write(private_key_str)
+        tmp.close()
+        os.chmod(tmp.name, 0o600)
+        return user, tmp.name, None, tmp.name
+    else:
+        password = FieldEncryptor.decrypt(ext_server.encrypted_password)
+        return user, None, password, None
+
+
+def _server_ansible_creds(server) -> tuple[str | None, str | None, str | None, str | None]:
+    """
+    Return (ssh_user, key_path, password, temp_key_file) for an OdooServer.
+    For PYOS servers extracts per-server credentials; for managed servers
+    returns (None, None, None, None) so global env vars are used.
+    """
+    try:
+        infra = server.infrastructure
+        if infra and infra.infra_type == Infrastructure.InfraType.PYOS and infra.external_server:
+            return _pyos_ssh_creds(infra.external_server)
+    except Exception:
+        logger.warning("Could not extract PYOS SSH creds for server %s", server.pk, exc_info=True)
+    return None, None, None, None
 
 
 @shared_task(bind=True, max_retries=0)
@@ -521,7 +573,11 @@ def provision_odoo_server(self, server_id: int):
 
 @shared_task(bind=True, max_retries=0)
 def configure_odoo_server(self, server_id: int):
-    server = OdooServer.objects.select_related("organization").get(pk=server_id)
+    server = OdooServer.objects.select_related(
+        "organization",
+        "infrastructure",
+        "infrastructure__external_server",
+    ).get(pk=server_id)
     if not server.ip_address:
         server.status = OdooServer.Status.FAILED
         server.provisioning_log = _append_text(server.provisioning_log, "No server IP available for configuration.")
@@ -552,11 +608,19 @@ def configure_odoo_server(self, server_id: int):
         "admin_email": admin_email,
     }
 
-    ok, log_blob = _run_ansible_playbook(
-        playbook,
-        str(server.ip_address),
-        extra_vars,
-    )
+    ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
+    try:
+        ok, log_blob = _run_ansible_playbook(
+            playbook,
+            str(server.ip_address),
+            extra_vars,
+            ssh_user=ssh_user,
+            ssh_key_path=ssh_key,
+            ssh_password=ssh_password,
+        )
+    finally:
+        if tmp_key:
+            os.unlink(tmp_key)
     server.provisioning_log = _append_text(server.provisioning_log, f"[ansible server]\n{log_blob}".strip())
     server.status = OdooServer.Status.PROVISIONED if ok else OdooServer.Status.FAILED
     server.save(update_fields=["status", "provisioning_log", "updated_at"])
@@ -573,7 +637,12 @@ def configure_odoo_server(self, server_id: int):
 
 @shared_task(bind=True, max_retries=0)
 def create_odoo_instance(self, instance_id: int):
-    instance = OdooInstance.objects.select_related("organization", "server").get(pk=instance_id)
+    instance = OdooInstance.objects.select_related(
+        "organization",
+        "server",
+        "server__infrastructure",
+        "server__infrastructure__external_server",
+    ).get(pk=instance_id)
     server = instance.server
     if server.status != OdooServer.Status.PROVISIONED or not server.ip_address:
         instance.status = OdooInstance.Status.FAILED
@@ -619,7 +688,19 @@ def create_odoo_instance(self, instance_id: int):
     if not use_direct:
         extra_vars["domain"] = instance.domain
 
-    ok, log_blob = _run_ansible_playbook(playbook, str(server.ip_address), extra_vars)
+    ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
+    try:
+        ok, log_blob = _run_ansible_playbook(
+            playbook,
+            str(server.ip_address),
+            extra_vars,
+            ssh_user=ssh_user,
+            ssh_key_path=ssh_key,
+            ssh_password=ssh_password,
+        )
+    finally:
+        if tmp_key:
+            os.unlink(tmp_key)
     instance.provisioning_log = f"[ansible instance]\n{log_blob}".strip()
     if ok:
         instance.status = OdooInstance.Status.RUNNING
@@ -643,7 +724,12 @@ def create_odoo_instance(self, instance_id: int):
 @shared_task(bind=True, max_retries=0)
 def delete_odoo_instance(self, instance_id: int):
     """Run the direct-IP deletion playbook then mark the instance DELETED."""
-    instance = OdooInstance.objects.select_related("organization", "server").get(pk=instance_id)
+    instance = OdooInstance.objects.select_related(
+        "organization",
+        "server",
+        "server__infrastructure",
+        "server__infrastructure__external_server",
+    ).get(pk=instance_id)
     server = instance.server
 
     if not server.ip_address:
@@ -660,14 +746,22 @@ def delete_odoo_instance(self, instance_id: int):
         instance.save(update_fields=["status", "provisioning_log", "updated_at"])
         return
 
-    ok, log_blob = _run_ansible_playbook(
-        playbook,
-        str(server.ip_address),
-        {
-            "db_name": instance.db_name,
-            "http_port": instance.http_port,
-        },
-    )
+    ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
+    try:
+        ok, log_blob = _run_ansible_playbook(
+            playbook,
+            str(server.ip_address),
+            {
+                "db_name": instance.db_name,
+                "http_port": instance.http_port,
+            },
+            ssh_user=ssh_user,
+            ssh_key_path=ssh_key,
+            ssh_password=ssh_password,
+        )
+    finally:
+        if tmp_key:
+            os.unlink(tmp_key)
     instance.provisioning_log = _append_text(instance.provisioning_log, f"[ansible delete]\n{log_blob}")
     instance.status = OdooInstance.Status.DELETED
     instance.save(update_fields=["status", "provisioning_log", "updated_at"])

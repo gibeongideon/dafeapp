@@ -9,12 +9,11 @@ import paramiko
 
 logger = logging.getLogger(__name__)
 
-# Commands run sequentially during server preparation
+# Commands run sequentially during server preparation (bare-metal, no Docker)
 PREPARE_COMMANDS = [
     "apt-get update -qq",
-    "apt-get install -y -qq docker.io docker-compose-plugin",
-    "systemctl enable --now docker",
-    "ufw allow 22 && ufw allow 80 && ufw allow 443 && ufw --force enable",
+    "apt-get install -y -qq python3 python3-pip curl wget gnupg2 ufw",
+    "ufw allow 22 && ufw allow 80 && ufw allow 443 && ufw allow 8069 && ufw --force enable",
     "mkdir -p /opt/dafeapp/deployments",
 ]
 
@@ -122,6 +121,7 @@ class PyOSService:
             transport.auth_publickey(username, pkey)
 
         else:
+            from cloud.encryption import FieldEncryptor
             password = FieldEncryptor.decrypt(self.server.encrypted_password)
             transport.auth_password(username, password)
 
