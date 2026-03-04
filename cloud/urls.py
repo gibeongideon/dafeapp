@@ -22,4 +22,7 @@ urlpatterns = [
     # Droplets
     path("droplets/provision/", views.ProvisionDropletView.as_view(), name="provision-droplet"),
     path("droplets/<int:pk>/destroy/", views.DestroyDropletView.as_view(), name="destroy-droplet"),
+
+    # DafeApp SSH public key (for DAFEAPP_KEY auth)
+    path("ssh-key/", views.DafeAppPublicKeyView.as_view(), name="dafeapp-ssh-key"),
 ]

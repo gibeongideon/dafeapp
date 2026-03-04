@@ -250,6 +250,17 @@ class OdooServerListAPIView(LoginRequiredMixin, View):
         return JsonResponse({"results": data})
 
 
+class OdooServerDetailAPIView(LoginRequiredMixin, View):
+    """GET /odoo/servers/<server_id>/ — poll status and provisioning_log."""
+
+    def get(self, request, server_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        server = get_object_or_404(OdooServer, pk=server_id, organization=org)
+        return JsonResponse(OdooServerSerializer(server).data)
+
+
 class OdooInstanceCreateAPIView(LoginRequiredMixin, View):
     def post(self, request):
         org = getattr(request, "organization", None)

@@ -4,6 +4,7 @@ import os
 import socket
 import subprocess
 import time
+from contextlib import suppress
 from pathlib import Path
 
 import paramiko
@@ -670,3 +671,43 @@ def delete_odoo_instance(self, instance_id: int):
     instance.provisioning_log = _append_text(instance.provisioning_log, f"[ansible delete]\n{log_blob}")
     instance.status = OdooInstance.Status.DELETED
     instance.save(update_fields=["status", "provisioning_log", "updated_at"])
+
+
+def _tcp_reachable(host: str, port: int, timeout: int = 5) -> bool:
+    """Return True if a TCP connection to host:port succeeds within timeout seconds."""
+    with suppress(OSError):
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    return False
+
+
+@shared_task
+def check_server_connectivity():
+    """
+    Periodic task: TCP-probe port 22 on every active OdooServer and ExternalServer.
+    Updates is_reachable + last_checked_at without touching other fields.
+    """
+    from cloud.models import ExternalServer
+    from django.utils import timezone
+
+    now = timezone.now()
+
+    # --- OdooServer: probe SSH port 22 ---
+    servers = OdooServer.objects.filter(
+        ip_address__isnull=False,
+    ).exclude(status=OdooServer.Status.DELETED)
+
+    for server in servers:
+        reachable = _tcp_reachable(str(server.ip_address), 22)
+        server.is_reachable = reachable
+        server.last_checked_at = now
+        server.save(update_fields=["is_reachable", "last_checked_at"])
+
+    # --- ExternalServer: probe the configured SSH port ---
+    ext_servers = ExternalServer.objects.filter(host__isnull=False)
+
+    for ext in ext_servers:
+        reachable = _tcp_reachable(str(ext.host), ext.port or 22)
+        ext.is_reachable = reachable
+        ext.last_checked_at = now
+        ext.save(update_fields=["is_reachable", "last_checked_at"])

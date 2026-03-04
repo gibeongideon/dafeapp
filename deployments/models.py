@@ -198,6 +198,8 @@ class OdooServer(models.Model):
     max_port = models.PositiveIntegerField(default=8100)
     terraform_state_path = models.CharField(max_length=500, blank=True, default="")
     provisioning_log = models.TextField(blank=True)
+    is_reachable = models.BooleanField(default=False)
+    last_checked_at = models.DateTimeField(null=True, blank=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,

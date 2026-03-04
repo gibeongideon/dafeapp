@@ -9,6 +9,7 @@ class ExternalServer(models.Model):
     class AuthType(models.TextChoices):
         SSH_KEY = "SSH_KEY", "SSH Private Key"
         PASSWORD = "PASSWORD", "Password"
+        DAFEAPP_KEY = "DAFEAPP_KEY", "DafeApp SSH Key (public key auth)"
 
     class PreparationStatus(models.TextChoices):
         PENDING = "PENDING", "Pending"
@@ -26,7 +27,7 @@ class ExternalServer(models.Model):
     port = models.PositiveIntegerField(default=22)
     username = models.CharField(max_length=100, default="root")
     auth_type = models.CharField(
-        max_length=10, choices=AuthType.choices, default=AuthType.SSH_KEY
+        max_length=15, choices=AuthType.choices, default=AuthType.SSH_KEY
     )
 
     # Encrypted credential fields — raw values are NEVER stored
@@ -35,6 +36,8 @@ class ExternalServer(models.Model):
 
     is_verified = models.BooleanField(default=False)
     is_prepared = models.BooleanField(default=False)
+    is_reachable = models.BooleanField(default=False)
+    last_checked_at = models.DateTimeField(null=True, blank=True)
     verification_error = models.CharField(max_length=500, blank=True)
     preparation_status = models.CharField(
         max_length=15,
@@ -201,3 +204,57 @@ class Infrastructure(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.get_infra_type_display()})"
+
+
+class SystemSSHKey(models.Model):
+    """
+    DafeApp's own SSH keypair — generated once and stored in the database.
+
+    When a PYOS server uses 'DAFEAPP_KEY' auth, DafeApp connects using this
+    keypair.  Users copy the public_key value into their server's
+    ~/.ssh/authorized_keys — no file paths or local keys needed.
+    """
+
+    public_key = models.TextField(help_text="Add this to ~/.ssh/authorized_keys on your server.")
+    encrypted_private_key = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "System SSH Key"
+        verbose_name_plural = "System SSH Keys"
+
+    def __str__(self):
+        return f"DafeApp SSH Key (created {self.created_at:%Y-%m-%d})"
+
+    @classmethod
+    def get_or_create_keypair(cls):
+        """
+        Return the singleton SystemSSHKey, generating a new Ed25519 keypair
+        if one does not exist yet.
+        """
+        import io
+        import paramiko
+
+        obj = cls.objects.first()
+        if obj:
+            return obj
+
+        # Generate a new Ed25519 keypair
+        key = paramiko.Ed25519Key.generate()
+
+        buf = io.StringIO()
+        key.write_private_key(buf)
+        private_key_str = buf.getvalue()
+
+        public_key_str = f"{key.get_name()} {key.get_base64()} dafeapp"
+
+        obj = cls(
+            public_key=public_key_str,
+            encrypted_private_key=FieldEncryptor.encrypt(private_key_str),
+        )
+        obj.save()
+        return obj
+
+    def get_private_key(self):
+        """Return the decrypted private key string."""
+        return FieldEncryptor.decrypt(self.encrypted_private_key)

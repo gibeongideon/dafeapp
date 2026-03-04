@@ -101,16 +101,44 @@ class PyOSService:
             "banner_timeout": 15,
         }
 
-        if self.server.auth_type == "SSH_KEY":
-            private_key_str = FieldEncryptor.decrypt(self.server.encrypted_private_key)
+        if self.server.auth_type == "DAFEAPP_KEY":
             import io
+            from cloud.models import SystemSSHKey
+            system_key = SystemSSHKey.get_or_create_keypair()
+            private_key_str = system_key.get_private_key()
+            if not private_key_str:
+                raise paramiko.ssh_exception.SSHException(
+                    "DafeApp system SSH key could not be loaded. "
+                    "Check FIELD_ENCRYPTION_KEY in .env."
+                )
+            connect_kwargs["pkey"] = paramiko.Ed25519Key.from_private_key(
+                io.StringIO(private_key_str)
+            )
+
+        elif self.server.auth_type == "SSH_KEY":
+            import io
+            private_key_str = FieldEncryptor.decrypt(self.server.encrypted_private_key)
+            if not private_key_str or not private_key_str.strip().startswith("-----"):
+                raise paramiko.ssh_exception.SSHException(
+                    "Private key decryption failed — FIELD_ENCRYPTION_KEY may be wrong "
+                    "or missing. Re-save the server credentials to fix."
+                )
             key_file = io.StringIO(private_key_str)
-            try:
-                pkey = paramiko.RSAKey.from_private_key(key_file)
-            except paramiko.ssh_exception.SSHException:
-                key_file.seek(0)
-                pkey = paramiko.Ed25519Key.from_private_key(key_file)
+            pkey = None
+            for key_cls in (paramiko.RSAKey, paramiko.ECDSAKey, paramiko.Ed25519Key):
+                try:
+                    key_file.seek(0)
+                    pkey = key_cls.from_private_key(key_file)
+                    break
+                except paramiko.ssh_exception.SSHException:
+                    continue
+            if pkey is None:
+                raise paramiko.ssh_exception.SSHException(
+                    "Could not load private key: unsupported algorithm or invalid key data. "
+                    "Supported types: RSA, ECDSA, Ed25519."
+                )
             connect_kwargs["pkey"] = pkey
+
         else:
             connect_kwargs["password"] = FieldEncryptor.decrypt(self.server.encrypted_password)
 

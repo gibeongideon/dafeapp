@@ -140,6 +140,12 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = "UTC"
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
+CELERY_BEAT_SCHEDULE = {
+    "check-server-connectivity": {
+        "task": "deployments.tasks.check_server_connectivity",
+        "schedule": 120.0,  # every 2 minutes
+    },
+}
 
 # ---------------------------------------------------------------------------
 # Authentication Backends

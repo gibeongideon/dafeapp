@@ -10,7 +10,7 @@ from django.views.generic import TemplateView, View
 
 from audit.models import AuditLog
 from cloud.forms import CloudAccountForm, ExternalServerForm, ProvisionDropletForm
-from cloud.models import CloudAccount, CloudServer, ExternalServer, Infrastructure
+from cloud.models import CloudAccount, CloudServer, ExternalServer, Infrastructure, SystemSSHKey
 from cloud.providers import get_provider
 from core.utils import log_audit
 
@@ -283,3 +283,20 @@ class DestroyDropletView(CloudSuperAdminMixin, View):
         )
         messages.success(request, f"Droplet '{cloud_server.name}' destroyed.")
         return redirect("cloud:dashboard")
+
+
+class DafeAppPublicKeyView(CloudSuperAdminMixin, View):
+    """
+    GET  → returns DafeApp's SSH public key as plain text.
+    POST → regenerates the keypair (invalidates existing server access).
+    """
+
+    def get(self, request):
+        key_obj = SystemSSHKey.get_or_create_keypair()
+        return JsonResponse({"public_key": key_obj.public_key})
+
+    def post(self, request):
+        """Regenerate the keypair. Old public key must be removed from servers first."""
+        SystemSSHKey.objects.all().delete()
+        key_obj = SystemSSHKey.get_or_create_keypair()
+        return JsonResponse({"public_key": key_obj.public_key, "regenerated": True})
