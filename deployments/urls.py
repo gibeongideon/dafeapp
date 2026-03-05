@@ -14,6 +14,7 @@ urlpatterns = [
     path("odoo/servers/create/", views.OdooServerCreateAPIView.as_view(), name="odoo-server-create"),
     path("odoo/servers/<int:server_id>/", views.OdooServerDetailAPIView.as_view(), name="odoo-server-detail"),
     path("odoo/servers/<int:server_id>/delete/", views.OdooServerDeleteAPIView.as_view(), name="odoo-server-delete"),
+    path("odoo/servers/<int:server_id>/check/", views.OdooServerCheckConnectivityView.as_view(), name="odoo-server-check"),
     path("odoo/instances/", views.OdooInstanceListAPIView.as_view(), name="odoo-instance-list"),
     path("odoo/instances/create/", views.OdooInstanceCreateAPIView.as_view(), name="odoo-instance-create"),
     path("odoo/instances/<int:instance_id>/delete/", views.OdooInstanceDeleteAPIView.as_view(), name="odoo-instance-delete"),

@@ -261,6 +261,52 @@ class OdooServerDetailAPIView(LoginRequiredMixin, View):
         return JsonResponse(OdooServerSerializer(server).data)
 
 
+class OdooServerCheckConnectivityView(LoginRequiredMixin, View):
+    """POST /odoo/servers/<server_id>/check/ — probe SSH port and update is_reachable."""
+
+    def post(self, request, server_id):
+        import socket
+        from django.utils import timezone
+
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+
+        server = get_object_or_404(
+            OdooServer.objects.select_related("infrastructure", "infrastructure__external_server"),
+            pk=server_id,
+            organization=org,
+        )
+
+        infra = server.infrastructure
+        if infra and infra.infra_type == Infrastructure.InfraType.PYOS and infra.external_server:
+            ext = infra.external_server
+            host = str(ext.host)
+            port = ext.port or 22
+        elif server.ip_address:
+            host = str(server.ip_address)
+            port = 22
+        else:
+            return JsonResponse({"error": "No host/IP to probe — server has no IP yet."}, status=400)
+
+        try:
+            with socket.create_connection((host, port), timeout=5):
+                reachable = True
+        except OSError:
+            reachable = False
+
+        now = timezone.now()
+        server.is_reachable = reachable
+        server.last_checked_at = now
+        server.save(update_fields=["is_reachable", "last_checked_at"])
+
+        return JsonResponse({
+            "is_reachable": reachable,
+            "last_checked_at": now.isoformat(),
+            "connectivity_status": "connected" if reachable else "disconnected",
+        })
+
+
 class OdooInstanceCreateAPIView(LoginRequiredMixin, View):
     def post(self, request):
         org = getattr(request, "organization", None)
@@ -283,6 +329,11 @@ class OdooInstanceCreateAPIView(LoginRequiredMixin, View):
         )
         if server.status != OdooServer.Status.PROVISIONED:
             return JsonResponse({"error": "Server is not PROVISIONED yet."}, status=400)
+        if server.last_checked_at is not None and not server.is_reachable:
+            return JsonResponse(
+                {"error": "Server SSH is unreachable. Click Check on the server card before creating instances."},
+                status=400,
+            )
 
         name = (request.POST.get("name") or "").strip()
         db_name = (request.POST.get("db_name") or "").strip()

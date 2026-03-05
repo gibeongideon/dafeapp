@@ -16,9 +16,9 @@
   </div>
 
   <!-- Server Kanban -->
-  <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+  <div id="server-kanban" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
     {% for s in odoo_servers %}
-    <article class="bg-white border border-gray-200 rounded-xl p-4">
+    <article id="server-card-{{ s.id }}" class="bg-white border border-gray-200 rounded-xl p-4">
       <div class="flex items-start justify-between gap-3">
         <div class="flex items-center gap-2">
           {% if s.cloud_account and s.cloud_account.provider == "DIGITALOCEAN" %}
@@ -33,7 +33,7 @@
             <p class="text-[11px] text-gray-500">Odoo {{ s.odoo_version }} · {{ s.region }} · {{ s.size }}</p>
           </div>
         </div>
-        <span class="px-2 py-1 rounded-md text-[11px] font-medium
+        <span id="server-badge-{{ s.id }}" class="px-2 py-1 rounded-md text-[11px] font-medium
           {% if s.status == 'PROVISIONED' %}bg-green-100 text-green-700
           {% elif s.status == 'FAILED' %}bg-red-100 text-red-700
           {% elif s.status in 'CONFIGURING PROVISIONING' %}bg-yellow-100 text-yellow-700
@@ -55,6 +55,17 @@
           <span class="text-gray-500">Instances</span>
           <span>{{ s.instances.count }}/{{ s.max_instances }}</span>
         </div>
+        <div class="flex items-center justify-between">
+          <span class="text-gray-500">SSH Connection</span>
+          <div class="flex items-center gap-2">
+            <span id="server-conn-badge-{{ s.id }}" class="px-1.5 py-0.5 rounded text-[10px] font-medium
+              {% if s.last_checked_at %}{% if s.is_reachable %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}{% else %}bg-gray-50 text-gray-400{% endif %}">
+              {% if s.last_checked_at %}{% if s.is_reachable %}Connected{% else %}Disconnected{% endif %}{% else %}Unknown{% endif %}
+            </span>
+            <button type="button" class="check-connectivity-btn text-[10px] text-gray-400 hover:text-gray-600 underline"
+                    data-server-id="{{ s.id }}">Check</button>
+          </div>
+        </div>
         {% if s.ip_address %}
         <div class="flex items-center justify-between">
           <span class="text-gray-500">Example access</span>
@@ -63,15 +74,22 @@
         {% endif %}
       </div>
 
+      {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
+      <div class="mt-3 pt-3 border-t border-gray-100">
+        <p class="text-[10px] uppercase tracking-wide text-gray-400 mb-1.5">Live Progress</p>
+        <ul id="server-progress-{{ s.id }}" class="space-y-1.5 max-h-36 overflow-y-auto"></ul>
+      </div>
+      {% endif %}
+
       <div class="mt-4 pt-3 border-t border-gray-100 flex gap-2">
         <button type="button"
                 class="open-instance-modal flex-1 inline-flex items-center justify-center px-3 py-2 text-xs font-medium rounded-lg transition-colors
-                  {% if s.status == 'PROVISIONED' %}text-white bg-gray-900 hover:bg-gray-700{% else %}text-gray-400 bg-gray-100 cursor-not-allowed{% endif %}"
+                  {% if s.status == 'PROVISIONED' and not s.last_checked_at or s.status == 'PROVISIONED' and s.is_reachable %}text-white bg-gray-900 hover:bg-gray-700{% else %}text-gray-400 bg-gray-100 cursor-not-allowed{% endif %}"
                 data-server-id="{{ s.id }}"
                 data-server-name="{{ s.name }}"
                 data-server-ip="{{ s.ip_address|default:'' }}"
                 data-server-min-port="{{ s.min_port }}"
-                {% if s.status != 'PROVISIONED' %}disabled{% endif %}>
+                {% if s.status != 'PROVISIONED' or s.last_checked_at and not s.is_reachable %}disabled{% endif %}>
           + Instance
         </button>
         <button type="button"
@@ -83,7 +101,7 @@
       </div>
     </article>
     {% empty %}
-    <div class="md:col-span-2 xl:col-span-3 bg-gray-50 border border-gray-200 rounded-xl p-8 text-center">
+    <div id="server-kanban-empty" class="md:col-span-2 xl:col-span-3 bg-gray-50 border border-gray-200 rounded-xl p-8 text-center">
       <p class="text-sm text-gray-500">No servers yet. Click <strong>Create Server</strong> to provision a DigitalOcean droplet with Odoo 19.</p>
     </div>
     {% endfor %}
@@ -106,7 +124,7 @@
           <th class="text-right px-5 py-3 text-xs text-gray-500 uppercase">Actions</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-gray-100">
+      <tbody id="instance-tbody" class="divide-y divide-gray-100">
         {% for oi in odoo_instances %}
         <tr id="instance-row-{{ oi.id }}">
           <td class="px-5 py-3">
@@ -130,7 +148,7 @@
             {% endif %}
           </td>
           <td class="px-5 py-3">
-            <span class="px-2 py-0.5 rounded text-[11px] font-medium
+            <span id="instance-badge-{{ oi.id }}" class="px-2 py-0.5 rounded text-[11px] font-medium
               {% if oi.status == 'RUNNING' %}bg-green-100 text-green-700
               {% elif oi.status == 'FAILED' %}bg-red-100 text-red-700
               {% elif oi.status == 'CONFIGURING' %}bg-yellow-100 text-yellow-700
@@ -156,8 +174,16 @@
             </div>
           </td>
         </tr>
+        {% if oi.status == 'CONFIGURING' %}
+        <tr id="instance-progress-row-{{ oi.id }}" class="border-0">
+          <td colspan="6" class="px-5 pb-3 pt-0 bg-gray-50/60">
+            <p class="text-[10px] uppercase tracking-wide text-gray-400 mb-1">Live Progress</p>
+            <ul id="instance-progress-{{ oi.id }}" class="space-y-1"></ul>
+          </td>
+        </tr>
+        {% endif %}
         {% empty %}
-        <tr><td colspan="6" class="px-5 py-6 text-sm text-gray-400 text-center">No Odoo instances yet. Create a server first, then add instances.</td></tr>
+        <tr id="instance-empty-row"><td colspan="6" class="px-5 py-6 text-sm text-gray-400 text-center">No Odoo instances yet. Create a server first, then add instances.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -349,33 +375,6 @@
   </div>
 </div>
 
-<!-- ═══════════════════════════════════════════════════════
-     MODAL: Live Provisioning Progress
-     ═══════════════════════════════════════════════════════ -->
-<div id="progress-modal" class="fixed inset-0 bg-black/40 hidden z-50">
-  <div class="min-h-full flex items-center justify-center p-4">
-    <div class="w-full max-w-xl bg-white rounded-xl border border-gray-200">
-      <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-        <h3 class="text-sm font-semibold text-gray-900" id="progress-title">Provisioning…</h3>
-        <span id="progress-badge" class="px-2 py-0.5 rounded text-[11px] font-medium bg-yellow-100 text-yellow-700">In Progress</span>
-      </div>
-      <div class="p-5 space-y-3">
-        <ul id="progress-steps" class="space-y-2"></ul>
-        <div id="progress-log-wrap" class="hidden">
-          <p class="text-[11px] text-gray-400 mb-1 uppercase tracking-wide">Output</p>
-          <pre id="progress-log" class="bg-gray-50 border border-gray-100 rounded-lg p-3 text-[11px] text-gray-700 max-h-52 overflow-y-auto whitespace-pre-wrap break-all"></pre>
-        </div>
-      </div>
-      <div class="px-5 py-4 border-t border-gray-100 flex items-center justify-between">
-        <p class="text-xs text-gray-400" id="progress-hint">This may take 5–15 minutes for bare-metal installs.</p>
-        <button id="progress-close" class="hidden px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700">
-          Close &amp; Refresh
-        </button>
-      </div>
-    </div>
-  </div>
-</div>
-
 <!-- Delete confirm -->
 <div id="confirm-modal" class="fixed inset-0 bg-black/40 hidden z-50">
   <div class="min-h-full flex items-center justify-center p-4">
@@ -423,78 +422,68 @@
     });
   }
 
-  // ─── progress modal ──────────────────────────────────────────────────────
-  const progressModal = $("progress-modal");
-  let progressWs = null;
-
-  function openProgress(title, hint) {
-    $("progress-title").textContent = title;
-    $("progress-steps").innerHTML = "";
-    $("progress-log").textContent = "";
-    hide($("progress-log-wrap"));
-    hide($("progress-close"));
-    $("progress-hint").textContent = hint || "This may take 5–15 minutes for bare-metal installs.";
-    const badge = $("progress-badge");
-    badge.textContent = "In Progress";
-    badge.className = "px-2 py-0.5 rounded text-[11px] font-medium bg-yellow-100 text-yellow-700";
-    show(progressModal);
-  }
-
-  function addStep(text, isError) {
-    const li = document.createElement("li");
-    li.className = "flex items-start gap-2 text-xs";
-    const icon = isError ? "✗" : "›";
-    const iconCls = isError
-      ? "flex-shrink-0 w-4 h-4 rounded-full bg-red-100 text-red-600 flex items-center justify-center text-[10px] font-bold"
-      : "flex-shrink-0 w-4 h-4 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center text-[10px]";
-    li.innerHTML = `<span class="${iconCls}">${icon}</span><span class="${isError ? "text-red-600" : "text-gray-700"}">${text}</span>`;
-    $("progress-steps").appendChild(li);
-    li.scrollIntoView({ block: "nearest" });
-  }
-
-  function connectProgressWs(wsUrl) {
-    if (progressWs) { try { progressWs.close(); } catch (_) {} progressWs = null; }
-    progressWs = new WebSocket(wsUrl);
-    progressWs.onmessage = (e) => {
-      const data = JSON.parse(e.data);
-      const isDone = data.type === "done";
-      const isFailed = isDone && data.status === "FAILED";
-      addStep(data.step, isFailed);
-      if (isDone) {
-        const badge = $("progress-badge");
-        if (isFailed) {
-          badge.textContent = "Failed";
-          badge.className = "px-2 py-0.5 rounded text-[11px] font-medium bg-red-100 text-red-700";
-        } else {
-          badge.textContent = "Done";
-          badge.className = "px-2 py-0.5 rounded text-[11px] font-medium bg-green-100 text-green-700";
-        }
-        $("progress-hint").textContent = isFailed ? "Check logs below for details." : "Provisioning complete.";
-        if (data.log && data.log.trim()) {
-          $("progress-log").textContent = data.log;
-          show($("progress-log-wrap"));
-        }
-        show($("progress-close"));
-        progressWs.close();
-        progressWs = null;
-      }
-    };
-    progressWs.onerror = () => addStep("WebSocket connection lost — check server logs.", true);
-  }
-
-  $("progress-close").addEventListener("click", () => { hide(progressModal); window.location.reload(); });
-  progressModal.addEventListener("click", (e) => { if (e.target === progressModal && $("progress-close").classList.contains("hidden") === false) hide(progressModal); });
-
+  // ─── inline progress ─────────────────────────────────────────────────────
   const wsBase = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}`;
 
-  // Auto-reconnect for servers/instances already in progress on page load
+  function addStepTo(ul, text, isError) {
+    const li = document.createElement("li");
+    li.className = "flex items-start gap-1.5 text-[11px]";
+    li.innerHTML = `<span class="flex-shrink-0 ${isError ? "text-red-400 font-bold" : "text-gray-400"}">›</span><span class="${isError ? "text-red-600" : "text-gray-600"}">${text}</span>`;
+    ul.appendChild(li);
+    ul.scrollTop = ul.scrollHeight;
+  }
+
+  function connectServerProgress(serverId, ul) {
+    const ws = new WebSocket(`${wsBase}/ws/deployments/servers/${serverId}/`);
+    ws.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+      const isFailed = data.type === "done" && data.status === "FAILED";
+      addStepTo(ul, data.step, isFailed);
+      if (data.type === "done") {
+        const badge = document.getElementById(`server-badge-${serverId}`);
+        if (badge) {
+          badge.textContent = isFailed ? "Failed" : "Provisioned";
+          badge.className = `px-2 py-1 rounded-md text-[11px] font-medium ${isFailed ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"}`;
+        }
+        if (!isFailed) {
+          const btn = document.querySelector(`.open-instance-modal[data-server-id="${serverId}"]`);
+          if (btn) {
+            btn.disabled = false;
+            btn.className = "open-instance-modal flex-1 inline-flex items-center justify-center px-3 py-2 text-xs font-medium rounded-lg transition-colors text-white bg-gray-900 hover:bg-gray-700";
+          }
+        }
+        addStepTo(ul, '<button onclick="location.reload()" class="text-blue-600 underline">Reload page</button>', false);
+        ws.close();
+      }
+    };
+    ws.onerror = () => addStepTo(ul, "Connection error — is Daphne running?", true);
+  }
+
+  function connectInstanceProgress(instanceId, ul) {
+    const ws = new WebSocket(`${wsBase}/ws/deployments/instances/${instanceId}/`);
+    ws.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+      const isFailed = data.type === "done" && data.status === "FAILED";
+      addStepTo(ul, data.step, isFailed);
+      if (data.type === "done") {
+        const badge = document.getElementById(`instance-badge-${instanceId}`);
+        if (badge) {
+          badge.textContent = isFailed ? "Failed" : "Running";
+          badge.className = `px-2 py-0.5 rounded text-[11px] font-medium ${isFailed ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"}`;
+        }
+        addStepTo(ul, '<button onclick="location.reload()" class="text-blue-600 underline">Reload page</button>', false);
+        ws.close();
+      }
+    };
+    ws.onerror = () => addStepTo(ul, "Connection error — is Daphne running?", true);
+  }
+
+  // Auto-connect for items already in progress when page loads
   {% for s in odoo_servers %}{% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
-  openProgress("Provisioning: {{ s.name }}");
-  connectProgressWs(`${wsBase}/ws/deployments/servers/{{ s.id }}/`);
+  (function(){ const ul = document.getElementById("server-progress-{{ s.id }}"); if (ul) connectServerProgress({{ s.id }}, ul); })();
   {% endif %}{% endfor %}
   {% for oi in odoo_instances %}{% if oi.status == 'CONFIGURING' %}
-  openProgress("Creating Instance: {{ oi.name }}", "Running Ansible playbook on the server.");
-  connectProgressWs(`${wsBase}/ws/deployments/instances/{{ oi.id }}/`);
+  (function(){ const ul = document.getElementById("instance-progress-{{ oi.id }}"); if (ul) connectInstanceProgress({{ oi.id }}, ul); })();
   {% endif %}{% endfor %}
 
   // ─── state ───────────────────────────────────────────────────────────────
@@ -664,8 +653,38 @@
     const resp = await postForm("/api/deployments/odoo/servers/create/", payload);
     if (!resp.ok) { setMsg(msgEl, resp.data.error || "Server creation failed.", true); return; }
     hide(detailsModal);
-    openProgress(`Provisioning: ${name}`);
-    connectProgressWs(`${wsBase}/ws/deployments/servers/${resp.data.id}/`);
+    // Insert a provisional server card with live progress
+    const sid = resp.data.id;
+    const kanban = $("server-kanban");
+    const emptyPlaceholder = $("server-kanban-empty");
+    if (emptyPlaceholder) emptyPlaceholder.remove();
+    const newCard = document.createElement("article");
+    newCard.id = `server-card-${sid}`;
+    newCard.className = "bg-white border border-gray-200 rounded-xl p-4";
+    newCard.innerHTML = `
+      <div class="flex items-start justify-between gap-3">
+        <div class="flex items-center gap-2">
+          <span class="inline-flex items-center justify-center w-8 h-8 rounded-md bg-gray-100 text-gray-700 text-[11px] font-bold">VPS</span>
+          <div>
+            <p class="text-sm font-semibold text-gray-900">${name}</p>
+            <p class="text-[11px] text-gray-500">Odoo ${versionEl.value}</p>
+          </div>
+        </div>
+        <span id="server-badge-${sid}" class="px-2 py-1 rounded-md text-[11px] font-medium bg-yellow-100 text-yellow-700">Provisioning</span>
+      </div>
+      <div class="mt-3 pt-3 border-t border-gray-100">
+        <p class="text-[10px] uppercase tracking-wide text-gray-400 mb-1.5">Live Progress</p>
+        <ul id="server-progress-${sid}" class="space-y-1.5 max-h-36 overflow-y-auto"></ul>
+      </div>
+      <div class="mt-4 pt-3 border-t border-gray-100 flex gap-2">
+        <button type="button" disabled
+                class="open-instance-modal flex-1 inline-flex items-center justify-center px-3 py-2 text-xs font-medium rounded-lg transition-colors text-gray-400 bg-gray-100 cursor-not-allowed"
+                data-server-id="${sid}" data-server-name="${name}" data-server-ip="" data-server-min-port="8069">
+          + Instance
+        </button>
+      </div>`;
+    kanban.prepend(newCard);
+    connectServerProgress(sid, document.getElementById(`server-progress-${sid}`));
   });
 
   // ─── create instance modal ───────────────────────────────────────────────
@@ -711,8 +730,65 @@
     });
     if (!resp.ok) { setMsg(msgEl, resp.data.error || "Instance creation failed.", true); return; }
     hide(instanceModal);
-    openProgress(`Creating Instance: ${name}`, "Running Ansible playbook on the server.");
-    connectProgressWs(`${wsBase}/ws/deployments/instances/${resp.data.id}/`);
+    // Insert provisional instance row + inline progress
+    const iid = resp.data.id;
+    const tbody = $("instance-tbody");
+    const emptyRow = $("instance-empty-row");
+    if (emptyRow) emptyRow.remove();
+    const newRow = document.createElement("tr");
+    newRow.id = `instance-row-${iid}`;
+    newRow.innerHTML = `
+      <td class="px-5 py-3"><div class="font-medium text-gray-900">${name}</div><div class="text-xs text-gray-500">${dbName}</div></td>
+      <td class="px-5 py-3 text-gray-700 text-xs">${$("instance-server-name").textContent}</td>
+      <td class="px-5 py-3 font-mono text-xs text-gray-600">${resp.data.http_port || ""}</td>
+      <td class="px-5 py-3"><span class="text-xs text-gray-400">pending</span></td>
+      <td class="px-5 py-3"><span id="instance-badge-${iid}" class="px-2 py-0.5 rounded text-[11px] font-medium bg-yellow-100 text-yellow-700">Configuring</span></td>
+      <td class="px-5 py-3 text-right"></td>`;
+    const newProgressRow = document.createElement("tr");
+    newProgressRow.id = `instance-progress-row-${iid}`;
+    newProgressRow.innerHTML = `
+      <td colspan="6" class="px-5 pb-3 pt-0 bg-gray-50/60">
+        <p class="text-[10px] uppercase tracking-wide text-gray-400 mb-1">Live Progress</p>
+        <ul id="instance-progress-${iid}" class="space-y-1"></ul>
+      </td>`;
+    tbody.prepend(newProgressRow);
+    tbody.prepend(newRow);
+    connectInstanceProgress(iid, document.getElementById(`instance-progress-${iid}`));
+  });
+
+  // ─── connectivity check ───────────────────────────────────────────────────
+  document.addEventListener("click", async (e) => {
+    const btn = e.target.closest(".check-connectivity-btn");
+    if (!btn) return;
+    const sid = btn.dataset.serverId;
+    const connBadge = document.getElementById(`server-conn-badge-${sid}`);
+    const connBadgeBase = "px-1.5 py-0.5 rounded text-[10px] font-medium";
+    if (connBadge) { connBadge.textContent = "Checking…"; connBadge.className = `${connBadgeBase} bg-gray-50 text-gray-400`; }
+    btn.disabled = true;
+
+    const resp = await postForm(`/api/deployments/odoo/servers/${sid}/check/`, {});
+    btn.disabled = false;
+
+    if (!resp.ok) {
+      if (connBadge) { connBadge.textContent = "Error"; connBadge.className = `${connBadgeBase} bg-red-50 text-red-600`; }
+      return;
+    }
+    const reachable = resp.data.is_reachable;
+    if (connBadge) {
+      connBadge.textContent = reachable ? "Connected" : "Disconnected";
+      connBadge.className = `${connBadgeBase} ${reachable ? "bg-green-50 text-green-600" : "bg-red-50 text-red-600"}`;
+    }
+
+    // Update + Instance button if server is PROVISIONED
+    const serverBadge = document.getElementById(`server-badge-${sid}`);
+    const isProvisioned = serverBadge && serverBadge.textContent.trim().toLowerCase() === "provisioned";
+    const instanceBtn = document.querySelector(`.open-instance-modal[data-server-id="${sid}"]`);
+    if (instanceBtn && isProvisioned) {
+      const enabledCls = "open-instance-modal flex-1 inline-flex items-center justify-center px-3 py-2 text-xs font-medium rounded-lg transition-colors text-white bg-gray-900 hover:bg-gray-700";
+      const disabledCls = "open-instance-modal flex-1 inline-flex items-center justify-center px-3 py-2 text-xs font-medium rounded-lg transition-colors text-gray-400 bg-gray-100 cursor-not-allowed";
+      instanceBtn.disabled = !reachable;
+      instanceBtn.className = reachable ? enabledCls : disabledCls;
+    }
   });
 
   // ─── delete instance ─────────────────────────────────────────────────────
