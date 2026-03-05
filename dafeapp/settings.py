@@ -27,6 +27,8 @@ ALLOWED_HOSTS = env("ALLOWED_HOSTS")
 # Installed Apps
 # ---------------------------------------------------------------------------
 INSTALLED_APPS = [
+    # Daphne must be first so runserver uses ASGI (enables WebSockets in dev)
+    "daphne",
     # Django built-ins
     "django.contrib.admin",
     "django.contrib.auth",

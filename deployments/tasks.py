@@ -23,6 +23,34 @@ from deployments.models import Infrastructure, Instance, OdooInstance, OdooServe
 logger = logging.getLogger(__name__)
 
 
+def _broadcast_server(server_id: int, step: str, status: str, done: bool = False, log: str = ""):
+    channel_layer = get_channel_layer()
+    if channel_layer is None:
+        return
+    payload = {"type": "done" if done else "step", "step": step, "status": status, "log": log[-2000:] if log else ""}
+    try:
+        async_to_sync(channel_layer.group_send)(
+            f"odoo.server.{server_id}",
+            {"type": "server.update", "payload": payload},
+        )
+    except Exception:
+        logger.warning("Server broadcast skipped for server %s", server_id, exc_info=True)
+
+
+def _broadcast_instance(instance_id: int, step: str, status: str, done: bool = False, log: str = ""):
+    channel_layer = get_channel_layer()
+    if channel_layer is None:
+        return
+    payload = {"type": "done" if done else "step", "step": step, "status": status, "log": log[-2000:] if log else ""}
+    try:
+        async_to_sync(channel_layer.group_send)(
+            f"odoo.instance.{instance_id}",
+            {"type": "instance.update", "payload": payload},
+        )
+    except Exception:
+        logger.warning("Instance broadcast skipped for instance %s", instance_id, exc_info=True)
+
+
 def _broadcast_run(run: TerraformRun):
     channel_layer = get_channel_layer()
     if channel_layer is None:
@@ -437,19 +465,23 @@ def provision_odoo_server(self, server_id: int):
 
     server.status = OdooServer.Status.PROVISIONING
     server.save(update_fields=["status", "updated_at"])
+    _broadcast_server(server.id, "Starting provisioning…", server.status)
 
     infra = server.infrastructure
     if not infra:
         server.status = OdooServer.Status.FAILED
         server.provisioning_log = _append_text(server.provisioning_log, "Server is missing infrastructure.")
         server.save(update_fields=["status", "provisioning_log", "updated_at"])
+        _broadcast_server(server.id, "Failed: server is missing infrastructure.", server.status, done=True)
         return
 
+    _broadcast_server(server.id, "Validating infrastructure connection…", server.status)
     ok, err = infra.validate_connection_target()
     if not ok:
         server.status = OdooServer.Status.FAILED
         server.provisioning_log = _append_text(server.provisioning_log, err)
         server.save(update_fields=["status", "provisioning_log", "updated_at"])
+        _broadcast_server(server.id, f"Failed: {err}", server.status, done=True)
         return
 
     managed_account = server.effective_cloud_account
@@ -469,6 +501,7 @@ def provision_odoo_server(self, server_id: int):
         server.save(
             update_fields=["ip_address", "firewall_configured", "provisioning_log", "status", "updated_at"]
         )
+        _broadcast_server(server.id, f"PYOS host confirmed ({ext.host}) — starting Odoo configuration…", server.status)
         _queue_or_run(configure_odoo_server, server.id)
         return
 
@@ -608,6 +641,7 @@ def configure_odoo_server(self, server_id: int):
         "admin_email": admin_email,
     }
 
+    _broadcast_server(server.id, "Running Ansible playbook — Odoo install takes 5–15 min…", server.status)
     ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
     try:
         ok, log_blob = _run_ansible_playbook(
@@ -624,6 +658,13 @@ def configure_odoo_server(self, server_id: int):
     server.provisioning_log = _append_text(server.provisioning_log, f"[ansible server]\n{log_blob}".strip())
     server.status = OdooServer.Status.PROVISIONED if ok else OdooServer.Status.FAILED
     server.save(update_fields=["status", "provisioning_log", "updated_at"])
+    _broadcast_server(
+        server.id,
+        "Server provisioned successfully — ready for instances." if ok else "Server configuration failed.",
+        server.status,
+        done=True,
+        log=log_blob,
+    )
 
     log_audit(
         server.created_by,
@@ -652,6 +693,7 @@ def create_odoo_instance(self, instance_id: int):
 
     instance.status = OdooInstance.Status.CONFIGURING
     instance.save(update_fields=["status", "updated_at"])
+    _broadcast_instance(instance.id, "Starting instance configuration…", instance.status)
 
     # Choose playbook:
     #   - direct (no nginx/domain): ANSIBLE_ODOO_INSTANCE_DIRECT_PLAYBOOK
@@ -688,6 +730,7 @@ def create_odoo_instance(self, instance_id: int):
     if not use_direct:
         extra_vars["domain"] = instance.domain
 
+    _broadcast_instance(instance.id, f"Running Ansible playbook ({playbook.split('/')[-1]})…", instance.status)
     ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
     try:
         ok, log_blob = _run_ansible_playbook(
@@ -718,6 +761,14 @@ def create_odoo_instance(self, instance_id: int):
             "provisioning_log",
             "updated_at",
         ]
+    )
+    access_url = f"http://{server.ip_address}:{instance.http_port}" if server.ip_address else ""
+    _broadcast_instance(
+        instance.id,
+        f"Instance is running — {access_url}" if ok else "Instance creation failed.",
+        instance.status,
+        done=True,
+        log=log_blob,
     )
 
 
