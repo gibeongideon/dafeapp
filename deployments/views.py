@@ -100,6 +100,8 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
             instance__organization=org
         ).select_related("instance")[:15]
         ctx["enforcer"] = getattr(self.request, "subscription_enforcer", SubscriptionEnforcer(org))
+        from cloud.models import SystemSSHKey
+        ctx["dafeapp_public_key"] = SystemSSHKey.get_or_create_keypair().public_key
         return ctx
 
     def post(self, request):
@@ -259,6 +261,66 @@ class OdooServerDetailAPIView(LoginRequiredMixin, View):
             return JsonResponse({"error": "No active organization."}, status=400)
         server = get_object_or_404(OdooServer, pk=server_id, organization=org)
         return JsonResponse(OdooServerSerializer(server).data)
+
+
+class PyosVpsCreateAPIView(LoginRequiredMixin, View):
+    """POST — create ExternalServer + Infrastructure inline from the deployment modal."""
+
+    def post(self, request):
+        from cloud.models import ExternalServer
+
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if request.org_role not in ("SUPER_ADMIN", "ADMIN", "MANAGER"):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        name = (request.POST.get("name") or "").strip()
+        host = (request.POST.get("host") or "").strip()
+        username = (request.POST.get("username") or "root").strip()
+        auth_type = (request.POST.get("auth_type") or "DAFEAPP_KEY").strip()
+        password = request.POST.get("password") or ""
+        port_raw = request.POST.get("port") or "22"
+
+        if not name or not host:
+            return JsonResponse({"error": "Name and host IP are required."}, status=400)
+        if auth_type not in ("DAFEAPP_KEY", "PASSWORD"):
+            return JsonResponse({"error": "auth_type must be DAFEAPP_KEY or PASSWORD."}, status=400)
+        if auth_type == "PASSWORD" and not password.strip():
+            return JsonResponse({"error": "Password is required for password auth."}, status=400)
+        try:
+            port = int(port_raw)
+            if not (1 <= port <= 65535):
+                raise ValueError
+        except (ValueError, TypeError):
+            return JsonResponse({"error": "Port must be a number between 1 and 65535."}, status=400)
+
+        ext = ExternalServer(
+            organization=org,
+            name=name,
+            host=host,
+            port=port,
+            username=username,
+            auth_type=auth_type,
+            is_verified=True,
+        )
+        if auth_type == "PASSWORD":
+            ext._raw_password = password.strip()
+        ext.save()
+
+        infra_name = name
+        if Infrastructure.objects.filter(organization=org, name=infra_name).exists():
+            infra_name = f"{name}-{ext.id}"
+        infra = Infrastructure.objects.create(
+            organization=org,
+            name=infra_name,
+            infra_type=Infrastructure.InfraType.PYOS,
+            external_server=ext,
+            is_connected=True,
+            validation_log="Created via inline deployment form.",
+            created_by=request.user,
+        )
+        return JsonResponse({"infrastructure_id": infra.id, "external_server_id": ext.id}, status=201)
 
 
 class OdooServerCheckConnectivityView(LoginRequiredMixin, View):
