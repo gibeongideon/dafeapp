@@ -1,6 +1,15 @@
 from rest_framework import serializers
 
-from deployments.models import Infrastructure, Instance, OdooInstance, OdooServer, TerraformRun
+from deployments.models import (
+    DeploymentJob,
+    Infrastructure,
+    Instance,
+    OdooInstance,
+    OdooInstanceHistory,
+    OdooServer,
+    OdooServerHistory,
+    TerraformRun,
+)
 
 
 class InstanceSerializer(serializers.ModelSerializer):
@@ -110,4 +119,60 @@ class InfrastructureSerializer(serializers.ModelSerializer):
             "validation_log",
             "created_at",
             "updated_at",
+        ]
+
+
+class DeploymentJobSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DeploymentJob
+        fields = [
+            "id",
+            "job_type",
+            "status",
+            "celery_task_id",
+            "odoo_server",
+            "odoo_instance",
+            "log",
+            "started_at",
+            "finished_at",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class OdooServerHistorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OdooServerHistory
+        fields = [
+            "id",
+            "server",
+            "odoo_version",
+            "ip_address",
+            "dns_domain",
+            "region",
+            "size",
+            "status",
+            "note",
+            "deployed_by",
+            "deployed_at",
+        ]
+
+
+class OdooInstanceHistorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OdooInstanceHistory
+        fields = [
+            "id",
+            "instance",
+            "db_name",
+            "domain",
+            "http_port",
+            "odoo_version",
+            "server_ip",
+            "systemd_service",
+            "ssl_enabled",
+            "status",
+            "note",
+            "deployed_by",
+            "deployed_at",
         ]

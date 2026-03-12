@@ -147,6 +147,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "deployments.tasks.check_server_connectivity",
         "schedule": 120.0,  # every 2 minutes
     },
+    "check-instance-health": {
+        "task": "deployments.tasks.check_instance_health",
+        "schedule": 300.0,  # every 5 minutes
+    },
 }
 
 # ---------------------------------------------------------------------------

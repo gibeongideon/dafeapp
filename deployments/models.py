@@ -240,6 +240,11 @@ class OdooInstance(models.Model):
         FAILED = "FAILED", "Failed"
         DELETED = "DELETED", "Deleted"
 
+    class RestartPolicy(models.TextChoices):
+        ALWAYS = "always", "Always"
+        ON_FAILURE = "on-failure", "On Failure"
+        NO = "no", "No"
+
     organization = models.ForeignKey(
         "organizations.Organization",
         on_delete=models.CASCADE,
@@ -259,6 +264,11 @@ class OdooInstance(models.Model):
     systemd_service = models.CharField(max_length=255, blank=True, default="")
     nginx_site = models.CharField(max_length=255, blank=True, default="")
     ssl_enabled = models.BooleanField(default=False)
+    restart_policy = models.CharField(
+        max_length=15, choices=RestartPolicy.choices, default=RestartPolicy.ALWAYS
+    )
+    is_reachable = models.BooleanField(default=False)
+    last_health_check = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     provisioning_log = models.TextField(blank=True)
     created_by = models.ForeignKey(
@@ -289,3 +299,129 @@ class OdooInstance(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.db_name}) [{self.status}]"
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: Deployment Jobs, Version History
+# ---------------------------------------------------------------------------
+
+class DeploymentJob(models.Model):
+    """Tracks every async Celery deployment operation for status, logs, and cancellation."""
+
+    class JobType(models.TextChoices):
+        PROVISION_SERVER = "PROVISION_SERVER", "Provision Server"
+        CONFIGURE_SERVER = "CONFIGURE_SERVER", "Configure Server"
+        CREATE_INSTANCE = "CREATE_INSTANCE", "Create Instance"
+        DELETE_INSTANCE = "DELETE_INSTANCE", "Delete Instance"
+        ROLLBACK_INSTANCE = "ROLLBACK_INSTANCE", "Rollback Instance"
+
+    class Status(models.TextChoices):
+        QUEUED = "QUEUED", "Queued"
+        RUNNING = "RUNNING", "Running"
+        DONE = "DONE", "Done"
+        FAILED = "FAILED", "Failed"
+        CANCELLED = "CANCELLED", "Cancelled"
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.CASCADE,
+        related_name="deployment_jobs",
+    )
+    job_type = models.CharField(max_length=30, choices=JobType.choices)
+    status = models.CharField(max_length=15, choices=Status.choices, default=Status.QUEUED)
+    celery_task_id = models.CharField(max_length=255, blank=True, default="")
+    odoo_server = models.ForeignKey(
+        OdooServer,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="jobs",
+    )
+    odoo_instance = models.ForeignKey(
+        OdooInstance,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="jobs",
+    )
+    log = models.TextField(blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="deployment_jobs",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["organization", "status"]),
+            models.Index(fields=["organization", "-created_at"]),
+        ]
+
+    def __str__(self):
+        return f"DeploymentJob #{self.pk} [{self.job_type}] {self.status}"
+
+
+class OdooServerHistory(models.Model):
+    """Immutable snapshot of an OdooServer's state at each successful provision/configure."""
+
+    server = models.ForeignKey(
+        OdooServer,
+        on_delete=models.CASCADE,
+        related_name="history",
+    )
+    odoo_version = models.CharField(max_length=2)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    dns_domain = models.CharField(max_length=255, blank=True)
+    region = models.CharField(max_length=50, blank=True)
+    size = models.CharField(max_length=50, blank=True)
+    status = models.CharField(max_length=20)
+    note = models.CharField(max_length=255, blank=True)
+    deployed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="server_deploys",
+    )
+    deployed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-deployed_at"]
+
+    def __str__(self):
+        return f"Server #{self.server_id} v{self.odoo_version} @ {self.deployed_at:%Y-%m-%d %H:%M}"
+
+
+class OdooInstanceHistory(models.Model):
+    """Immutable snapshot of an OdooInstance's config at each successful deployment."""
+
+    instance = models.ForeignKey(
+        OdooInstance,
+        on_delete=models.CASCADE,
+        related_name="history",
+    )
+    db_name = models.CharField(max_length=255)
+    domain = models.CharField(max_length=255, blank=True)
+    http_port = models.PositiveIntegerField()
+    odoo_version = models.CharField(max_length=2)
+    server_ip = models.GenericIPAddressField(null=True, blank=True)
+    systemd_service = models.CharField(max_length=255, blank=True)
+    ssl_enabled = models.BooleanField(default=False)
+    status = models.CharField(max_length=20)
+    note = models.CharField(max_length=255, blank=True)
+    deployed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="instance_deploys",
+    )
+    deployed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-deployed_at"]
+
+    def __str__(self):
+        return f"Instance #{self.instance_id} ({self.db_name}) @ {self.deployed_at:%Y-%m-%d %H:%M}"

@@ -22,4 +22,11 @@ urlpatterns = [
     path("infrastructure/", views.InfrastructureListAPIView.as_view(), name="infrastructure-list"),
     path("infrastructure/create/", views.InfrastructureCreateAPIView.as_view(), name="infrastructure-create"),
     path("infrastructure/<int:infrastructure_id>/delete/", views.InfrastructureDeleteAPIView.as_view(), name="infrastructure-delete"),
+    # Phase 2: jobs, history, health, rollback
+    path("jobs/", views.DeploymentJobListAPIView.as_view(), name="job-list"),
+    path("jobs/<int:job_id>/cancel/", views.DeploymentJobCancelAPIView.as_view(), name="job-cancel"),
+    path("odoo/servers/<int:server_id>/history/", views.OdooServerHistoryAPIView.as_view(), name="odoo-server-history"),
+    path("odoo/instances/<int:instance_id>/history/", views.OdooInstanceHistoryAPIView.as_view(), name="odoo-instance-history"),
+    path("odoo/instances/<int:instance_id>/rollback/", views.OdooInstanceRollbackAPIView.as_view(), name="odoo-instance-rollback"),
+    path("odoo/instances/<int:instance_id>/health/", views.OdooInstanceHealthCheckView.as_view(), name="odoo-instance-health"),
 ]

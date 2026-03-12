@@ -18,7 +18,16 @@ from django.utils import timezone
 from audit.models import AuditLog
 from cloud.providers import get_provider
 from core.utils import log_audit
-from deployments.models import Infrastructure, Instance, OdooInstance, OdooServer, TerraformRun
+from deployments.models import (
+    DeploymentJob,
+    Infrastructure,
+    Instance,
+    OdooInstance,
+    OdooInstanceHistory,
+    OdooServer,
+    OdooServerHistory,
+    TerraformRun,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +78,40 @@ def _broadcast_run(run: TerraformRun):
         )
     except Exception:
         logger.warning("Channels broadcast skipped: channel layer unavailable.", exc_info=True)
+
+
+def _broadcast_log_line(group: str, line: str):
+    """Send a single streamed log line to a WebSocket group."""
+    channel_layer = get_channel_layer()
+    if channel_layer is None:
+        return
+    try:
+        async_to_sync(channel_layer.group_send)(
+            group,
+            {"type": "log.line", "payload": {"type": "log_line", "line": line.rstrip()}},
+        )
+    except Exception:
+        pass
+
+
+def _job_start(job_id: int | None, celery_task_id: str):
+    if not job_id:
+        return
+    DeploymentJob.objects.filter(pk=job_id).update(
+        celery_task_id=celery_task_id,
+        status=DeploymentJob.Status.RUNNING,
+        started_at=timezone.now(),
+    )
+
+
+def _job_done(job_id: int | None, ok: bool, log: str = ""):
+    if not job_id:
+        return
+    DeploymentJob.objects.filter(pk=job_id).update(
+        status=DeploymentJob.Status.DONE if ok else DeploymentJob.Status.FAILED,
+        log=log[-8000:],
+        finished_at=timezone.now(),
+    )
 
 
 def _run_cmd(args: list[str], cwd: Path, extra_env: dict | None = None) -> tuple[int, str, str]:
@@ -245,7 +288,15 @@ def _run_ansible_playbook(
     ssh_user: str | None = None,
     ssh_key_path: str | None = None,
     ssh_password: str | None = None,
+    on_chunk=None,
 ) -> tuple[bool, str]:
+    """
+    Run an Ansible playbook against `ip`.
+
+    When `on_chunk` is provided (callable accepting a str line), output is
+    streamed line-by-line via Popen so callers can broadcast live to WebSocket.
+    Without it, falls back to the original blocking subprocess.run behaviour.
+    """
     effective_user = ssh_user or os.getenv("ANSIBLE_SSH_USER", "root").strip()
     effective_key = ssh_key_path or os.getenv("ANSIBLE_SSH_KEY_PATH", "").strip()
 
@@ -253,7 +304,6 @@ def _run_ansible_playbook(
         "ansible-playbook", playbook,
         "-i", f"{ip},",
         "--user", effective_user,
-        # Disable host-key checking for freshly provisioned servers
         "--ssh-extra-args", "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
     ]
     if effective_key:
@@ -266,11 +316,33 @@ def _run_ansible_playbook(
     for key, value in merged_vars.items():
         args.extend(["-e", f"{key}={value}"])
 
-    code, out, err = _run_cmd(
-        args,
-        Path(settings.BASE_DIR),
-        extra_env={"ANSIBLE_HOST_KEY_CHECKING": "False"},
-    )
+    env = os.environ.copy()
+    env["ANSIBLE_HOST_KEY_CHECKING"] = "False"
+
+    if on_chunk is not None:
+        # Streaming mode: read stdout+stderr line by line and call on_chunk.
+        proc = subprocess.Popen(
+            args,
+            cwd=str(Path(settings.BASE_DIR)),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            env=env,
+            bufsize=1,
+        )
+        lines: list[str] = []
+        for line in proc.stdout:
+            lines.append(line)
+            try:
+                on_chunk(line)
+            except Exception:
+                pass
+        proc.wait()
+        log_blob = "".join(lines).strip()
+        return proc.returncode == 0, log_blob
+
+    # Non-streaming (original) mode.
+    code, out, err = _run_cmd(args, Path(settings.BASE_DIR), extra_env={"ANSIBLE_HOST_KEY_CHECKING": "False"})
     log_blob = _append_text(out.strip(), err.strip())
     return code == 0, log_blob
 
@@ -605,42 +677,41 @@ def provision_odoo_server(self, server_id: int):
 
 
 @shared_task(bind=True, max_retries=0)
-def configure_odoo_server(self, server_id: int):
+def configure_odoo_server(self, server_id: int, job_id: int | None = None):
     server = OdooServer.objects.select_related(
         "organization",
         "infrastructure",
         "infrastructure__external_server",
     ).get(pk=server_id)
+
+    _job_start(job_id, self.request.id)
+
     if not server.ip_address:
         server.status = OdooServer.Status.FAILED
         server.provisioning_log = _append_text(server.provisioning_log, "No server IP available for configuration.")
         server.save(update_fields=["status", "provisioning_log", "updated_at"])
+        _job_done(job_id, ok=False, log="No server IP available for configuration.")
         return
 
     playbook = os.getenv("ANSIBLE_ODOO_SERVER_PLAYBOOK", "").strip()
     if not playbook:
         server.status = OdooServer.Status.PROVISIONED
-        server.provisioning_log = _append_text(
-            server.provisioning_log,
-            "ANSIBLE_ODOO_SERVER_PLAYBOOK not set. Marked PROVISIONED without server bootstrap.",
-        )
+        msg = "ANSIBLE_ODOO_SERVER_PLAYBOOK not set. Marked PROVISIONED without server bootstrap."
+        server.provisioning_log = _append_text(server.provisioning_log, msg)
         server.save(update_fields=["status", "provisioning_log", "updated_at"])
+        _job_done(job_id, ok=True, log=msg)
         return
 
-    # Build extra-vars for the playbook.
-    # setup_odoo_server_bare.yml needs dns_domain → website_name mapping and
-    # an admin_email for certbot. The original setup_odoo_server.yml only uses
-    # odoo_version / server_name / dns_domain, so the extra keys are ignored.
     admin_email = os.getenv("ODOO_ADMIN_EMAIL", "odoo@example.com").strip()
     extra_vars = {
         "odoo_version": server.odoo_version,
         "server_name": server.name,
         "dns_domain": server.dns_domain,
-        # Bare-metal playbook extras:
         "website_name": server.dns_domain if server.dns_domain else "_",
         "admin_email": admin_email,
     }
 
+    ws_group = f"odoo.server.{server.id}"
     _broadcast_server(server.id, "Running Ansible playbook — Odoo install takes 5–15 min…", server.status)
     ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
     try:
@@ -651,10 +722,12 @@ def configure_odoo_server(self, server_id: int):
             ssh_user=ssh_user,
             ssh_key_path=ssh_key,
             ssh_password=ssh_password,
+            on_chunk=lambda line: _broadcast_log_line(ws_group, line),
         )
     finally:
         if tmp_key:
             os.unlink(tmp_key)
+
     server.provisioning_log = _append_text(server.provisioning_log, f"[ansible server]\n{log_blob}".strip())
     server.status = OdooServer.Status.PROVISIONED if ok else OdooServer.Status.FAILED
     server.save(update_fields=["status", "provisioning_log", "updated_at"])
@@ -665,19 +738,33 @@ def configure_odoo_server(self, server_id: int):
         done=True,
         log=log_blob,
     )
+    _job_done(job_id, ok=ok, log=log_blob)
+
+    if ok:
+        OdooServerHistory.objects.create(
+            server=server,
+            odoo_version=server.odoo_version,
+            ip_address=server.ip_address,
+            dns_domain=server.dns_domain,
+            region=server.region,
+            size=server.size,
+            status=server.status,
+            note="Provisioned successfully.",
+            deployed_by=server.created_by,
+        )
 
     log_audit(
         server.created_by,
         AuditLog.Action.OTHER,
         None,
         f"Odoo server '{server.name}' configuration finished with status {server.status}.",
-        metadata={"server_id": server.id, "odoo_version": server.odoo_version, "ip": server.ip_address},
+        metadata={"server_id": server.id, "odoo_version": server.odoo_version, "ip": str(server.ip_address)},
         organization=server.organization,
     )
 
 
 @shared_task(bind=True, max_retries=0)
-def create_odoo_instance(self, instance_id: int):
+def create_odoo_instance(self, instance_id: int, job_id: int | None = None):
     instance = OdooInstance.objects.select_related(
         "organization",
         "server",
@@ -685,19 +772,20 @@ def create_odoo_instance(self, instance_id: int):
         "server__infrastructure__external_server",
     ).get(pk=instance_id)
     server = instance.server
+
+    _job_start(job_id, self.request.id)
+
     if server.status != OdooServer.Status.PROVISIONED or not server.ip_address:
         instance.status = OdooInstance.Status.FAILED
         instance.provisioning_log = "Server is not ready for instance creation."
         instance.save(update_fields=["status", "provisioning_log", "updated_at"])
+        _job_done(job_id, ok=False, log="Server is not ready for instance creation.")
         return
 
     instance.status = OdooInstance.Status.CONFIGURING
     instance.save(update_fields=["status", "updated_at"])
     _broadcast_instance(instance.id, "Starting instance configuration…", instance.status)
 
-    # Choose playbook:
-    #   - direct (no nginx/domain): ANSIBLE_ODOO_INSTANCE_DIRECT_PLAYBOOK
-    #   - domain-based (nginx + SSL): ANSIBLE_ODOO_INSTANCE_PLAYBOOK
     direct_playbook = os.getenv("ANSIBLE_ODOO_INSTANCE_DIRECT_PLAYBOOK", "").strip()
     domain_playbook = os.getenv("ANSIBLE_ODOO_INSTANCE_PLAYBOOK", "").strip()
     use_direct = not instance.domain and bool(direct_playbook)
@@ -708,17 +796,12 @@ def create_odoo_instance(self, instance_id: int):
         instance.nginx_site = ""
         instance.ssl_enabled = False
         instance.status = OdooInstance.Status.RUNNING
-        instance.provisioning_log = "No Ansible playbook configured. Marked RUNNING with generated metadata."
+        msg = "No Ansible playbook configured. Marked RUNNING with generated metadata."
+        instance.provisioning_log = msg
         instance.save(
-            update_fields=[
-                "systemd_service",
-                "nginx_site",
-                "ssl_enabled",
-                "status",
-                "provisioning_log",
-                "updated_at",
-            ]
+            update_fields=["systemd_service", "nginx_site", "ssl_enabled", "status", "provisioning_log", "updated_at"]
         )
+        _job_done(job_id, ok=True, log=msg)
         return
 
     extra_vars = {
@@ -726,10 +809,12 @@ def create_odoo_instance(self, instance_id: int):
         "db_name": instance.db_name,
         "instance_name": instance.name,
         "http_port": instance.http_port,
+        "restart_policy": instance.restart_policy,
     }
     if not use_direct:
         extra_vars["domain"] = instance.domain
 
+    ws_group = f"odoo.instance.{instance.id}"
     _broadcast_instance(instance.id, f"Running Ansible playbook ({playbook.split('/')[-1]})…", instance.status)
     ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
     try:
@@ -740,10 +825,12 @@ def create_odoo_instance(self, instance_id: int):
             ssh_user=ssh_user,
             ssh_key_path=ssh_key,
             ssh_password=ssh_password,
+            on_chunk=lambda line: _broadcast_log_line(ws_group, line),
         )
     finally:
         if tmp_key:
             os.unlink(tmp_key)
+
     instance.provisioning_log = f"[ansible instance]\n{log_blob}".strip()
     if ok:
         instance.status = OdooInstance.Status.RUNNING
@@ -753,14 +840,7 @@ def create_odoo_instance(self, instance_id: int):
     else:
         instance.status = OdooInstance.Status.FAILED
     instance.save(
-        update_fields=[
-            "status",
-            "systemd_service",
-            "nginx_site",
-            "ssl_enabled",
-            "provisioning_log",
-            "updated_at",
-        ]
+        update_fields=["status", "systemd_service", "nginx_site", "ssl_enabled", "provisioning_log", "updated_at"]
     )
     access_url = f"http://{server.ip_address}:{instance.http_port}" if server.ip_address else ""
     _broadcast_instance(
@@ -770,6 +850,22 @@ def create_odoo_instance(self, instance_id: int):
         done=True,
         log=log_blob,
     )
+    _job_done(job_id, ok=ok, log=log_blob)
+
+    if ok:
+        OdooInstanceHistory.objects.create(
+            instance=instance,
+            db_name=instance.db_name,
+            domain=instance.domain,
+            http_port=instance.http_port,
+            odoo_version=server.odoo_version,
+            server_ip=server.ip_address,
+            systemd_service=instance.systemd_service,
+            ssl_enabled=instance.ssl_enabled,
+            status=instance.status,
+            note="Created successfully.",
+            deployed_by=instance.created_by,
+        )
 
 
 @shared_task(bind=True, max_retries=0)
@@ -856,3 +952,118 @@ def check_server_connectivity():
         ext.is_reachable = reachable
         ext.last_checked_at = now
         ext.save(update_fields=["is_reachable", "last_checked_at"])
+
+
+@shared_task
+def check_instance_health():
+    """
+    Periodic task: HTTP GET /web/health on every RUNNING OdooInstance.
+    Updates is_reachable + last_health_check without touching other fields.
+    Odoo 16+ exposes GET /web/health → 200 {"status": "pass"}.
+    """
+    import urllib.request
+    import urllib.error
+
+    now = timezone.now()
+    instances = OdooInstance.objects.filter(
+        status=OdooInstance.Status.RUNNING,
+    ).select_related("server").exclude(server__ip_address__isnull=True)
+
+    for instance in instances:
+        url = f"http://{instance.server.ip_address}:{instance.http_port}/web/health"
+        try:
+            with urllib.request.urlopen(url, timeout=8) as resp:
+                reachable = resp.status == 200
+        except Exception:
+            reachable = False
+        instance.is_reachable = reachable
+        instance.last_health_check = now
+        instance.save(update_fields=["is_reachable", "last_health_check"])
+
+
+@shared_task(bind=True, max_retries=0)
+def rollback_odoo_instance(self, instance_id: int, history_id: int, job_id: int | None = None):
+    """
+    Re-run instance creation using a historical config snapshot.
+    Creates a new OdooInstanceHistory entry on success.
+    """
+    instance = OdooInstance.objects.select_related(
+        "organization",
+        "server",
+        "server__infrastructure",
+        "server__infrastructure__external_server",
+    ).get(pk=instance_id)
+    snap = OdooInstanceHistory.objects.get(pk=history_id, instance=instance)
+    server = instance.server
+
+    _job_start(job_id, self.request.id)
+
+    if not server.ip_address:
+        _job_done(job_id, ok=False, log="Server has no IP; rollback aborted.")
+        return
+
+    direct_playbook = os.getenv("ANSIBLE_ODOO_INSTANCE_DIRECT_PLAYBOOK", "").strip()
+    domain_playbook = os.getenv("ANSIBLE_ODOO_INSTANCE_PLAYBOOK", "").strip()
+    use_direct = not snap.domain and bool(direct_playbook)
+    playbook = direct_playbook if use_direct else domain_playbook
+
+    if not playbook:
+        _job_done(job_id, ok=False, log="No instance playbook configured; rollback aborted.")
+        return
+
+    extra_vars = {
+        "odoo_version": snap.odoo_version,
+        "db_name": snap.db_name,
+        "instance_name": instance.name,
+        "http_port": snap.http_port,
+        "restart_policy": instance.restart_policy,
+    }
+    if not use_direct:
+        extra_vars["domain"] = snap.domain
+
+    instance.status = OdooInstance.Status.CONFIGURING
+    instance.save(update_fields=["status", "updated_at"])
+    _broadcast_instance(instance.id, f"Rolling back to snapshot #{snap.pk}…", instance.status)
+
+    ws_group = f"odoo.instance.{instance.id}"
+    ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
+    try:
+        ok, log_blob = _run_ansible_playbook(
+            playbook,
+            str(server.ip_address),
+            extra_vars,
+            ssh_user=ssh_user,
+            ssh_key_path=ssh_key,
+            ssh_password=ssh_password,
+            on_chunk=lambda line: _broadcast_log_line(ws_group, line),
+        )
+    finally:
+        if tmp_key:
+            os.unlink(tmp_key)
+
+    instance.provisioning_log = _append_text(instance.provisioning_log, f"[rollback to #{snap.pk}]\n{log_blob}")
+    instance.status = OdooInstance.Status.RUNNING if ok else OdooInstance.Status.FAILED
+    instance.save(update_fields=["status", "provisioning_log", "updated_at"])
+    _broadcast_instance(
+        instance.id,
+        f"Rollback to #{snap.pk} succeeded." if ok else f"Rollback to #{snap.pk} failed.",
+        instance.status,
+        done=True,
+        log=log_blob,
+    )
+    _job_done(job_id, ok=ok, log=log_blob)
+
+    if ok:
+        OdooInstanceHistory.objects.create(
+            instance=instance,
+            db_name=snap.db_name,
+            domain=snap.domain,
+            http_port=snap.http_port,
+            odoo_version=snap.odoo_version,
+            server_ip=server.ip_address,
+            systemd_service=instance.systemd_service,
+            ssl_enabled=snap.ssl_enabled,
+            status=instance.status,
+            note=f"Rolled back from snapshot #{snap.pk}.",
+            deployed_by=instance.created_by,
+        )

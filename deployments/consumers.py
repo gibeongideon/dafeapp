@@ -30,6 +30,10 @@ class OdooServerConsumer(AsyncWebsocketConsumer):
     async def server_update(self, event):
         await self.send(text_data=json.dumps(event["payload"]))
 
+    async def log_line(self, event):
+        """Receive a single streamed Ansible/Terraform log line."""
+        await self.send(text_data=json.dumps(event["payload"]))
+
 
 class OdooInstanceConsumer(AsyncWebsocketConsumer):
     async def connect(self):
@@ -42,4 +46,8 @@ class OdooInstanceConsumer(AsyncWebsocketConsumer):
         await self.channel_layer.group_discard(self.group_name, self.channel_name)
 
     async def instance_update(self, event):
+        await self.send(text_data=json.dumps(event["payload"]))
+
+    async def log_line(self, event):
+        """Receive a single streamed Ansible log line."""
         await self.send(text_data=json.dumps(event["payload"]))

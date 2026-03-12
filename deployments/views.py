@@ -9,15 +9,33 @@ from django.views.generic import TemplateView
 
 from cloud.models import CloudAccount
 from cloud.providers import get_provider
-from deployments.models import Infrastructure, Instance, OdooInstance, OdooServer, TerraformRun
+from deployments.models import (
+    DeploymentJob,
+    Infrastructure,
+    Instance,
+    OdooInstance,
+    OdooInstanceHistory,
+    OdooServer,
+    OdooServerHistory,
+    TerraformRun,
+)
 from deployments.serializers import (
+    DeploymentJobSerializer,
     InfrastructureSerializer,
     InstanceSerializer,
+    OdooInstanceHistorySerializer,
     OdooInstanceSerializer,
+    OdooServerHistorySerializer,
     OdooServerSerializer,
     TerraformRunSerializer,
 )
-from deployments.tasks import create_odoo_instance, delete_odoo_instance, provision_odoo_server, terraform_apply_instance
+from deployments.tasks import (
+    create_odoo_instance,
+    delete_odoo_instance,
+    provision_odoo_server,
+    rollback_odoo_instance,
+    terraform_apply_instance,
+)
 from subscriptions.exceptions import SubscriptionError, SubscriptionLimitError
 from subscriptions.services import SubscriptionEnforcer
 
@@ -615,3 +633,141 @@ class InfrastructureDeleteAPIView(LoginRequiredMixin, View):
                 server.save(update_fields=["status", "provisioning_log", "updated_at"])
         infra.delete()
         return JsonResponse({"ok": True, "message": "Infrastructure deleted."})
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: Deployment Jobs, History, Health Check, Rollback
+# ---------------------------------------------------------------------------
+
+class DeploymentJobListAPIView(LoginRequiredMixin, View):
+    """GET /deployments/jobs/ — list recent deployment jobs for the active org."""
+
+    def get(self, request):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        qs = DeploymentJob.objects.filter(organization=org).order_by("-created_at")
+        instance_id = request.GET.get("instance_id")
+        server_id = request.GET.get("server_id")
+        if instance_id:
+            qs = qs.filter(odoo_instance_id=instance_id)
+        if server_id:
+            qs = qs.filter(odoo_server_id=server_id)
+        return JsonResponse({"results": DeploymentJobSerializer(qs[:100], many=True).data})
+
+
+class DeploymentJobCancelAPIView(LoginRequiredMixin, View):
+    """POST /deployments/jobs/<id>/cancel/ — revoke a running Celery task and mark it cancelled."""
+
+    def post(self, request, job_id):
+        from celery import current_app
+
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if request.org_role not in ("SUPER_ADMIN", "ADMIN", "MANAGER"):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        job = get_object_or_404(DeploymentJob, pk=job_id, organization=org)
+        if job.status not in (DeploymentJob.Status.QUEUED, DeploymentJob.Status.RUNNING):
+            return JsonResponse({"error": f"Job is already {job.status}."}, status=400)
+
+        if job.celery_task_id:
+            try:
+                current_app.control.revoke(job.celery_task_id, terminate=True, signal="SIGTERM")
+            except Exception:
+                logger.warning("Could not revoke Celery task %s", job.celery_task_id, exc_info=True)
+
+        from django.utils import timezone
+        job.status = DeploymentJob.Status.CANCELLED
+        job.finished_at = timezone.now()
+        job.save(update_fields=["status", "finished_at", "updated_at"])
+        return JsonResponse({"ok": True, "status": job.status})
+
+
+class OdooServerHistoryAPIView(LoginRequiredMixin, View):
+    """GET /deployments/odoo/servers/<id>/history/ — deployment history for a server."""
+
+    def get(self, request, server_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        server = get_object_or_404(OdooServer, pk=server_id, organization=org)
+        qs = OdooServerHistory.objects.filter(server=server).order_by("-deployed_at")
+        return JsonResponse({"results": OdooServerHistorySerializer(qs, many=True).data})
+
+
+class OdooInstanceHistoryAPIView(LoginRequiredMixin, View):
+    """GET /deployments/odoo/instances/<id>/history/ — deployment history for an instance."""
+
+    def get(self, request, instance_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        instance = get_object_or_404(OdooInstance, pk=instance_id, organization=org)
+        qs = OdooInstanceHistory.objects.filter(instance=instance).order_by("-deployed_at")
+        return JsonResponse({"results": OdooInstanceHistorySerializer(qs, many=True).data})
+
+
+class OdooInstanceRollbackAPIView(LoginRequiredMixin, View):
+    """POST /deployments/odoo/instances/<id>/rollback/ — re-deploy from a history snapshot."""
+
+    def post(self, request, instance_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if request.org_role not in ("SUPER_ADMIN", "ADMIN", "MANAGER"):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        instance = get_object_or_404(OdooInstance, pk=instance_id, organization=org)
+        history_id = request.POST.get("history_id")
+        if not history_id:
+            return JsonResponse({"error": "history_id is required."}, status=400)
+        snap = get_object_or_404(OdooInstanceHistory, pk=history_id, instance=instance)
+
+        job = DeploymentJob.objects.create(
+            organization=org,
+            job_type=DeploymentJob.JobType.ROLLBACK_INSTANCE,
+            odoo_instance=instance,
+            created_by=request.user,
+        )
+        _dispatch(rollback_odoo_instance, instance.id, snap.id, job.id)
+        return JsonResponse({"ok": True, "job_id": job.id, "history_id": snap.id})
+
+
+class OdooInstanceHealthCheckView(LoginRequiredMixin, View):
+    """POST /deployments/odoo/instances/<id>/health/ — manual HTTP health probe."""
+
+    def post(self, request, instance_id):
+        import urllib.error
+        import urllib.request
+        from django.utils import timezone
+
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+
+        instance = get_object_or_404(
+            OdooInstance.objects.select_related("server"),
+            pk=instance_id,
+            organization=org,
+        )
+        if not instance.server.ip_address:
+            return JsonResponse({"error": "Server has no IP yet."}, status=400)
+
+        url = f"http://{instance.server.ip_address}:{instance.http_port}/web/health"
+        try:
+            with urllib.request.urlopen(url, timeout=8) as resp:
+                reachable = resp.status == 200
+        except Exception:
+            reachable = False
+
+        now = timezone.now()
+        instance.is_reachable = reachable
+        instance.last_health_check = now
+        instance.save(update_fields=["is_reachable", "last_health_check"])
+        return JsonResponse({
+            "is_reachable": reachable,
+            "last_health_check": now.isoformat(),
+            "url_probed": url,
+        })
