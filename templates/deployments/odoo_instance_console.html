@@ -67,13 +67,28 @@
           <p class="text-sm font-medium text-gray-800">{{ odoo_server.odoo_version }}</p>
         </div>
         <div class="bg-gray-50 border border-gray-200 rounded-lg p-3">
+          <p class="text-xs text-gray-500 mb-0.5">Deployment Mode</p>
+          {% if odoo_server.deployment_mode == "DOCKER" %}
+          <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">Docker</span>
+          {% else %}
+          <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600">Bare-metal</span>
+          {% endif %}
+        </div>
+        <div class="bg-gray-50 border border-gray-200 rounded-lg p-3">
           <p class="text-xs text-gray-500 mb-0.5">Domain</p>
           <p class="text-sm font-medium text-gray-800">{{ odoo_instance.domain|default:"—" }}</p>
         </div>
+        {% if odoo_server.deployment_mode == "DOCKER" %}
+        <div class="bg-gray-50 border border-gray-200 rounded-lg p-3">
+          <p class="text-xs text-gray-500 mb-0.5">Container</p>
+          <p class="text-sm font-medium font-mono text-gray-800">{{ odoo_instance.container_name|default:"—" }}</p>
+        </div>
+        {% else %}
         <div class="bg-gray-50 border border-gray-200 rounded-lg p-3">
           <p class="text-xs text-gray-500 mb-0.5">Port</p>
           <p class="text-sm font-medium text-gray-800">{{ odoo_instance.http_port }}</p>
         </div>
+        {% endif %}
         <div class="bg-gray-50 border border-gray-200 rounded-lg p-3">
           <p class="text-xs text-gray-500 mb-0.5">Database</p>
           <p class="text-sm font-medium text-gray-800">{{ odoo_instance.db_name }}</p>
@@ -83,12 +98,11 @@
           <p class="text-sm font-medium text-gray-800">{% if odoo_instance.ssl_enabled %}Enabled{% else %}Disabled{% endif %}</p>
         </div>
         <div class="bg-gray-50 border border-gray-200 rounded-lg p-3">
-          <p class="text-xs text-gray-500 mb-0.5">Restart Policy</p>
-          <p class="text-sm font-medium text-gray-800">{{ odoo_instance.restart_policy|default:"—" }}</p>
-        </div>
-        <div class="bg-gray-50 border border-gray-200 rounded-lg p-3">
           <p class="text-xs text-gray-500 mb-0.5">Access URL</p>
-          {% if odoo_instance.domain %}
+          {% if odoo_server.deployment_mode == "DOCKER" and odoo_instance.ssl_enabled and odoo_instance.domain %}
+          <a href="https://{{ odoo_instance.domain }}" target="_blank"
+             class="text-sm font-medium text-purple-600 hover:underline truncate block">https://{{ odoo_instance.domain }} ↗</a>
+          {% elif odoo_instance.domain %}
           <a href="{{ odoo_instance.access_url }}" target="_blank"
              class="text-sm font-medium text-blue-600 hover:underline truncate block">Open ↗</a>
           {% else %}
@@ -218,7 +232,7 @@
             <tr class="text-xs text-gray-500 border-b border-gray-100">
               <th class="text-left py-2 pr-4 font-medium">#</th>
               <th class="text-left py-2 pr-4 font-medium">Version</th>
-              <th class="text-left py-2 pr-4 font-medium">Port</th>
+              <th class="text-left py-2 pr-4 font-medium">Port / Container</th>
               <th class="text-left py-2 pr-4 font-medium">Domain</th>
               <th class="text-left py-2 pr-4 font-medium">Status</th>
               <th class="text-left py-2 pr-4 font-medium">Deployed</th>

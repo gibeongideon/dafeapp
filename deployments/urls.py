@@ -29,4 +29,7 @@ urlpatterns = [
     path("odoo/instances/<int:instance_id>/history/", views.OdooInstanceHistoryAPIView.as_view(), name="odoo-instance-history"),
     path("odoo/instances/<int:instance_id>/rollback/", views.OdooInstanceRollbackAPIView.as_view(), name="odoo-instance-rollback"),
     path("odoo/instances/<int:instance_id>/health/", views.OdooInstanceHealthCheckView.as_view(), name="odoo-instance-health"),
+    # SSH keys
+    path("odoo/servers/<int:server_id>/ssh-keys/", views.ServerSSHKeyListCreateAPIView.as_view(), name="server-ssh-keys"),
+    path("odoo/servers/<int:server_id>/ssh-keys/<int:key_id>/delete/", views.ServerSSHKeyDeleteAPIView.as_view(), name="server-ssh-key-delete"),
 ]

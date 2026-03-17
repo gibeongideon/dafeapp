@@ -17,6 +17,7 @@ from deployments.models import (
     OdooInstanceHistory,
     OdooServer,
     OdooServerHistory,
+    ServerSSHKey,
     TerraformRun,
 )
 from deployments.serializers import (
@@ -32,6 +33,7 @@ from deployments.serializers import (
 from deployments.tasks import (
     create_odoo_instance,
     delete_odoo_instance,
+    deploy_server_ssh_key,
     provision_odoo_server,
     rollback_odoo_instance,
     terraform_apply_instance,
@@ -771,3 +773,80 @@ class OdooInstanceHealthCheckView(LoginRequiredMixin, View):
             "last_health_check": now.isoformat(),
             "url_probed": url,
         })
+
+
+class ServerSSHKeyListCreateAPIView(LoginRequiredMixin, View):
+    """
+    GET  /api/deployments/odoo/servers/<id>/ssh-keys/  — list keys for a server
+    POST /api/deployments/odoo/servers/<id>/ssh-keys/  — add a new key and deploy it
+    """
+
+    def _get_server(self, request, server_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return None, JsonResponse({"error": "No active organization."}, status=400)
+        server = get_object_or_404(OdooServer, pk=server_id, organization=org)
+        return server, None
+
+    def get(self, request, server_id):
+        server, err = self._get_server(request, server_id)
+        if err:
+            return err
+        keys = server.ssh_keys.all().values("id", "label", "public_key", "deployed", "created_at")
+        return JsonResponse({"keys": list(keys)})
+
+    def post(self, request, server_id):
+        import json as _json
+        server, err = self._get_server(request, server_id)
+        if err:
+            return err
+
+        try:
+            body = _json.loads(request.body)
+        except Exception:
+            body = request.POST
+
+        label = (body.get("label") or "").strip()
+        public_key = (body.get("public_key") or "").strip()
+        if not label:
+            return JsonResponse({"error": "Label is required."}, status=400)
+        if not public_key:
+            return JsonResponse({"error": "Public key is required."}, status=400)
+        if not (public_key.startswith("ssh-") or public_key.startswith("ecdsa-")):
+            return JsonResponse({"error": "Invalid public key format."}, status=400)
+        if ServerSSHKey.objects.filter(server=server, public_key=public_key).exists():
+            return JsonResponse({"error": "This key is already registered on this server."}, status=400)
+
+        key_obj = ServerSSHKey.objects.create(
+            server=server,
+            label=label,
+            public_key=public_key,
+            added_by=request.user,
+        )
+
+        if server.status == OdooServer.Status.PROVISIONED and server.ip_address:
+            _dispatch(deploy_server_ssh_key, key_obj.pk)
+            message = "Key added and deployment queued."
+        else:
+            message = "Key saved. It will be deployed when the server is provisioned."
+
+        return JsonResponse({
+            "id": key_obj.pk,
+            "label": key_obj.label,
+            "deployed": key_obj.deployed,
+            "message": message,
+        }, status=201)
+
+
+class ServerSSHKeyDeleteAPIView(LoginRequiredMixin, View):
+    """DELETE /api/deployments/odoo/servers/<id>/ssh-keys/<key_id>/"""
+
+    def post(self, request, server_id, key_id):
+        import json as _json
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        server = get_object_or_404(OdooServer, pk=server_id, organization=org)
+        key_obj = get_object_or_404(ServerSSHKey, pk=key_id, server=server)
+        key_obj.delete()
+        return JsonResponse({"deleted": True})

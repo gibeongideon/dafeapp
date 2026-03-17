@@ -376,6 +376,41 @@ class DeploymentJob(models.Model):
         return f"DeploymentJob #{self.pk} [{self.job_type}] {self.status}"
 
 
+class ServerSSHKey(models.Model):
+    """
+    An additional public SSH key registered on an OdooServer.
+    DafeApp's own key is always present; these are extra keys for team members
+    or other machines that need direct SSH access.
+    """
+
+    server = models.ForeignKey(
+        OdooServer,
+        on_delete=models.CASCADE,
+        related_name="ssh_keys",
+    )
+    label = models.CharField(max_length=120, help_text="Human-friendly name, e.g. 'Alice MacBook'")
+    public_key = models.TextField(help_text="Full public key string (ssh-ed25519 / ssh-rsa …)")
+    added_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="added_server_ssh_keys",
+    )
+    deployed = models.BooleanField(
+        default=False,
+        help_text="True once the key has been written to the server's authorized_keys.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        unique_together = ("server", "public_key")
+
+    def __str__(self):
+        return f"{self.label} → {self.server.name}"
+
+
 class OdooServerHistory(models.Model):
     """Immutable snapshot of an OdooServer's state at each successful provision/configure."""
 

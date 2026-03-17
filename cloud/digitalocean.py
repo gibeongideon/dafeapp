@@ -99,6 +99,38 @@ class DigitalOceanProvider(AbstractCloudProvider):
             logger.warning("DO list_ssh_keys failed: %s", exc)
             return []
 
+    def ensure_dafeapp_ssh_key(self, public_key: str) -> str:
+        """
+        Ensure DafeApp's Ed25519 public key is registered in this DO account.
+        If a key named 'dafeapp' already exists with the same public key, return
+        its fingerprint.  If it exists with a different key (stale), delete it
+        first.  Then create the key and return its fingerprint.
+        """
+        try:
+            resp = self._session.get(f"{API_BASE}/account/keys", timeout=10)
+            resp.raise_for_status()
+            for key in resp.json().get("ssh_keys", []):
+                if key.get("name") == "dafeapp":
+                    if key.get("public_key", "").strip() == public_key.strip():
+                        return key["fingerprint"]
+                    # Stale key — remove it so we can re-add the current one
+                    self._session.delete(f"{API_BASE}/account/keys/{key['id']}", timeout=10)
+                    break
+        except requests.RequestException as exc:
+            logger.warning("DO ensure_dafeapp_ssh_key lookup failed: %s", exc)
+
+        try:
+            resp = self._session.post(
+                f"{API_BASE}/account/keys",
+                json={"name": "dafeapp", "public_key": public_key},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            return resp.json().get("ssh_key", {}).get("fingerprint", "")
+        except requests.RequestException as exc:
+            logger.error("DO ensure_dafeapp_ssh_key create failed: %s", exc)
+            return ""
+
     def create_server(self, name: str, region: str, size: str, ssh_key_ids: list | None = None) -> dict:
         """POST /v2/droplets — ubuntu-24-04-x64 (required by odoo_install.sh), returns droplet dict."""
         payload = {

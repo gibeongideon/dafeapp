@@ -249,15 +249,18 @@ def _provider_native_provision(instance: Instance, run: TerraformRun) -> tuple[b
 def _provider_native_provision_server(server: OdooServer) -> tuple[bool, str, str, str]:
     if not server.cloud_account:
         return False, "", "", "Infrastructure has no managed cloud account."
+    from cloud.models import SystemSSHKey
     provider = get_provider(server.cloud_account)
-    ssh_key_ids = provider.list_ssh_keys()
-    if not ssh_key_ids:
+    system_key = SystemSSHKey.get_or_create_keypair()
+    fingerprint = provider.ensure_dafeapp_ssh_key(system_key.public_key)
+    if not fingerprint:
         logger.warning(
-            "No SSH keys found in cloud account '%s'. "
-            "Add an SSH key to your DigitalOcean account so Ansible can connect.",
+            "Could not register DafeApp SSH key in cloud account '%s'. "
+            "Ansible may not be able to connect to the new server.",
             server.cloud_account.name,
         )
-    created = provider.create_server(name=server.name, region=server.region, size=server.size, ssh_key_ids=ssh_key_ids or None)
+    ssh_key_ids = [fingerprint] if fingerprint else None
+    created = provider.create_server(name=server.name, region=server.region, size=server.size, ssh_key_ids=ssh_key_ids)
     provider_id = str(created.get("id") or "")
     if not provider_id:
         return False, "", "", "Provider did not return a server id."
@@ -375,15 +378,27 @@ def _pyos_ssh_creds(ext_server) -> tuple[str | None, str | None, str | None, str
 def _server_ansible_creds(server) -> tuple[str | None, str | None, str | None, str | None]:
     """
     Return (ssh_user, key_path, password, temp_key_file) for an OdooServer.
-    For PYOS servers extracts per-server credentials; for managed servers
-    returns (None, None, None, None) so global env vars are used.
+    - PYOS servers: use per-server credentials from ExternalServer.
+    - MANAGED (cloud) servers: use DafeApp's SystemSSHKey (same key injected at droplet creation).
+    temp_key_file must be deleted by the caller when no longer needed.
     """
     try:
         infra = server.infrastructure
         if infra and infra.infra_type == Infrastructure.InfraType.PYOS and infra.external_server:
             return _pyos_ssh_creds(infra.external_server)
+        if infra and infra.infra_type == Infrastructure.InfraType.MANAGED:
+            from cloud.models import SystemSSHKey
+            system_key = SystemSSHKey.get_or_create_keypair()
+            private_key_str = system_key.get_private_key()
+            if private_key_str:
+                tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".pem", delete=False)
+                tmp.write(private_key_str)
+                tmp.close()
+                os.chmod(tmp.name, 0o600)
+                ssh_user = os.getenv("ANSIBLE_SSH_USER", "root").strip()
+                return ssh_user, tmp.name, None, tmp.name
     except Exception:
-        logger.warning("Could not extract PYOS SSH creds for server %s", server.pk, exc_info=True)
+        logger.warning("Could not extract SSH creds for server %s", server.pk, exc_info=True)
     return None, None, None, None
 
 
@@ -1301,3 +1316,68 @@ def configure_docker_host(self, server_id: int, job_id: int | None = None):
         metadata={"server_id": server.id, "ip": str(server.ip_address)},
         organization=server.organization,
     )
+
+
+@shared_task(bind=True, max_retries=0)
+def deploy_server_ssh_key(self, ssh_key_id: int):
+    """
+    Append a ServerSSHKey's public_key to ~/.ssh/authorized_keys on the target server
+    using a small inline Ansible task (no separate playbook file needed).
+    """
+    from deployments.models import ServerSSHKey
+
+    key_obj = ServerSSHKey.objects.select_related(
+        "server", "server__infrastructure", "server__infrastructure__external_server"
+    ).get(pk=ssh_key_id)
+    server = key_obj.server
+
+    if not server.ip_address:
+        logger.error("deploy_server_ssh_key: server %s has no IP — cannot deploy key.", server.pk)
+        return
+
+    # Build a minimal inline playbook string
+    playbook_content = f"""---
+- hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Ensure .ssh directory exists for root
+      file:
+        path: /root/.ssh
+        state: directory
+        mode: "0700"
+    - name: Add SSH key to authorized_keys
+      authorized_key:
+        user: root
+        key: "{key_obj.public_key.strip()}"
+        state: present
+"""
+    # Write to a temp file and run ansible-playbook
+    import tempfile as _tempfile
+    tmp_playbook = _tempfile.NamedTemporaryFile(mode="w", suffix=".yml", delete=False)
+    tmp_playbook.write(playbook_content)
+    tmp_playbook.close()
+
+    ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
+    try:
+        ok, log_blob = _run_ansible_playbook(
+            tmp_playbook.name,
+            str(server.ip_address),
+            {},
+            ssh_user=ssh_user,
+            ssh_key_path=ssh_key,
+            ssh_password=ssh_password,
+        )
+    finally:
+        os.unlink(tmp_playbook.name)
+        if tmp_key:
+            try:
+                os.unlink(tmp_key)
+            except OSError:
+                pass
+
+    key_obj.deployed = ok
+    key_obj.save(update_fields=["deployed"])
+    logger.info("deploy_server_ssh_key #%s: ok=%s", ssh_key_id, ok)
+    if not ok:
+        logger.warning("deploy_server_ssh_key log:\n%s", log_blob)

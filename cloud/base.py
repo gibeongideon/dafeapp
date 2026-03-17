@@ -59,3 +59,11 @@ class AbstractCloudProvider(ABC):
     def list_ssh_keys(self) -> list[str]:
         """Return provider SSH key IDs/fingerprints registered in the account."""
         return []
+
+    def ensure_dafeapp_ssh_key(self, public_key: str) -> str:
+        """
+        Ensure DafeApp's public key is registered in the provider account.
+        Returns the provider key ID / fingerprint to inject into new servers.
+        Default implementation returns empty string (provider does not support this).
+        """
+        return ""

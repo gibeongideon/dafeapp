@@ -7,6 +7,7 @@ Track of what has been built, what is in progress, and what is planned.
 ## Core Platform
 
 ### Authentication & Users
+
 - [x] Custom user model (`users.User`) — email as primary login field
 - [x] Email + password login
 - [x] Email verification flow
@@ -17,6 +18,7 @@ Track of what has been built, what is in progress, and what is planned.
 - [x] VCS account linking (GitHub/GitLab) with encrypted token storage
 
 ### Organizations & Multi-tenancy
+
 - [x] Organization model with slug auto-generation
 - [x] Organization membership with roles (SUPER_ADMIN, ADMIN, MANAGER, USER)
 - [x] Organization middleware (current org context on every request)
@@ -25,6 +27,7 @@ Track of what has been built, what is in progress, and what is planned.
 - [x] Org-scoped base model and manager (`OrganizationScopedModel`)
 
 ### Subscriptions & Billing
+
 - [x] Plan model (STARTER / GROWTH / ENTERPRISE)
 - [x] Subscription model with status, grace period logic, auto-renew flag
 - [x] UsageRecord model (BACKUP, STAGING, UPGRADE events)
@@ -38,6 +41,7 @@ Track of what has been built, what is in progress, and what is planned.
 ## Cloud Infrastructure
 
 ### External Servers (PYOS)
+
 - [x] Add external server (host, port, username, auth type)
 - [x] SSH connectivity verification (Paramiko)
 - [x] Server preparation (add DafeApp key to authorized_keys)
@@ -45,12 +49,14 @@ Track of what has been built, what is in progress, and what is planned.
 - [x] Public key display UI for users
 
 ### Cloud Accounts
+
 - [x] DigitalOcean cloud account (API token, encrypted)
 - [x] AWS cloud account (access key + secret, encrypted, region)
 - [x] Account verification against provider API
 - [x] Available regions/sizes API
 
 ### Cloud VMs (Managed)
+
 - [x] CloudServer model (tracks provisioned VMs)
 - [x] Droplet provisioning (DigitalOcean)
 - [x] Droplet destroy
@@ -61,6 +67,7 @@ Track of what has been built, what is in progress, and what is planned.
 ## Odoo Deployments
 
 ### Server Provisioning
+
 - [x] Infrastructure model (links org to PYOS or managed cloud)
 - [x] OdooServer model (full status lifecycle: PENDING → PROVISIONED)
 - [x] TerraformRun model (logs command, stdout, stderr, status)
@@ -74,6 +81,7 @@ Track of what has been built, what is in progress, and what is planned.
 - [x] Periodic connectivity check (Celery Beat, every 2 min)
 
 ### Instance Management
+
 - [x] OdooInstance model (db_name, port, systemd_service, status)
 - [x] Celery task: `create_odoo_instance` (Ansible)
 - [x] Ansible playbook: `create_odoo_instance_direct.yml` (IP:PORT, no nginx)
@@ -82,7 +90,34 @@ Track of what has been built, what is in progress, and what is planned.
 - [x] Ansible playbook: `delete_odoo_instance_direct.yml` (stop, drop DB, close port)
 - [x] Instance console/detail view
 
+### Docker Deployment Mode
+
+- [x] `OdooServer.deployment_mode` field (`BARE_METAL` | `DOCKER`)
+- [x] `OdooServer.docker_postgres_password` field
+- [x] `OdooInstance.container_name` field
+- [x] Migration `0007_docker_deployment_mode`
+- [x] Task routing: `provision_odoo_server` → `configure_docker_host` when DOCKER
+- [x] Task routing: `create_odoo_instance` → Docker path when server is DOCKER
+- [x] Task routing: `delete_odoo_instance` → Docker path when server is DOCKER
+- [x] Celery task: `configure_docker_host` (installs Docker CE, starts Traefik + PG)
+- [x] Ansible: `setup_docker_host.yml` — Docker CE install, `odoo-network`, Traefik + PostgreSQL stack
+- [x] Ansible: `create_docker_odoo_instance.yml` — DB create, odoo.conf render, container start
+- [x] Ansible: `delete_docker_odoo_instance.yml` — container stop, DB drop, file cleanup
+- [x] Docker base compose: Traefik v2.11 + PostgreSQL 16 on `odoo-network`
+- [x] PostgreSQL network alias `postgres` (cross-compose hostname resolution)
+- [x] PostgreSQL tuning: `shared_buffers=256MB`, `work_mem=16MB`, `max_connections=200`
+- [x] `PGDATA` env var set (avoids lost+found mount issue)
+- [x] Per-instance `docker-compose.instance.yml.j2` with Traefik labels
+- [x] Per-instance `odoo.conf.j2` — `list_db=False`, `db_filter=^<db>$`, `proxy_mode=True`
+- [x] Odoo `--proxy-mode` command flag on every container
+- [x] Port 8069 Traefik HTTPS routing (main web)
+- [x] Port 8072 Traefik HTTPS routing for `/websocket` (live chat / bus)
+- [x] Odoo container healthcheck (`/web/health`, `start_period: 60s`)
+- [x] Standalone shell scripts: `create_instance.sh`, `delete_instance.sh`, `backup.sh`
+- [x] `backup.sh`: `pg_dump` all DBs + filestore tar.gz, configurable retention
+
 ### Deployment UI & API
+
 - [x] Odoo server list/create/detail/delete API endpoints
 - [x] Odoo instance list/create/delete API endpoints
 - [x] Infrastructure CRUD API
@@ -94,12 +129,14 @@ Track of what has been built, what is in progress, and what is planned.
 ## Observability & Auditing
 
 ### Audit Log
+
 - [x] AuditLog model (26+ action types, org-scoped, indexed)
 - [x] Audit log viewer (dashboard)
 - [ ] Audit log API (endpoint registered, no implementation)
 - [ ] Export audit log (CSV/JSON)
 
 ### Monitoring
+
 - [x] OdooServer `is_reachable` + `last_checked_at` fields
 - [x] Periodic connectivity task (Beat schedule)
 - [ ] `monitoring/` app implementation
@@ -111,18 +148,24 @@ Track of what has been built, what is in progress, and what is planned.
 ## Infrastructure Tooling
 
 ### Scripts
+
 - [x] `deploy_bare.sh` — standalone SSH deployer (no Django required)
 - [x] `create_dns_record.sh` — DNS hook for DO API and Route53
 - [x] `test_install/` — Docker test environment for odoo_install.sh
+- [x] `infra/docker/scripts/create_instance.sh` — Docker instance creator (standalone)
+- [x] `infra/docker/scripts/delete_instance.sh` — Docker instance remover (standalone)
+- [x] `infra/docker/scripts/backup.sh` — pg_dump + filestore tar.gz with retention
 
 ### DNS
+
 - [x] DNS script (DO + Route53)
 - [ ] `dns/` app implementation
 - [ ] Automated DNS record creation on server provision
 
 ### Backups
-- [ ] `backups/` app implementation
-- [ ] Scheduled backup tasks
+
+- [x] Backup script: `pg_dump` all DBs + filestore tar.gz + retention cleanup
+- [ ] `backups/` app implementation (Django-managed schedules)
 - [ ] Backup storage (S3 / local)
 - [ ] Restore flow
 
@@ -130,12 +173,10 @@ Track of what has been built, what is in progress, and what is planned.
 
 ## Planned / Future
 
-- [ ] Docker-based Odoo deployment (bare-metal only for now)
 - [ ] Staging environments (model flag exists: `staging_enabled`)
 - [ ] Version upgrades (model flag exists: `version_upgrade_enabled`)
 - [ ] Multi-region server orchestration
 - [ ] Tenant isolation app (`tenants/`)
-- [ ] WebSocket real-time provisioning logs
 - [ ] Full AWS EC2 wiring (Terraform ready, task wiring TBD)
 - [ ] API documentation (DRF Spectacular / Swagger)
 - [ ] Email backend (production — currently console)
@@ -143,7 +184,8 @@ Track of what has been built, what is in progress, and what is planned.
 ---
 
 ## Last Updated
-2026-03-12
+
+2026-03-17
 
 ---
 
@@ -155,7 +197,7 @@ Track of what has been built, what is in progress, and what is planned.
 
 ---
 
-### Phase 1 — Foundation ✅ (Mostly Complete)
+### Phase 1 — Foundation ✅ (Complete)
 
 > Goal: a working end-to-end deploy of an Odoo server and instance.
 > Test: provision a server on PYOS or DO, create an instance, access it via IP:PORT.
@@ -211,6 +253,39 @@ Track of what has been built, what is in progress, and what is planned.
 
 ---
 
+### Phase 1b — Docker Deployment Mode ✅ (Complete)
+
+> Goal: run multiple Odoo instances on one server using Docker + Traefik, each on its own domain with automatic HTTPS.
+> Test: set `deployment_mode=DOCKER` on a server, create two instances with different domains, verify both reach separate Odoo DBs over HTTPS with valid certs.
+>
+> Architecture: Internet → Traefik (SSL termination) → Docker network → Odoo containers → shared PostgreSQL
+
+- [x] `OdooServer.deployment_mode` field (`BARE_METAL` | `DOCKER`)
+- [x] `OdooServer.docker_postgres_password` field
+- [x] `OdooInstance.container_name` field
+- [x] Migration `0007_docker_deployment_mode`
+- [x] Task routing: `provision_odoo_server` → `configure_docker_host` when DOCKER
+- [x] Task routing: `create_odoo_instance` → Docker path when server is DOCKER
+- [x] Task routing: `delete_odoo_instance` → Docker path when server is DOCKER
+- [x] Celery task: `configure_docker_host` (installs Docker CE, starts Traefik + PG)
+- [x] Ansible: `setup_docker_host.yml` — Docker CE install, `odoo-network`, Traefik + PostgreSQL stack
+- [x] Ansible: `create_docker_odoo_instance.yml` — DB create, odoo.conf render, container start
+- [x] Ansible: `delete_docker_odoo_instance.yml` — container stop, DB drop, file cleanup
+- [x] Docker base compose: Traefik v2.11 + PostgreSQL 16 on `odoo-network`
+- [x] PostgreSQL network alias `postgres` (cross-compose hostname resolution)
+- [x] PostgreSQL tuning: `shared_buffers=256MB`, `work_mem=16MB`, `max_connections=200`
+- [x] `PGDATA` env var set (avoids lost+found mount issue)
+- [x] Per-instance `docker-compose.instance.yml.j2` with Traefik labels
+- [x] Per-instance `odoo.conf.j2` — `list_db=False`, `db_filter=^<db>$`, `proxy_mode=True`
+- [x] Odoo `--proxy-mode` command flag on every container
+- [x] Port 8069 Traefik HTTPS routing (main web)
+- [x] Port 8072 Traefik HTTPS routing for `/websocket` (live chat / bus)
+- [x] Odoo container healthcheck (`/web/health`, `start_period: 60s`)
+- [x] Standalone shell scripts: `create_instance.sh`, `delete_instance.sh`, `backup.sh`
+- [x] `backup.sh`: `pg_dump` all DBs + filestore tar.gz, configurable retention
+
+---
+
 ### Phase 2 — Deployment Reliability ✅
 
 > Goal: make deployments observable, recoverable, and self-healing.
@@ -233,8 +308,9 @@ Track of what has been built, what is in progress, and what is planned.
 > Test: provision an instance, verify DNS record appears and HTTPS works end-to-end.
 
 - [x] DNS scripts (DigitalOcean API + Route53)
+- [x] Traefik automatic HTTPS via Let's Encrypt (Docker mode)
 - [ ] Automated DNS record creation on server / instance provision
-- [ ] Let's Encrypt certificate auto-renewal
+- [ ] Let's Encrypt certificate auto-renewal (bare-metal / nginx path)
 - [ ] Custom certificate upload per instance
 - [ ] Domain management UI (add / remove domains per instance)
 
@@ -245,11 +321,12 @@ Track of what has been built, what is in progress, and what is planned.
 > Goal: every instance is backed up on a schedule and can be restored.
 > Test: schedule a backup, delete the DB, restore from backup, verify Odoo starts clean.
 
-- [ ] Automated scheduled database backups (pg_dump + cron)
+- [x] Backup script: `pg_dump` all DBs + filestore tar.gz + retention (`backup.sh`)
+- [ ] `backups/` app implementation (Django-managed schedules)
 - [ ] S3-compatible backup destination management (DO Spaces, AWS S3)
 - [ ] Backup retention policy (keep N latest)
 - [ ] Database restore workflow
-- [ ] Volume / filestore backups (Odoo attachments)
+- [ ] Volume / filestore restore
 
 ---
 
@@ -318,7 +395,6 @@ Track of what has been built, what is in progress, and what is planned.
 > Goal: expand deployment targets and developer experience.
 > No fixed test — each item is self-contained.
 
-- [ ] Docker-based Odoo deployment
 - [ ] One-click Odoo configuration templates (CRM, eCommerce, etc.)
 - [ ] API documentation (DRF Spectacular / Swagger)
 - [ ] Production email backend
