@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//opt/**)",
+      "Bash(pip show:*)",
+      "Bash(pip3 show:*)",
+      "Bash(/home/rock/anaconda3/bin/pip show:*)",
+      "Bash(grep -r \"ANSIBLE_PLAYBOOK_PATH\\\\|ansible_path\\\\|ANSIBLE_BIN\\\\|ansible-playbook\" /home/rock/Desktop/2026_Projects/my/dafeapp/.env*)",
+      "Bash(ls /home/rock/Desktop/2026_Projects/my/dafeapp/.env*)",
+      "Bash(python -c \":*)"
+    ]
+  }
+}

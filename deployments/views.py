@@ -583,29 +583,53 @@ class OdooServerDeleteAPIView(LoginRequiredMixin, View):
             return JsonResponse({"error": "Permission denied."}, status=403)
 
         server = get_object_or_404(
-            OdooServer.objects.select_related("infrastructure", "cloud_account"),
+            OdooServer.objects.select_related(
+                "infrastructure",
+                "infrastructure__cloud_account",
+                "cloud_account",
+            ),
             pk=server_id,
             organization=org,
         )
-        for inst in server.instances.exclude(status=OdooInstance.Status.DELETED):
-            inst.status = OdooInstance.Status.DELETED
-            inst.provisioning_log = (inst.provisioning_log + "\n" + "Deleted due to server deletion.").strip()
-            inst.save(update_fields=["status", "provisioning_log", "updated_at"])
 
-        infra_type = server.infrastructure.infra_type if server.infrastructure else (
-            Infrastructure.InfraType.MANAGED if server.cloud_account else Infrastructure.InfraType.PYOS
-        )
-        if infra_type == Infrastructure.InfraType.MANAGED and server.provider_server_id and server.cloud_account:
-            try:
-                provider = get_provider(server.cloud_account)
-                provider.destroy_server(server.provider_server_id)
-            except Exception:
-                pass
+        try:
+            # Mark all non-deleted instances as deleted
+            for inst in server.instances.exclude(status=OdooInstance.Status.DELETED):
+                inst.status = OdooInstance.Status.DELETED
+                inst.provisioning_log = (inst.provisioning_log + "\n" + "Deleted due to server deletion.").strip()
+                inst.save(update_fields=["status", "provisioning_log", "updated_at"])
 
-        server.status = OdooServer.Status.DELETED
-        server.provisioning_log = (server.provisioning_log + "\n" + "Server deleted.").strip()
-        server.save(update_fields=["status", "provisioning_log", "updated_at"])
-        return JsonResponse({"ok": True, "message": "Server and child instances deleted."})
+            # Destroy the cloud provider resource if applicable
+            cloud_account = server.effective_cloud_account
+            infra_type = (
+                server.infrastructure.infra_type
+                if server.infrastructure
+                else (Infrastructure.InfraType.MANAGED if cloud_account else Infrastructure.InfraType.PYOS)
+            )
+            if infra_type == Infrastructure.InfraType.MANAGED and server.provider_server_id and cloud_account:
+                try:
+                    provider = get_provider(cloud_account)
+                    destroyed = provider.destroy_server(server.provider_server_id)
+                    if not destroyed:
+                        logger.warning(
+                            "destroy_server returned False for provider_server_id=%s (server %s) — "
+                            "droplet may need manual removal.",
+                            server.provider_server_id, server.pk,
+                        )
+                except Exception:
+                    logger.exception(
+                        "Error destroying cloud resource %s for OdooServer %s",
+                        server.provider_server_id, server.pk,
+                    )
+
+            server.status = OdooServer.Status.DELETED
+            server.provisioning_log = (server.provisioning_log + "\n" + "Server deleted.").strip()
+            server.save(update_fields=["status", "provisioning_log", "updated_at"])
+            return JsonResponse({"ok": True, "message": "Server and child instances deleted."})
+
+        except Exception as exc:
+            logger.exception("Unexpected error deleting OdooServer %s", server_id)
+            return JsonResponse({"error": f"Delete failed: {exc}"}, status=500)
 
 
 class InfrastructureDeleteAPIView(LoginRequiredMixin, View):

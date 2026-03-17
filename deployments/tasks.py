@@ -1321,10 +1321,11 @@ def configure_docker_host(self, server_id: int, job_id: int | None = None):
 @shared_task(bind=True, max_retries=0)
 def deploy_server_ssh_key(self, ssh_key_id: int):
     """
-    Append a ServerSSHKey's public_key to ~/.ssh/authorized_keys on the target server
-    using a small inline Ansible task (no separate playbook file needed).
+    Append a ServerSSHKey's public_key to /root/.ssh/authorized_keys on the target
+    server using Paramiko (no Ansible required — avoids ansible-playbook dependency).
     """
     from deployments.models import ServerSSHKey
+    from cloud.models import SystemSSHKey
 
     key_obj = ServerSSHKey.objects.select_related(
         "server", "server__infrastructure", "server__infrastructure__external_server"
@@ -1335,49 +1336,88 @@ def deploy_server_ssh_key(self, ssh_key_id: int):
         logger.error("deploy_server_ssh_key: server %s has no IP — cannot deploy key.", server.pk)
         return
 
-    # Build a minimal inline playbook string
-    playbook_content = f"""---
-- hosts: all
-  become: true
-  gather_facts: false
-  tasks:
-    - name: Ensure .ssh directory exists for root
-      file:
-        path: /root/.ssh
-        state: directory
-        mode: "0700"
-    - name: Add SSH key to authorized_keys
-      authorized_key:
-        user: root
-        key: "{key_obj.public_key.strip()}"
-        state: present
-"""
-    # Write to a temp file and run ansible-playbook
-    import tempfile as _tempfile
-    tmp_playbook = _tempfile.NamedTemporaryFile(mode="w", suffix=".yml", delete=False)
-    tmp_playbook.write(playbook_content)
-    tmp_playbook.close()
+    pub_key = key_obj.public_key.strip()
 
-    ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
+    # Resolve SSH credentials (same logic as Ansible creds but via Paramiko)
+    ssh_user = None
+    pkey = None
+    password = None
+    tmp_key_path = None
+
     try:
-        ok, log_blob = _run_ansible_playbook(
-            tmp_playbook.name,
-            str(server.ip_address),
-            {},
-            ssh_user=ssh_user,
-            ssh_key_path=ssh_key,
-            ssh_password=ssh_password,
+        infra = server.infrastructure
+        if infra and infra.infra_type == Infrastructure.InfraType.PYOS and infra.external_server:
+            ext = infra.external_server
+            ssh_user = ext.username or "root"
+            if ext.auth_type == "DAFEAPP_KEY":
+                system_key = SystemSSHKey.get_or_create_keypair()
+                private_key_str = system_key.get_private_key()
+                if private_key_str:
+                    import io
+                    pkey = paramiko.Ed25519Key.from_private_key(io.StringIO(private_key_str))
+            else:
+                from cloud.encryption import FieldEncryptor
+                password = FieldEncryptor.decrypt(ext.encrypted_password)
+        elif infra and infra.infra_type == Infrastructure.InfraType.MANAGED:
+            system_key = SystemSSHKey.get_or_create_keypair()
+            private_key_str = system_key.get_private_key()
+            if private_key_str:
+                import io
+                pkey = paramiko.Ed25519Key.from_private_key(io.StringIO(private_key_str))
+            ssh_user = os.getenv("ANSIBLE_SSH_USER", "root").strip()
+    except Exception:
+        logger.warning("deploy_server_ssh_key: could not resolve SSH creds for server %s", server.pk, exc_info=True)
+
+    if not ssh_user:
+        ssh_user = "root"
+
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ok = False
+    try:
+        connect_kwargs = {
+            "hostname": str(server.ip_address),
+            "username": ssh_user,
+            "timeout": 15,
+            "banner_timeout": 15,
+        }
+        if pkey:
+            connect_kwargs["pkey"] = pkey
+        elif password:
+            connect_kwargs["password"] = password
+        else:
+            logger.error("deploy_server_ssh_key: no credentials available for server %s", server.pk)
+            return
+
+        client.connect(**connect_kwargs)
+
+        # Idempotent: add the key only if not already present
+        safe_key = pub_key.replace("'", "'\\''")
+        cmd = (
+            "mkdir -p /root/.ssh && chmod 700 /root/.ssh && "
+            f"grep -qxF '{safe_key}' /root/.ssh/authorized_keys 2>/dev/null || "
+            f"echo '{safe_key}' >> /root/.ssh/authorized_keys && "
+            "chmod 600 /root/.ssh/authorized_keys"
         )
+        _, stdout, stderr = client.exec_command(cmd, timeout=15)
+        exit_status = stdout.channel.recv_exit_status()
+        ok = exit_status == 0
+        if not ok:
+            logger.warning(
+                "deploy_server_ssh_key #%s: exit=%s stderr=%s",
+                ssh_key_id, exit_status, stderr.read().decode()
+            )
+    except Exception as exc:
+        logger.error("deploy_server_ssh_key #%s failed: %s", ssh_key_id, exc)
+        ok = False
     finally:
-        os.unlink(tmp_playbook.name)
-        if tmp_key:
+        client.close()
+        if tmp_key_path:
             try:
-                os.unlink(tmp_key)
+                os.unlink(tmp_key_path)
             except OSError:
                 pass
 
     key_obj.deployed = ok
     key_obj.save(update_fields=["deployed"])
     logger.info("deploy_server_ssh_key #%s: ok=%s", ssh_key_id, ok)
-    if not ok:
-        logger.warning("deploy_server_ssh_key log:\n%s", log_blob)

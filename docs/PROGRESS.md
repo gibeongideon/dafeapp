@@ -116,6 +116,16 @@ Track of what has been built, what is in progress, and what is planned.
 - [x] Standalone shell scripts: `create_instance.sh`, `delete_instance.sh`, `backup.sh`
 - [x] `backup.sh`: `pg_dump` all DBs + filestore tar.gz, configurable retention
 
+### SSH Key Management
+
+- [x] DafeApp system SSH keypair injected into DigitalOcean droplets at creation (`ensure_dafeapp_ssh_key`)
+- [x] MANAGED server Ansible/SSH now uses `SystemSSHKey` from DB (not env/filesystem)
+- [x] `ServerSSHKey` model — extra public keys per server (label, deployed flag)
+- [x] Migration `0008_server_ssh_keys`
+- [x] Celery task: `deploy_server_ssh_key` (inline Ansible playbook → `authorized_key`)
+- [x] API: list / add / delete extra SSH keys per server
+- [x] UI: SSH Keys button on server card, modal with key list, add form, remove button
+
 ### Deployment UI & API
 
 - [x] Odoo server list/create/detail/delete API endpoints
@@ -123,6 +133,10 @@ Track of what has been built, what is in progress, and what is planned.
 - [x] Infrastructure CRUD API
 - [x] Deployment create view (UI wizard)
 - [x] Cloud account options API (regions, sizes)
+- [x] Server/instance cards show deployment mode badge (Docker / Bare-metal)
+- [x] Create Instance modal: domain field for Docker, port field for bare-metal
+- [x] Create Server modal: deployment mode selector (Bare-metal / Docker radio cards)
+- [x] Instance console: Deployment Mode card, Container vs Port field, HTTPS link for Docker
 
 ---
 
@@ -185,7 +199,7 @@ Track of what has been built, what is in progress, and what is planned.
 
 ## Last Updated
 
-2026-03-17
+2026-03-17 (SSH key fix + extra SSH keys + Docker UI)
 
 ---
 
@@ -371,7 +385,8 @@ Track of what has been built, what is in progress, and what is planned.
 - [ ] Two-factor authentication (TOTP)
 - [ ] API keys for automation (per-org, with rate limits)
 - [ ] Deploy-only tokens (no admin access, for CI/CD)
-- [ ] SSH key management per org (team keys, upload/rotate)
+- [x] SSH key management per server (extra keys, deploy via Ansible, remove)
+- [ ] SSH key management per org (shared team keys)
 - [ ] Audit log API endpoint
 - [ ] Export audit log (CSV / JSON)
 - [ ] Instance-level log viewer (systemd journal streaming)
