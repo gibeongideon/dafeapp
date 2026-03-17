@@ -155,6 +155,10 @@ class OdooServer(models.Model):
         V18 = "18", "Odoo 18"
         V19 = "19", "Odoo 19"
 
+    class DeploymentMode(models.TextChoices):
+        BARE_METAL = "BARE_METAL", "Bare-metal (systemd)"
+        DOCKER = "DOCKER", "Docker (Traefik + containers)"
+
     class Status(models.TextChoices):
         PENDING = "PENDING", "Pending"
         PROVISIONING = "PROVISIONING", "Provisioning"
@@ -196,6 +200,12 @@ class OdooServer(models.Model):
     capacity_ram_mb = models.PositiveIntegerField(default=8192)
     min_port = models.PositiveIntegerField(default=8069)
     max_port = models.PositiveIntegerField(default=8100)
+    deployment_mode = models.CharField(
+        max_length=15,
+        choices=DeploymentMode.choices,
+        default=DeploymentMode.BARE_METAL,
+    )
+    docker_postgres_password = models.CharField(max_length=255, blank=True, default="")
     terraform_state_path = models.CharField(max_length=500, blank=True, default="")
     provisioning_log = models.TextField(blank=True)
     is_reachable = models.BooleanField(default=False)
@@ -261,6 +271,7 @@ class OdooInstance(models.Model):
     http_port = models.PositiveIntegerField(default=8069)
     requested_cpu_cores = models.PositiveIntegerField(default=1)
     requested_ram_mb = models.PositiveIntegerField(default=1024)
+    container_name = models.CharField(max_length=255, blank=True, default="")
     systemd_service = models.CharField(max_length=255, blank=True, default="")
     nginx_site = models.CharField(max_length=255, blank=True, default="")
     ssl_enabled = models.BooleanField(default=False)

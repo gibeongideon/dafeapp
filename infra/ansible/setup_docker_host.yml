@@ -1,0 +1,154 @@
+---
+# Playbook: setup_docker_host.yml
+# Purpose:  Bootstrap a server for Docker-based multi-instance Odoo.
+#           Installs Docker CE, creates the odoo-network, deploys Traefik
+#           and a shared PostgreSQL container, and prepares data directories.
+#
+# Extra vars (required):
+#   acme_email         - Let's Encrypt email for Traefik
+#   postgres_password  - Shared PostgreSQL password for the odoo user
+#
+# Extra vars (optional):
+#   docker_compose_dir - Path on server to store compose files (default: /opt/odoo-docker)
+#   data_dir           - Root data path (default: /data)
+#   backup_dir         - Backup root (default: /backups)
+
+- name: Bootstrap Docker host for multi-instance Odoo
+  hosts: all
+  become: true
+  gather_facts: true
+
+  vars:
+    docker_compose_dir: /opt/odoo-docker
+    data_dir: /data
+    backup_dir: /backups
+    acme_email: "{{ acme_email | default('odoo@example.com') }}"
+    postgres_password: "{{ postgres_password }}"
+
+  tasks:
+    - name: Install prerequisites
+      apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+          - python3-pip
+        state: present
+        update_cache: true
+
+    - name: Add Docker GPG key
+      shell: |
+        install -m 0755 -d /etc/apt/keyrings
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+        chmod a+r /etc/apt/keyrings/docker.asc
+      args:
+        creates: /etc/apt/keyrings/docker.asc
+
+    - name: Add Docker apt repository
+      shell: |
+        echo \
+          "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
+          https://download.docker.com/linux/ubuntu \
+          $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+          tee /etc/apt/sources.list.d/docker.list > /dev/null
+      args:
+        creates: /etc/apt/sources.list.d/docker.list
+
+    - name: Install Docker CE
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: true
+
+    - name: Enable and start Docker service
+      systemd:
+        name: docker
+        enabled: true
+        state: started
+
+    - name: Create data directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ data_dir }}/postgres"
+        - "{{ data_dir }}/odoo"
+        - "{{ backup_dir }}"
+
+    - name: Create docker compose directory structure
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ docker_compose_dir }}"
+        - "{{ docker_compose_dir }}/traefik"
+        - "{{ docker_compose_dir }}/instances"
+        - "{{ docker_compose_dir }}/letsencrypt"
+
+    - name: Copy Traefik static config
+      copy:
+        src: "{{ playbook_dir }}/../docker/traefik/traefik.yml"
+        dest: "{{ docker_compose_dir }}/traefik/traefik.yml"
+        mode: "0644"
+
+    - name: Create acme.json for Let's Encrypt certificates
+      file:
+        path: "{{ docker_compose_dir }}/letsencrypt/acme.json"
+        state: touch
+        mode: "0600"
+
+    - name: Copy base docker-compose file
+      copy:
+        src: "{{ playbook_dir }}/../docker/docker-compose.base.yml"
+        dest: "{{ docker_compose_dir }}/docker-compose.base.yml"
+        mode: "0644"
+
+    - name: Create .env file for base stack
+      copy:
+        dest: "{{ docker_compose_dir }}/.env"
+        mode: "0600"
+        content: |
+          ACME_EMAIL={{ acme_email }}
+          POSTGRES_PASSWORD={{ postgres_password }}
+
+    - name: Create odoo-network
+      command: docker network create odoo-network
+      register: network_result
+      failed_when:
+        - network_result.rc != 0
+        - "'already exists' not in network_result.stderr"
+
+    - name: Start base stack (Traefik + PostgreSQL)
+      command: >
+        docker compose
+        -f {{ docker_compose_dir }}/docker-compose.base.yml
+        --env-file {{ docker_compose_dir }}/.env
+        up -d --remove-orphans
+      args:
+        chdir: "{{ docker_compose_dir }}"
+
+    - name: Wait for PostgreSQL to be healthy
+      command: >
+        docker inspect --format="{{ '{{' }}.State.Health.Status{{ '}}' }}" odoo-postgres
+      register: pg_health
+      until: pg_health.stdout == "healthy"
+      retries: 12
+      delay: 5
+
+    - name: Open firewall ports (UFW)
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop:
+        - "80"
+        - "443"
+      ignore_errors: true

@@ -1,0 +1,66 @@
+---
+# Playbook: delete_docker_odoo_instance.yml
+# Purpose:  Stop and remove an Odoo Docker container, drop its database,
+#           and optionally remove the filestore.
+#
+# Extra vars (required):
+#   client_name        - Instance slug used during creation
+#   db_name            - PostgreSQL database to drop
+#
+# Extra vars (optional):
+#   remove_filestore   - Delete /data/odoo/<client_name> (default: false)
+#   docker_compose_dir - Compose files root (default: /opt/odoo-docker)
+#   data_dir           - Data root          (default: /data)
+
+- name: Delete Docker Odoo instance
+  hosts: all
+  become: true
+  gather_facts: false
+
+  vars:
+    remove_filestore: false
+    docker_compose_dir: /opt/odoo-docker
+    data_dir: /data
+    container_name: "odoo-{{ client_name }}"
+    instance_compose: "{{ docker_compose_dir }}/instances/{{ client_name }}.yml"
+
+  tasks:
+    - name: Stop and remove Odoo container
+      command: >
+        docker compose -f {{ instance_compose }} down --remove-orphans
+      register: compose_down
+      failed_when:
+        - compose_down.rc != 0
+        - "'No such file' not in compose_down.stderr"
+      ignore_errors: true
+
+    - name: Force-remove container if still present
+      command: docker rm -f {{ container_name }}
+      register: rm_result
+      failed_when:
+        - rm_result.rc != 0
+        - "'No such container' not in rm_result.stderr"
+      ignore_errors: true
+
+    - name: Drop PostgreSQL database
+      community.docker.docker_container_exec:
+        container: odoo-postgres
+        command: >
+          psql -U odoo -c "DROP DATABASE IF EXISTS {{ db_name }};"
+      ignore_errors: true
+
+    - name: Remove instance compose file
+      file:
+        path: "{{ instance_compose }}"
+        state: absent
+
+    - name: Remove instance odoo.conf
+      file:
+        path: "{{ docker_compose_dir }}/instances/{{ client_name }}.conf"
+        state: absent
+
+    - name: Remove filestore directory
+      file:
+        path: "{{ data_dir }}/odoo/{{ client_name }}"
+        state: absent
+      when: remove_filestore | bool

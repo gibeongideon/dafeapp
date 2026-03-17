@@ -574,7 +574,10 @@ def provision_odoo_server(self, server_id: int):
             update_fields=["ip_address", "firewall_configured", "provisioning_log", "status", "updated_at"]
         )
         _broadcast_server(server.id, f"PYOS host confirmed ({ext.host}) — starting Odoo configuration…", server.status)
-        _queue_or_run(configure_odoo_server, server.id)
+        if server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
+            _queue_or_run(configure_docker_host, server.id)
+        else:
+            _queue_or_run(configure_odoo_server, server.id)
         return
 
     state_root = Path(settings.BASE_DIR) / ".terraform_state" / f"org_{org.id}" / f"odoo_server_{server.id}"
@@ -673,7 +676,10 @@ def provision_odoo_server(self, server_id: int):
         ]
     )
 
-    _queue_or_run(configure_odoo_server, server.id)
+    if server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
+        _queue_or_run(configure_docker_host, server.id)
+    else:
+        _queue_or_run(configure_odoo_server, server.id)
 
 
 @shared_task(bind=True, max_retries=0)
@@ -786,6 +792,10 @@ def create_odoo_instance(self, instance_id: int, job_id: int | None = None):
     instance.save(update_fields=["status", "updated_at"])
     _broadcast_instance(instance.id, "Starting instance configuration…", instance.status)
 
+    if server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
+        _run_docker_instance_create(instance, server, job_id, self.request.id)
+        return
+
     direct_playbook = os.getenv("ANSIBLE_ODOO_INSTANCE_DIRECT_PLAYBOOK", "").strip()
     domain_playbook = os.getenv("ANSIBLE_ODOO_INSTANCE_PLAYBOOK", "").strip()
     use_direct = not instance.domain and bool(direct_playbook)
@@ -884,6 +894,10 @@ def delete_odoo_instance(self, instance_id: int):
         instance.status = OdooInstance.Status.DELETED
         instance.provisioning_log = _append_text(instance.provisioning_log, "Server IP unavailable; skipped remote cleanup.")
         instance.save(update_fields=["status", "provisioning_log", "updated_at"])
+        return
+
+    if server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
+        _run_docker_instance_delete(instance, server)
         return
 
     playbook = os.getenv("ANSIBLE_ODOO_INSTANCE_DELETE_PLAYBOOK", "").strip()
@@ -1067,3 +1081,223 @@ def rollback_odoo_instance(self, instance_id: int, history_id: int, job_id: int 
             note=f"Rolled back from snapshot #{snap.pk}.",
             deployed_by=instance.created_by,
         )
+
+
+# ---------------------------------------------------------------------------
+# Docker deployment helpers + tasks
+# ---------------------------------------------------------------------------
+
+def _run_docker_instance_create(instance: OdooInstance, server: OdooServer, job_id, celery_task_id):
+    """
+    Internal: run the Docker Odoo instance creation playbook and update model state.
+    Called from create_odoo_instance when server.deployment_mode == DOCKER.
+    """
+    _job_start(job_id, celery_task_id)
+
+    playbook = os.getenv("ANSIBLE_DOCKER_INSTANCE_PLAYBOOK", "").strip()
+    if not playbook:
+        container = f"odoo-{instance.db_name}"
+        instance.container_name = container
+        instance.status = OdooInstance.Status.RUNNING
+        instance.ssl_enabled = True
+        msg = "ANSIBLE_DOCKER_INSTANCE_PLAYBOOK not set. Marked RUNNING with generated metadata."
+        instance.provisioning_log = msg
+        instance.save(update_fields=["container_name", "status", "ssl_enabled", "provisioning_log", "updated_at"])
+        _job_done(job_id, ok=True, log=msg)
+        return
+
+    client_name = instance.db_name.replace("_", "-")
+    container_name = f"odoo-{client_name}"
+    extra_vars = {
+        "client_name": client_name,
+        "domain": instance.domain,
+        "db_name": instance.db_name,
+        "odoo_version": server.odoo_version,
+        "postgres_password": server.docker_postgres_password,
+        "restart_policy": "unless-stopped",
+        "container_name": container_name,
+    }
+
+    ws_group = f"odoo.instance.{instance.id}"
+    _broadcast_instance(instance.id, "Running Docker instance creation playbook…", instance.status)
+    ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
+    try:
+        ok, log_blob = _run_ansible_playbook(
+            playbook,
+            str(server.ip_address),
+            extra_vars,
+            ssh_user=ssh_user,
+            ssh_key_path=ssh_key,
+            ssh_password=ssh_password,
+            on_chunk=lambda line: _broadcast_log_line(ws_group, line),
+        )
+    finally:
+        if tmp_key:
+            os.unlink(tmp_key)
+
+    instance.provisioning_log = f"[docker create]\n{log_blob}".strip()
+    if ok:
+        instance.container_name = container_name
+        instance.status = OdooInstance.Status.RUNNING
+        instance.ssl_enabled = True
+    else:
+        instance.status = OdooInstance.Status.FAILED
+    instance.save(update_fields=["container_name", "status", "ssl_enabled", "provisioning_log", "updated_at"])
+
+    access_url = f"https://{instance.domain}" if instance.domain else ""
+    _broadcast_instance(
+        instance.id,
+        f"Docker instance running — {access_url}" if ok else "Docker instance creation failed.",
+        instance.status,
+        done=True,
+        log=log_blob,
+    )
+    _job_done(job_id, ok=ok, log=log_blob)
+
+    if ok:
+        OdooInstanceHistory.objects.create(
+            instance=instance,
+            db_name=instance.db_name,
+            domain=instance.domain,
+            http_port=8069,
+            odoo_version=server.odoo_version,
+            server_ip=server.ip_address,
+            systemd_service="",
+            ssl_enabled=True,
+            status=instance.status,
+            note="Docker container created successfully.",
+            deployed_by=instance.created_by,
+        )
+
+
+def _run_docker_instance_delete(instance: OdooInstance, server: OdooServer):
+    """
+    Internal: run the Docker Odoo instance deletion playbook and mark the instance DELETED.
+    Called from delete_odoo_instance when server.deployment_mode == DOCKER.
+    """
+    playbook = os.getenv("ANSIBLE_DOCKER_INSTANCE_DELETE_PLAYBOOK", "").strip()
+    if not playbook:
+        instance.status = OdooInstance.Status.DELETED
+        instance.provisioning_log = _append_text(
+            instance.provisioning_log, "ANSIBLE_DOCKER_INSTANCE_DELETE_PLAYBOOK not set; marked DELETED."
+        )
+        instance.save(update_fields=["status", "provisioning_log", "updated_at"])
+        return
+
+    client_name = instance.db_name.replace("_", "-")
+    extra_vars = {
+        "client_name": client_name,
+        "db_name": instance.db_name,
+        "remove_filestore": "false",
+    }
+
+    ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
+    try:
+        ok, log_blob = _run_ansible_playbook(
+            playbook,
+            str(server.ip_address),
+            extra_vars,
+            ssh_user=ssh_user,
+            ssh_key_path=ssh_key,
+            ssh_password=ssh_password,
+        )
+    finally:
+        if tmp_key:
+            os.unlink(tmp_key)
+
+    instance.provisioning_log = _append_text(instance.provisioning_log, f"[docker delete]\n{log_blob}")
+    instance.status = OdooInstance.Status.DELETED
+    instance.save(update_fields=["status", "provisioning_log", "updated_at"])
+
+
+@shared_task(bind=True, max_retries=0)
+def configure_docker_host(self, server_id: int, job_id: int | None = None):
+    """
+    Install Docker on the host, create odoo-network, and start Traefik + PostgreSQL.
+    Runs the setup_docker_host.yml Ansible playbook.
+    """
+    server = OdooServer.objects.select_related(
+        "organization",
+        "infrastructure",
+        "infrastructure__external_server",
+    ).get(pk=server_id)
+
+    _job_start(job_id, self.request.id)
+
+    if not server.ip_address:
+        server.status = OdooServer.Status.FAILED
+        server.provisioning_log = _append_text(server.provisioning_log, "No server IP available for Docker host setup.")
+        server.save(update_fields=["status", "provisioning_log", "updated_at"])
+        _job_done(job_id, ok=False, log="No server IP available for Docker host setup.")
+        return
+
+    playbook = os.getenv("ANSIBLE_DOCKER_HOST_PLAYBOOK", "").strip()
+    if not playbook:
+        server.status = OdooServer.Status.PROVISIONED
+        msg = "ANSIBLE_DOCKER_HOST_PLAYBOOK not set. Marked PROVISIONED without Docker setup."
+        server.provisioning_log = _append_text(server.provisioning_log, msg)
+        server.save(update_fields=["status", "provisioning_log", "updated_at"])
+        _job_done(job_id, ok=True, log=msg)
+        return
+
+    acme_email = os.getenv("ODOO_ADMIN_EMAIL", "odoo@example.com").strip()
+    pg_password = server.docker_postgres_password or os.getenv("DOCKER_POSTGRES_PASSWORD", "odoo_secret")
+    if not server.docker_postgres_password:
+        server.docker_postgres_password = pg_password
+        server.save(update_fields=["docker_postgres_password"])
+
+    extra_vars = {
+        "acme_email": acme_email,
+        "postgres_password": pg_password,
+    }
+
+    ws_group = f"odoo.server.{server.id}"
+    _broadcast_server(server.id, "Running Docker host setup playbook…", server.status)
+    ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
+    try:
+        ok, log_blob = _run_ansible_playbook(
+            playbook,
+            str(server.ip_address),
+            extra_vars,
+            ssh_user=ssh_user,
+            ssh_key_path=ssh_key,
+            ssh_password=ssh_password,
+            on_chunk=lambda line: _broadcast_log_line(ws_group, line),
+        )
+    finally:
+        if tmp_key:
+            os.unlink(tmp_key)
+
+    server.provisioning_log = _append_text(server.provisioning_log, f"[docker host setup]\n{log_blob}".strip())
+    server.status = OdooServer.Status.PROVISIONED if ok else OdooServer.Status.FAILED
+    server.save(update_fields=["status", "provisioning_log", "updated_at"])
+    _broadcast_server(
+        server.id,
+        "Docker host ready — Traefik + PostgreSQL running." if ok else "Docker host setup failed.",
+        server.status,
+        done=True,
+        log=log_blob,
+    )
+    _job_done(job_id, ok=ok, log=log_blob)
+
+    if ok:
+        OdooServerHistory.objects.create(
+            server=server,
+            odoo_version=server.odoo_version,
+            ip_address=server.ip_address,
+            dns_domain=server.dns_domain,
+            region=server.region,
+            size=server.size,
+            status=server.status,
+            note="Docker host provisioned (Traefik + PostgreSQL).",
+            deployed_by=server.created_by,
+        )
+
+    log_audit(
+        server.created_by,
+        AuditLog.Action.OTHER,
+        None,
+        f"Docker host '{server.name}' setup finished with status {server.status}.",
+        metadata={"server_id": server.id, "ip": str(server.ip_address)},
+        organization=server.organization,
+    )

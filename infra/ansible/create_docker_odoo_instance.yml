@@ -1,0 +1,88 @@
+---
+# Playbook: create_docker_odoo_instance.yml
+# Purpose:  Create a new Odoo Docker container on a pre-configured Docker host.
+#           Provisions the PostgreSQL database, filestore directory, per-instance
+#           odoo.conf (with db_filter + list_db=False), and starts the container
+#           with Traefik labels for automatic HTTPS routing.
+#
+# Extra vars (required):
+#   client_name        - Slug used for container/volume naming  (e.g. acme)
+#   domain             - FQDN mapped to this instance           (e.g. acme.example.com)
+#   db_name            - PostgreSQL database name
+#   odoo_version       - Odoo image tag                         (e.g. 17, 18)
+#   postgres_password  - PostgreSQL odoo user password
+#
+# Extra vars (optional):
+#   restart_policy     - Docker restart policy (default: unless-stopped)
+#   docker_compose_dir - Compose files root    (default: /opt/odoo-docker)
+#   data_dir           - Data root             (default: /data)
+
+- name: Create Docker Odoo instance
+  hosts: all
+  become: true
+  gather_facts: false
+
+  vars:
+    restart_policy: unless-stopped
+    docker_compose_dir: /opt/odoo-docker
+    data_dir: /data
+    container_name: "odoo-{{ client_name }}"
+    instance_compose: "{{ docker_compose_dir }}/instances/{{ client_name }}.yml"
+    instance_conf: "{{ docker_compose_dir }}/instances/{{ client_name }}.conf"
+
+  tasks:
+    - name: Create filestore directory for instance
+      file:
+        path: "{{ data_dir }}/odoo/{{ client_name }}"
+        state: directory
+        mode: "0755"
+
+    - name: Create instances directory
+      file:
+        path: "{{ docker_compose_dir }}/instances"
+        state: directory
+        mode: "0755"
+
+    - name: Create PostgreSQL database for instance
+      shell: >
+        docker exec odoo-postgres psql -U odoo
+        -c "SELECT 1 FROM pg_database WHERE datname='{{ db_name }}'" |
+        grep -q 1 ||
+        docker exec odoo-postgres psql -U odoo -c "CREATE DATABASE \"{{ db_name }}\";"
+      register: create_db
+      changed_when: "'CREATE DATABASE' in create_db.stdout"
+
+    - name: Render per-instance odoo.conf
+      template:
+        src: "{{ playbook_dir }}/../docker/templates/odoo.conf.j2"
+        dest: "{{ instance_conf }}"
+        mode: "0644"
+
+    - name: Render instance docker-compose file
+      template:
+        src: "{{ playbook_dir }}/../docker/templates/docker-compose.instance.yml.j2"
+        dest: "{{ instance_compose }}"
+        mode: "0644"
+
+    - name: Start Odoo container
+      command: >
+        docker compose -f {{ instance_compose }} up -d
+      register: compose_result
+      failed_when: compose_result.rc != 0
+
+    - name: Wait for Odoo container to be running
+      command: >
+        docker inspect --format="{{ '{{' }}.State.Status{{ '}}' }}" {{ container_name }}
+      register: container_status
+      until: container_status.stdout == "running"
+      retries: 12
+      delay: 5
+
+    - name: Wait for Odoo health check to pass
+      command: >
+        docker inspect --format="{{ '{{' }}.State.Health.Status{{ '}}' }}" {{ container_name }}
+      register: health_status
+      until: health_status.stdout in ["healthy", ""]
+      retries: 20
+      delay: 10
+      ignore_errors: true
