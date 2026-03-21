@@ -19,11 +19,15 @@
 #   -d, --domain     DOMAIN      FQDN for Nginx + SSL       [optional]
 #   -e, --email      EMAIL       Admin e-mail for certbot   [optional, required with --domain]
 #   --enterprise                 Install Odoo Enterprise    [default: Community]
+#   --local                      Run the installer on this machine instead of SSH
 #   -h, --help                   Show this help message
 #
 # Examples:
 #   # Minimal – Community, no Nginx, no SSL
 #   ./scripts/deploy_bare.sh --ip 165.22.100.50 --key ~/.ssh/do_key
+#
+#   # Local test on this machine (no Docker)
+#   ./scripts/deploy_bare.sh --local --version 19 --port 8069
 #
 #   # DigitalOcean with Nginx + SSL
 #   ./scripts/deploy_bare.sh \
@@ -53,6 +57,7 @@ OE_PORT="${DEPLOY_PORT:-8069}"
 DOMAIN="${DEPLOY_DOMAIN:-}"
 ADMIN_EMAIL="${DEPLOY_ADMIN_EMAIL:-odoo@example.com}"
 IS_ENTERPRISE="${DEPLOY_ENTERPRISE:-False}"
+LOCAL_MODE="${DEPLOY_LOCAL:-False}"
 REMOTE_DIR="/opt/dafeapp-install"
 SSH_TIMEOUT=30
 
@@ -73,6 +78,7 @@ while [[ $# -gt 0 ]]; do
     -d|--domain)    DOMAIN="$2";          shift 2 ;;
     -e|--email)     ADMIN_EMAIL="$2";     shift 2 ;;
     --enterprise)   IS_ENTERPRISE="True"; shift   ;;
+    --local)        LOCAL_MODE="True";    shift   ;;
     -h|--help)      print_usage; exit 0  ;;
     *) echo "[error] Unknown option: $1"; print_usage; exit 1 ;;
   esac
@@ -81,15 +87,19 @@ done
 # ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------
-if [[ -z "${IP}" ]]; then
-  echo "[error] Server IP is required. Use --ip <IP> or set DEPLOY_IP."
-  exit 1
-fi
+if [[ "${LOCAL_MODE}" == "True" ]]; then
+  IP="${IP:-127.0.0.1}"
+else
+  if [[ -z "${IP}" ]]; then
+    echo "[error] Server IP is required. Use --ip <IP> or set DEPLOY_IP."
+    exit 1
+  fi
 
-if [[ ! -f "${KEY_PATH}" ]]; then
-  echo "[error] SSH key not found: ${KEY_PATH}"
-  echo "        Use --key <PATH> or set DEPLOY_KEY."
-  exit 1
+  if [[ ! -f "${KEY_PATH}" ]]; then
+    echo "[error] SSH key not found: ${KEY_PATH}"
+    echo "        Use --key <PATH> or set DEPLOY_KEY."
+    exit 1
+  fi
 fi
 
 if [[ "${ODOO_VERSION}" != "17" && "${ODOO_VERSION}" != "18" && "${ODOO_VERSION}" != "19" ]]; then
@@ -142,8 +152,12 @@ scp_cmd() { scp "${SSH_OPTS[@]}" "$@"; }
 echo "============================================================"
 echo "  DafeApp — Odoo Bare-Metal Installer"
 echo "============================================================"
-echo "  Target       : ${SSH_USER}@${IP}"
-echo "  SSH key      : ${KEY_PATH}"
+if [[ "${LOCAL_MODE}" == "True" ]]; then
+  echo "  Target       : local machine"
+else
+  echo "  Target       : ${SSH_USER}@${IP}"
+  echo "  SSH key      : ${KEY_PATH}"
+fi
 echo "  Odoo version : ${ODOO_VERSION}"
 echo "  Port         : ${OE_PORT}"
 echo "  Nginx        : ${INSTALL_NGINX}"
@@ -158,19 +172,27 @@ echo "============================================================"
 # ---------------------------------------------------------------------------
 echo ""
 echo "[1/5] Verifying SSH connectivity..."
-if ! ssh_cmd "echo dafeapp-ok" | grep -q dafeapp-ok; then
-  echo "[error] Cannot reach ${IP} via SSH."
-  echo "        Check the IP, SSH user, and key path."
-  exit 1
+if [[ "${LOCAL_MODE}" == "True" ]]; then
+  echo "      Local mode selected. Skipping SSH connectivity check."
+else
+  if ! ssh_cmd "echo dafeapp-ok" | grep -q dafeapp-ok; then
+    echo "[error] Cannot reach ${IP} via SSH."
+    echo "        Check the IP, SSH user, and key path."
+    exit 1
+  fi
+  echo "      SSH OK."
 fi
-echo "      SSH OK."
 
 # ---------------------------------------------------------------------------
 # Step 2: Check Ubuntu version
 # ---------------------------------------------------------------------------
 echo ""
 echo "[2/5] Checking Ubuntu version..."
-UBUNTU_VER=$(ssh_cmd "lsb_release -rs 2>/dev/null || echo unknown")
+if [[ "${LOCAL_MODE}" == "True" ]]; then
+  UBUNTU_VER=$(lsb_release -rs 2>/dev/null || echo unknown)
+else
+  UBUNTU_VER=$(ssh_cmd "lsb_release -rs 2>/dev/null || echo unknown")
+fi
 if [[ "${UBUNTU_VER}" != "22.04" && "${UBUNTU_VER}" != "24.04" ]]; then
   echo "[warn] Detected Ubuntu ${UBUNTU_VER}. Script targets 22.04/24.04."
   echo "       Continuing anyway – results may vary."
@@ -200,27 +222,43 @@ sed -i "s|^IS_ENTERPRISE=\"[^\"]*\"|IS_ENTERPRISE=\"${IS_ENTERPRISE}\"|" "${PATC
 echo "      Script patched OK."
 
 # ---------------------------------------------------------------------------
-# Step 4: Upload the patched script to the remote server
+# Step 4: Stage the patched script on the target host
 # ---------------------------------------------------------------------------
 echo ""
-echo "[4/5] Uploading installer to ${IP}:${REMOTE_DIR}/..."
-ssh_cmd "sudo mkdir -p ${REMOTE_DIR} && sudo chmod 755 ${REMOTE_DIR}"
-scp_cmd "${PATCHED_SCRIPT}" "${SSH_USER}@${IP}:${REMOTE_DIR}/odoo_install.sh"
-ssh_cmd "sudo chmod +x ${REMOTE_DIR}/odoo_install.sh"
-echo "      Upload OK."
+if [[ "${LOCAL_MODE}" == "True" ]]; then
+  echo "[4/5] Staging installer on the local machine..."
+else
+  echo "[4/5] Uploading installer to ${IP}:${REMOTE_DIR}/..."
+fi
+if [[ "${LOCAL_MODE}" == "True" ]]; then
+  echo "      Local mode selected. Skipping upload."
+else
+  ssh_cmd "sudo mkdir -p ${REMOTE_DIR} && sudo chmod 755 ${REMOTE_DIR}"
+  scp_cmd "${PATCHED_SCRIPT}" "${SSH_USER}@${IP}:${REMOTE_DIR}/odoo_install.sh"
+  ssh_cmd "sudo chmod +x ${REMOTE_DIR}/odoo_install.sh"
+  echo "      Upload OK."
+fi
 
 # ---------------------------------------------------------------------------
-# Step 5: Execute the installer on the remote server
-#   - Runs in a screen/nohup session so SSH timeout won't kill it
-#   - Tails /var/log output while it runs
+# Step 5: Execute the installer on the target host
+#   - Runs directly on the target host
+#   - Remote mode streams output through SSH
 # ---------------------------------------------------------------------------
 echo ""
-echo "[5/5] Running Odoo installer on remote server..."
+if [[ "${LOCAL_MODE}" == "True" ]]; then
+  echo "[5/5] Running Odoo installer locally..."
+else
+  echo "[5/5] Running Odoo installer on remote server..."
+fi
 echo "      This typically takes 5–15 minutes depending on network speed."
 echo "      Output is streamed below."
 echo "------------------------------------------------------------"
 
-ssh_cmd "sudo bash ${REMOTE_DIR}/odoo_install.sh 2>&1"
+if [[ "${LOCAL_MODE}" == "True" ]]; then
+  sudo bash "${PATCHED_SCRIPT}" 2>&1
+else
+  ssh_cmd "sudo bash ${REMOTE_DIR}/odoo_install.sh 2>&1"
+fi
 
 echo "------------------------------------------------------------"
 echo ""
@@ -229,8 +267,13 @@ echo ""
 # Post-install summary
 # ---------------------------------------------------------------------------
 echo "[done] Fetching post-install summary..."
-ADMIN_PASS=$(ssh_cmd "sudo grep 'admin_passwd' /etc/odoo-server.conf 2>/dev/null || echo '(not found)'")
-SERVICE_STATUS=$(ssh_cmd "sudo service odoo-server status 2>/dev/null | head -5 || echo '(status unavailable)'")
+if [[ "${LOCAL_MODE}" == "True" ]]; then
+  ADMIN_PASS=$(sudo grep 'admin_passwd' /etc/odoo-server.conf 2>/dev/null || echo '(not found)')
+  SERVICE_STATUS=$(sudo service odoo-server status 2>/dev/null | head -5 || echo '(status unavailable)')
+else
+  ADMIN_PASS=$(ssh_cmd "sudo grep 'admin_passwd' /etc/odoo-server.conf 2>/dev/null || echo '(not found)'")
+  SERVICE_STATUS=$(ssh_cmd "sudo service odoo-server status 2>/dev/null | head -5 || echo '(status unavailable)'")
+fi
 
 echo ""
 echo "============================================================"
