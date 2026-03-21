@@ -20,6 +20,7 @@
 #   -e, --email      EMAIL       Admin e-mail for certbot   [optional, required with --domain]
 #   --enterprise                 Install Odoo Enterprise    [default: Community]
 #   --local                      Run the installer on this machine instead of SSH
+#   --fresh                      Remove stale local Odoo host state before install
 #   -h, --help                   Show this help message
 #
 # Examples:
@@ -28,6 +29,9 @@
 #
 #   # Local test on this machine (no Docker)
 #   ./scripts/deploy_bare.sh --local --version 19 --port 8069
+#
+#   # Fresh local test from a clean slate
+#   ./scripts/deploy_bare.sh --local --fresh --version 19 --port 8069
 #
 #   # DigitalOcean with Nginx + SSL
 #   ./scripts/deploy_bare.sh \
@@ -58,6 +62,7 @@ DOMAIN="${DEPLOY_DOMAIN:-}"
 ADMIN_EMAIL="${DEPLOY_ADMIN_EMAIL:-odoo@example.com}"
 IS_ENTERPRISE="${DEPLOY_ENTERPRISE:-False}"
 LOCAL_MODE="${DEPLOY_LOCAL:-False}"
+FRESH_MODE="${DEPLOY_FRESH:-False}"
 REMOTE_DIR="/opt/dafeapp-install"
 SSH_TIMEOUT=30
 
@@ -79,6 +84,7 @@ while [[ $# -gt 0 ]]; do
     -e|--email)     ADMIN_EMAIL="$2";     shift 2 ;;
     --enterprise)   IS_ENTERPRISE="True"; shift   ;;
     --local)        LOCAL_MODE="True";    shift   ;;
+    --fresh)        FRESH_MODE="True";    shift   ;;
     -h|--help)      print_usage; exit 0  ;;
     *) echo "[error] Unknown option: $1"; print_usage; exit 1 ;;
   esac
@@ -89,7 +95,15 @@ done
 # ---------------------------------------------------------------------------
 if [[ "${LOCAL_MODE}" == "True" ]]; then
   IP="${IP:-127.0.0.1}"
+  if [[ "${FRESH_MODE}" == "True" ]]; then
+    echo "[clean] Removing stale local Odoo host state..."
+    sudo rm -rf -- /odoo /etc/odoo-server.conf /etc/init.d/odoo-server /var/log/odoo
+    echo "[clean] Local Odoo host state removed."
+  fi
 else
+  if [[ "${FRESH_MODE}" == "True" ]]; then
+    echo "[warn] --fresh is only supported with --local. Ignoring."
+  fi
   if [[ -z "${IP}" ]]; then
     echo "[error] Server IP is required. Use --ip <IP> or set DEPLOY_IP."
     exit 1
