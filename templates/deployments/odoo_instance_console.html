@@ -115,6 +115,13 @@
       <div x-show="healthMessage" class="mt-2 p-3 rounded-lg text-sm"
            :class="healthStatus ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'"
            x-text="healthMessage"></div>
+
+      {% if odoo_server.installation_summary_text %}
+      <div class="mt-4 border border-gray-200 rounded-lg p-4 bg-gray-50">
+        <p class="text-[10px] uppercase tracking-wide text-gray-400 mb-2">Installation Summary</p>
+        <pre class="text-[11px] font-mono text-gray-700 whitespace-pre-wrap overflow-x-auto">{{ odoo_server.installation_summary_text }}</pre>
+      </div>
+      {% endif %}
     </div>
 
     <!-- ── Tab: Jobs ── -->

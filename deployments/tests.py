@@ -150,11 +150,13 @@ class OdooVersionedFlowTests(TestCase):
                 "region": "nyc3",
                 "size": "s-2vcpu-4gb",
                 "dns_domain": "odoo19.example.com",
+                "deployment_mode": "DOCKER",
             },
         )
         self.assertEqual(resp.status_code, 201)
         server = OdooServer.objects.get(name="odoo19-prod")
         self.assertEqual(server.odoo_version, "19")
+        self.assertEqual(server.deployment_mode, OdooServer.DeploymentMode.DOCKER)
         mock_dispatch.assert_called_once()
 
     @patch("deployments.views._dispatch")
@@ -197,6 +199,7 @@ class OdooVersionedFlowTests(TestCase):
             size="s-2vcpu-4gb",
             ip_address="203.0.113.20",
             status=OdooServer.Status.PROVISIONED,
+            installation_summary_text="Odoo 19 installation complete!\n  Server IP     : 203.0.113.20",
             created_by=self.user,
         )
         instance = OdooInstance.objects.create(
@@ -216,6 +219,8 @@ class OdooVersionedFlowTests(TestCase):
         self.assertContains(resp, "Development")
         self.assertContains(resp, "GitHistory")
         self.assertContains(resp, "Setting")
+        self.assertContains(resp, "Installation Summary")
+        self.assertContains(resp, "Server IP")
 
     def test_infrastructure_delete_requires_force_if_servers_exist(self):
         server = OdooServer.objects.create(

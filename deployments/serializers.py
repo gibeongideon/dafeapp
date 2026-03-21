@@ -70,6 +70,8 @@ class OdooServerSerializer(serializers.ModelSerializer):
             "max_port",
             "terraform_state_path",
             "provisioning_log",
+            "installation_summary",
+            "installation_summary_text",
             "deployment_mode",
             "is_reachable",
             "last_checked_at",

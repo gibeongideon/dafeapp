@@ -208,6 +208,8 @@ class OdooServer(models.Model):
     docker_postgres_password = models.CharField(max_length=255, blank=True, default="")
     terraform_state_path = models.CharField(max_length=500, blank=True, default="")
     provisioning_log = models.TextField(blank=True)
+    installation_summary = models.JSONField(default=dict, blank=True)
+    installation_summary_text = models.TextField(blank=True)
     is_reachable = models.BooleanField(default=False)
     last_checked_at = models.DateTimeField(null=True, blank=True)
     created_by = models.ForeignKey(

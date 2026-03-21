@@ -57,6 +57,15 @@ provision_odoo_server(odoo_server_id)
 **OdooServer status progression:**
 `PENDING` → `PROVISIONING` → `CONFIGURING` → `PROVISIONED` (or `FAILED`)
 
+### Testing the same flow locally or over SSH
+
+The bare-metal installer used by the UI is the same one you can run from the CLI:
+
+- Local simulation: `sudo ./scripts/deploy_bare.sh --local --fresh --version 19 --port 8069`
+- SSH simulation: `./scripts/deploy_bare.sh --ip <server-ip> --user <ssh-user> --key ~/.ssh/<private-key> --version 19 --port 8069`
+
+Local mode is for phase-one validation on your workstation or a disposable VM. SSH mode is the production-like path and is what the DafeApp UI drives for PYOS / bare-metal servers.
+
 ---
 
 ## 4. Create an Odoo Instance

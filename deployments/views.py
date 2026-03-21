@@ -216,6 +216,10 @@ class OdooServerCreateAPIView(LoginRequiredMixin, View):
         if not name or not region or not size:
             return JsonResponse({"error": "name, region and size are required."}, status=400)
 
+        deployment_mode = (request.POST.get("deployment_mode") or "").strip()
+        if deployment_mode not in (OdooServer.DeploymentMode.BARE_METAL, OdooServer.DeploymentMode.DOCKER):
+            deployment_mode = OdooServer.DeploymentMode.BARE_METAL
+
         # Resolve infrastructure — accept either an existing infra id or a
         # bare cloud_account_id (auto-creates or reuses a MANAGED infrastructure).
         infra_id = (request.POST.get("infrastructure_id") or "").strip()
@@ -253,6 +257,7 @@ class OdooServerCreateAPIView(LoginRequiredMixin, View):
             region=region,
             size=size,
             dns_domain=dns_domain,
+            deployment_mode=deployment_mode,
             created_by=request.user,
         )
         _dispatch(provision_odoo_server, server.id)

@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import socket
 import subprocess
 import tempfile
@@ -32,11 +33,20 @@ from deployments.models import (
 logger = logging.getLogger(__name__)
 
 
-def _broadcast_server(server_id: int, step: str, status: str, done: bool = False, log: str = ""):
+def _broadcast_server(
+    server_id: int,
+    step: str,
+    status: str,
+    done: bool = False,
+    log: str = "",
+    summary: dict | None = None,
+):
     channel_layer = get_channel_layer()
     if channel_layer is None:
         return
     payload = {"type": "done" if done else "step", "step": step, "status": status, "log": log[-2000:] if log else ""}
+    if summary is not None:
+        payload["summary"] = summary
     try:
         async_to_sync(channel_layer.group_send)(
             f"odoo.server.{server_id}",
@@ -140,6 +150,115 @@ def _append_logs(run: TerraformRun, out: str = "", err: str = ""):
 
 def _append_text(current: str, msg: str) -> str:
     return f"{current}\n{msg}".strip() if current else msg
+
+
+def _extract_admin_password(log_blob: str) -> str:
+    """Pull the generated admin password from ansible / shell summary output."""
+    if not log_blob:
+        return ""
+    patterns = (
+        r"Admin password:\s*(.+)",
+        r"admin_passwd\s*=\s*(.+)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, log_blob, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+    return ""
+
+
+def _build_installation_summary_text(
+    *,
+    server: OdooServer,
+    ssh_user: str,
+    admin_password: str,
+    enable_ssl: bool,
+) -> str:
+    """Format the post-install summary shown in the UI."""
+    ip = str(server.ip_address or "")
+    open_urls = [f"http://{ip}:8069"] if ip else []
+    if server.dns_domain:
+        proto = "https" if enable_ssl else "http"
+        open_urls.append(f"{proto}://{server.dns_domain}")
+
+    lines = [
+        "============================================================",
+        f"  Odoo {server.odoo_version} installation complete!",
+        "============================================================",
+        f"  Server IP     : {ip or '(not available)'}",
+        "  Odoo port     : 8069",
+        "  Config file   : /etc/odoo-server.conf",
+        "  Log file      : /var/log/odoo/odoo-server.log",
+    ]
+    if ssh_user:
+        lines.append(f"  SSH user      : {ssh_user}")
+    if admin_password:
+        lines.append(f"  admin_passwd = {admin_password}")
+    if server.dns_domain:
+        lines.append(f"  Nginx site    : /etc/nginx/sites-available/{server.dns_domain}")
+    if enable_ssl:
+        lines.append("  SSL           : enabled (Let's Encrypt)")
+    lines.extend(
+        [
+            "",
+            "  Service management:",
+            "    sudo service odoo-server start",
+            "    sudo service odoo-server stop",
+            "    sudo service odoo-server restart",
+            "",
+        ]
+    )
+    if open_urls:
+        lines.append(f"  Open Odoo:    {open_urls[0]}")
+        for url in open_urls[1:]:
+            lines.append(f"             {url}")
+    lines.extend(
+        [
+            "============================================================",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _store_installation_summary(
+    server: OdooServer,
+    *,
+    ssh_user: str,
+    admin_password: str,
+    enable_ssl: bool,
+) -> tuple[dict, str]:
+    summary = {
+        "server_ip": str(server.ip_address or ""),
+        "odoo_version": server.odoo_version,
+        "odoo_port": 8069,
+        "config_file": "/etc/odoo-server.conf",
+        "log_file": "/var/log/odoo/odoo-server.log",
+        "ssh_user": ssh_user,
+        "admin_password": admin_password,
+        "service_commands": [
+            "sudo service odoo-server start",
+            "sudo service odoo-server stop",
+            "sudo service odoo-server restart",
+        ],
+        "open_urls": [],
+        "nginx_site": f"/etc/nginx/sites-available/{server.dns_domain}" if server.dns_domain else "",
+        "ssl_enabled": enable_ssl,
+    }
+    if summary["server_ip"]:
+        summary["open_urls"].append(f"http://{summary['server_ip']}:8069")
+    if server.dns_domain:
+        proto = "https" if enable_ssl else "http"
+        summary["open_urls"].append(f"{proto}://{server.dns_domain}")
+    summary_text = _build_installation_summary_text(
+        server=server,
+        ssh_user=ssh_user,
+        admin_password=admin_password,
+        enable_ssl=enable_ssl,
+    )
+    server.installation_summary = summary
+    server.installation_summary_text = summary_text
+    server.save(update_fields=["installation_summary", "installation_summary_text", "updated_at"])
+    return summary, summary_text
 
 
 def _terraform_provider_env(account, region: str = "") -> dict:
@@ -551,7 +670,9 @@ def provision_odoo_server(self, server_id: int):
     org = server.organization
 
     server.status = OdooServer.Status.PROVISIONING
-    server.save(update_fields=["status", "updated_at"])
+    server.installation_summary = {}
+    server.installation_summary_text = ""
+    server.save(update_fields=["status", "installation_summary", "installation_summary_text", "updated_at"])
     _broadcast_server(server.id, "Starting provisioning…", server.status)
 
     infra = server.infrastructure
@@ -706,11 +827,14 @@ def configure_odoo_server(self, server_id: int, job_id: int | None = None):
     ).get(pk=server_id)
 
     _job_start(job_id, self.request.id)
+    server.installation_summary = {}
+    server.installation_summary_text = ""
+    server.save(update_fields=["installation_summary", "installation_summary_text", "updated_at"])
 
     if not server.ip_address:
         server.status = OdooServer.Status.FAILED
         server.provisioning_log = _append_text(server.provisioning_log, "No server IP available for configuration.")
-        server.save(update_fields=["status", "provisioning_log", "updated_at"])
+        server.save(update_fields=["status", "installation_summary", "installation_summary_text", "provisioning_log", "updated_at"])
         _job_done(job_id, ok=False, log="No server IP available for configuration.")
         return
 
@@ -719,7 +843,7 @@ def configure_odoo_server(self, server_id: int, job_id: int | None = None):
         server.status = OdooServer.Status.PROVISIONED
         msg = "ANSIBLE_ODOO_SERVER_PLAYBOOK not set. Marked PROVISIONED without server bootstrap."
         server.provisioning_log = _append_text(server.provisioning_log, msg)
-        server.save(update_fields=["status", "provisioning_log", "updated_at"])
+        server.save(update_fields=["status", "installation_summary", "installation_summary_text", "provisioning_log", "updated_at"])
         _job_done(job_id, ok=True, log=msg)
         return
 
@@ -751,6 +875,19 @@ def configure_odoo_server(self, server_id: int, job_id: int | None = None):
 
     server.provisioning_log = _append_text(server.provisioning_log, f"[ansible server]\n{log_blob}".strip())
     server.status = OdooServer.Status.PROVISIONED if ok else OdooServer.Status.FAILED
+    summary = {}
+    summary_text = ""
+    if ok:
+        admin_password = _extract_admin_password(log_blob)
+        enable_ssl = bool(server.dns_domain and admin_email and admin_email != "odoo@example.com")
+        summary, summary_text = _store_installation_summary(
+            server,
+            ssh_user=ssh_user or "root",
+            admin_password=admin_password,
+            enable_ssl=enable_ssl,
+        )
+    else:
+        server.save(update_fields=["installation_summary", "installation_summary_text", "updated_at"])
     server.save(update_fields=["status", "provisioning_log", "updated_at"])
     _broadcast_server(
         server.id,
@@ -758,6 +895,10 @@ def configure_odoo_server(self, server_id: int, job_id: int | None = None):
         server.status,
         done=True,
         log=log_blob,
+        summary={
+            "installation_summary": summary,
+            "installation_summary_text": summary_text,
+        } if ok else None,
     )
     _job_done(job_id, ok=ok, log=log_blob)
 
