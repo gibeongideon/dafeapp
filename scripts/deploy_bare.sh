@@ -159,6 +159,19 @@ SSH_OPTS=(
 ssh_cmd() { ssh "${SSH_OPTS[@]}" "${SSH_USER}@${IP}" "$@"; }
 scp_cmd() { scp "${SSH_OPTS[@]}" "$@"; }
 
+wait_for_ssh() {
+  local attempts="${1:-12}"
+  local delay="${2:-10}"
+  local i
+  for ((i = 1; i <= attempts; i++)); do
+    if ssh_cmd "echo ssh-ready" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep "${delay}"
+  done
+  return 1
+}
+
 # ---------------------------------------------------------------------------
 # Banner
 # ---------------------------------------------------------------------------
@@ -280,6 +293,14 @@ echo ""
 # Post-install summary
 # ---------------------------------------------------------------------------
 echo "[done] Fetching post-install summary..."
+if [[ "${LOCAL_MODE}" != "True" ]]; then
+  echo "      Waiting for SSH to respond..."
+  if ! wait_for_ssh 12 10; then
+    echo "[warn] SSH is still unavailable on ${IP}; skipping post-install summary."
+    echo "       The installer may still have completed successfully."
+    exit 0
+  fi
+fi
 if [[ "${LOCAL_MODE}" == "True" ]]; then
   ADMIN_PASS=$(sudo grep 'admin_passwd' /etc/odoo-server.conf 2>/dev/null || echo '(not found)')
   SERVICE_STATUS=$(sudo service odoo-server status 2>/dev/null | head -5 || echo '(status unavailable)')
