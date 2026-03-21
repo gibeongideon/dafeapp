@@ -14,6 +14,48 @@
 # ./odoo-install
 ################################################################################
 
+export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a
+export APT_LISTCHANGES_FRONTEND=none
+export UCF_FORCE_CONFFOLD=1
+export UCF_FORCE_CONFFNEW=0
+
+APT_NONINTERACTIVE_CONF="/etc/apt/apt.conf.d/99dafeapp-noninteractive"
+
+cleanup_apt_noninteractive() {
+  sudo rm -f "${APT_NONINTERACTIVE_CONF}"
+}
+
+setup_apt_noninteractive() {
+  sudo tee "${APT_NONINTERACTIVE_CONF}" >/dev/null <<'EOF'
+APT::Get::Assume-Yes "true";
+APT::Get::Quiet "2";
+Dpkg::Use-Pty "0";
+Dpkg::Options {
+  "--force-confdef";
+  "--force-confold";
+};
+EOF
+}
+
+trap cleanup_apt_noninteractive EXIT
+setup_apt_noninteractive
+
+apt_noninteractive() {
+  # Keep local conffiles such as /etc/ssh/sshd_config without prompting.
+  sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a \
+    APT_LISTCHANGES_FRONTEND=none \
+    UCF_FORCE_CONFFOLD=1 \
+    UCF_FORCE_CONFFNEW=0 \
+    apt-get -qy \
+    -o APT::Get::Assume-Yes=true \
+    -o APT::Get::Quiet=2 \
+    -o Dpkg::Use-Pty=0 \
+    -o Dpkg::Options::=--force-confdef \
+    -o Dpkg::Options::=--force-confold \
+    "$@"
+}
+
 OE_USER="odoo"
 OE_HOME="/$OE_USER"
 OE_HOME_EXT="/$OE_USER/${OE_USER}-server"
@@ -71,8 +113,8 @@ echo -e "\n---- Update Server ----"
 # libpng12-0 dependency for wkhtmltopdf for older Ubuntu versions
 # sudo add-apt-repository "deb http://mirrors.kernel.org/ubuntu/ xenial main"
 sudo apt-get update
-sudo apt-get upgrade -y
-sudo apt-get install libpq-dev
+apt_noninteractive upgrade
+apt_noninteractive install libpq-dev
 
 #--------------------------------------------------
 # Install PostgreSQL Server
@@ -83,10 +125,10 @@ if [ $INSTALL_POSTGRESQL_FOURTEEN = "True" ]; then
     sudo curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc|sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg
     sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
     sudo apt-get update
-    sudo apt-get install postgresql-16
+    apt_noninteractive install postgresql-16
 else
     echo -e "\n---- Installing the default postgreSQL version based on Linux version ----"
-    sudo apt-get install postgresql postgresql-server-dev-all -y
+    apt_noninteractive install postgresql postgresql-server-dev-all
 fi
 
 
@@ -97,14 +139,14 @@ sudo su - postgres -c "createuser -s $OE_USER" 2> /dev/null || true
 # Install Dependencies
 #--------------------------------------------------
 echo -e "\n--- Installing Python 3 + pip3 --"
-sudo apt-get install python3 python3-pip
-sudo apt-get install git python3-cffi build-essential wget python3-dev python3-venv python3-wheel libxslt-dev libzip-dev libldap2-dev libsasl2-dev python3-setuptools node-less libpng-dev libjpeg-dev gdebi -y
+apt_noninteractive install python3 python3-pip
+apt_noninteractive install git python3-cffi build-essential wget python3-dev python3-venv python3-wheel libxslt-dev libzip-dev libldap2-dev libsasl2-dev python3-setuptools node-less libpng-dev libjpeg-dev gdebi
 
 echo -e "\n---- Install python packages/requirements ----"
 sudo -H pip3 install -r https://github.com/odoo/odoo/raw/${OE_VERSION}/requirements.txt
 
 echo -e "\n---- Installing nodeJS NPM and rtlcss for LTR support ----"
-sudo apt-get install nodejs npm -y
+apt_noninteractive install nodejs npm
 sudo npm install -g rtlcss
 
 #--------------------------------------------------
@@ -123,7 +165,7 @@ if [ $INSTALL_WKHTMLTOPDF = "True" ]; then
 
   if [[ $(lsb_release -r -s) == "22.04" ]]; then
     # Ubuntu 22.04 LTS
-    sudo apt install wkhtmltopdf -y
+    apt_noninteractive install wkhtmltopdf
   else
       # For older versions of Ubuntu
     sudo gdebi --n `basename $_url`
@@ -298,7 +340,7 @@ sudo update-rc.d $OE_CONFIG defaults
 #--------------------------------------------------
 if [ $INSTALL_NGINX = "True" ]; then
   echo -e "\n---- Installing and setting up Nginx ----"
-  sudo apt install nginx -y
+  apt_noninteractive install nginx
   cat <<EOF > ~/odoo
 server {
   listen 80;
@@ -390,10 +432,10 @@ fi
 
 if [ $INSTALL_NGINX = "True" ] && [ $ENABLE_SSL = "True" ] && [ $ADMIN_EMAIL != "odoo@example.com" ]  && [ $WEBSITE_NAME != "_" ];then
   sudo apt-get update -y
-  sudo apt install snapd -y
+  apt_noninteractive install snapd
   sudo snap install core; snap refresh core
   sudo snap install --classic certbot
-  sudo apt-get install python3-certbot-nginx -y
+  apt_noninteractive install python3-certbot-nginx
   sudo certbot --nginx -d $WEBSITE_NAME --noninteractive --agree-tos --email $ADMIN_EMAIL --redirect
   sudo service nginx reload
   echo "SSL/HTTPS is enabled!"

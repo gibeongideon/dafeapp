@@ -163,6 +163,26 @@
         group: "{{ odoo_user }}"
         mode: "0640"
 
+    - name: Check whether Odoo schema is already initialized
+      become_user: postgres
+      shell: |
+        psql -d "{{ db_name }}" -tAc "SELECT to_regclass('public.ir_module_module')"
+      args:
+        executable: /bin/bash
+      register: odoo_schema_check
+      changed_when: false
+      failed_when: false
+
+    - name: Bootstrap Odoo base schema on a fresh database
+      become_user: "{{ odoo_user }}"
+      command: >
+        "{{ venv_dir }}/bin/python" "{{ odoo_bin }}"
+        -c "{{ config_file }}"
+        -d "{{ db_name }}"
+        -i base
+        --stop-after-init
+      when: odoo_schema_check.stdout | trim != 'ir_module_module'
+
     # ------------------------------------------------------------------
     # 6. Render systemd service unit
     # ------------------------------------------------------------------

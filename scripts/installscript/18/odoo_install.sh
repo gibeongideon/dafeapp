@@ -16,10 +16,41 @@
 
 export DEBIAN_FRONTEND=noninteractive
 export NEEDRESTART_MODE=a
+export APT_LISTCHANGES_FRONTEND=none
+export UCF_FORCE_CONFFOLD=1
+export UCF_FORCE_CONFFNEW=0
+
+APT_NONINTERACTIVE_CONF="/etc/apt/apt.conf.d/99dafeapp-noninteractive"
+
+cleanup_apt_noninteractive() {
+  sudo rm -f "${APT_NONINTERACTIVE_CONF}"
+}
+
+setup_apt_noninteractive() {
+  sudo tee "${APT_NONINTERACTIVE_CONF}" >/dev/null <<'EOF'
+APT::Get::Assume-Yes "true";
+APT::Get::Quiet "2";
+Dpkg::Use-Pty "0";
+Dpkg::Options {
+  "--force-confdef";
+  "--force-confold";
+};
+EOF
+}
+
+trap cleanup_apt_noninteractive EXIT
+setup_apt_noninteractive
 
 apt_noninteractive() {
+  # Keep local conffiles such as /etc/ssh/sshd_config without prompting.
   sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a \
-    apt-get -y \
+    APT_LISTCHANGES_FRONTEND=none \
+    UCF_FORCE_CONFFOLD=1 \
+    UCF_FORCE_CONFFNEW=0 \
+    apt-get -qy \
+    -o APT::Get::Assume-Yes=true \
+    -o APT::Get::Quiet=2 \
+    -o Dpkg::Use-Pty=0 \
     -o Dpkg::Options::=--force-confdef \
     -o Dpkg::Options::=--force-confold \
     "$@"

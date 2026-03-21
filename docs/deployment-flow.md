@@ -66,6 +66,42 @@ The bare-metal installer used by the UI is the same one you can run from the CLI
 
 Local mode is for phase-one validation on your workstation or a disposable VM. SSH mode is the production-like path and is what the DafeApp UI drives for PYOS / bare-metal servers.
 
+### Simulating instance creation with Ansible
+
+After the server is provisioned and Odoo is running, you can simulate instance creation by running the instance playbook directly against the host.
+
+For bare-metal / direct-IP instances:
+
+```bash
+ansible-playbook infra/ansible/create_odoo_instance_direct.yml \
+  -i 168.144.24.219, \
+  --user root \
+  --private-key ~/.ssh/id_ed25519 \
+  --extra-vars "odoo_version=19 db_name=app1 instance_name=app1 http_port=8070"
+```
+
+For a local VM or workstation simulation:
+
+```bash
+sudo ansible-playbook infra/ansible/create_odoo_instance_direct.yml \
+  -i localhost, -c local \
+  --extra-vars "odoo_version=19 db_name=app1 instance_name=app1 http_port=8070"
+```
+
+If your local `sudo` requires a password, add `-K` instead of `sudo` and let Ansible prompt for become access.
+
+For domain-based instances with nginx and SSL:
+
+```bash
+ansible-playbook infra/ansible/create_odoo_instance.yml \
+  -i 168.144.24.219, \
+  --user root \
+  --private-key ~/.ssh/id_ed25519 \
+  --extra-vars "odoo_version=19 db_name=app1 instance_name=app1 domain=app1.example.com http_port=8070 letsencrypt_email=you@example.com"
+```
+
+The app uses the same playbooks from `deployments/tasks.py`, so these commands are the closest manual simulation of what DafeApp runs after server creation.
+
 ---
 
 ## 4. Create an Odoo Instance
