@@ -3,12 +3,12 @@
 # Ansible Playbook: setup_odoo_server_bare.yml
 #
 # Installs Odoo directly on an Ubuntu 22.04/24.04 server (bare-metal / no Docker)
-# by uploading the version-specific odoo_install.sh from installscript/{ver}.0/
+# by uploading the version-specific odoo_install.sh from scripts/installscript/{ver}/
 #
 # Script layout:
-#   installscript/17.0/InstallScript/odoo_install.sh  ← Odoo 17
-#   installscript/18.0/InstallScript/odoo_install.sh  ← Odoo 18
-#   installscript/19.0/InstallScript/odoo_install.sh  ← Odoo 19
+#   scripts/installscript/17/odoo_install.sh    ← Odoo 17
+#   scripts/installscript/18/odoo_install.sh    ← Odoo 18
+#   scripts/installscript/19/odoo_install.sh    ← Odoo 19
 #
 # Called by DafeApp via:
 #   ANSIBLE_ODOO_SERVER_PLAYBOOK=.../setup_odoo_server_bare.yml
@@ -24,7 +24,7 @@
 #   is_enterprise - "True" / "False"  (default: False)
 #   ssh_user      - remote user (default: ubuntu)
 # ---------------------------------------------------------------------------
-- name: Install Odoo (bare-metal) using InstallScript/odoo_install.sh
+- name: Install Odoo (bare-metal) using odoo_install.sh
   hosts: all
   become: true
 
@@ -46,13 +46,16 @@
     is_enterprise:  "{{ is_enterprise  | default('False') }}"
 
     # --- Script paths -------------------------------------------------------
-    # Each Odoo version has its own installer under installscript/{ver}.0/
-    # Layout: installscript/17.0/InstallScript/odoo_install.sh (v17)
-    #         installscript/18.0/InstallScript/odoo_install.sh (v18)
-    #         installscript/19.0/InstallScript/odoo_install.sh (v19)
+    # Each Odoo version has its own installer under scripts/installscript/{ver}/
+    # Layout: scripts/installscript/17/odoo_install.sh (v17)
+    #         scripts/installscript/18/odoo_install.sh (v18)
+    #         scripts/installscript/19/odoo_install.sh (v19)
     remote_script_dir:   "/opt/dafeapp-install"
     install_script_name: "odoo_install.sh"
-    install_script_src:  "{{ playbook_dir }}/../../installscript/{{ odoo_version }}.0/InstallScript/odoo_install.sh"
+    install_script_src: >-
+      {{
+        playbook_dir ~ '/../../scripts/installscript/' ~ odoo_version ~ '/odoo_install.sh'
+      }}
 
   tasks:
     # ------------------------------------------------------------------
@@ -80,7 +83,7 @@
         mode: "0755"
 
     # ------------------------------------------------------------------
-    # 3. Upload odoo_install.sh from local InstallScript/ folder
+    # 3. Upload odoo_install.sh from the version folder
     # ------------------------------------------------------------------
     - name: Upload odoo_install.sh to server
       copy:

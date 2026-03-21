@@ -165,7 +165,6 @@ Track of what has been built, what is in progress, and what is planned.
 
 - [x] `deploy_bare.sh` — standalone SSH deployer (no Django required)
 - [x] `create_dns_record.sh` — DNS hook for DO API and Route53
-- [x] `test_install/` — Docker test environment for odoo_install.sh
 - [x] `infra/docker/scripts/create_instance.sh` — Docker instance creator (standalone)
 - [x] `infra/docker/scripts/delete_instance.sh` — Docker instance remover (standalone)
 - [x] `infra/docker/scripts/backup.sh` — pg_dump + filestore tar.gz with retention

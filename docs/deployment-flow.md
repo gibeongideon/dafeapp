@@ -50,7 +50,7 @@ provision_odoo_server(odoo_server_id)
                         Run Ansible: setup_odoo_server_bare.yml
                         extra_vars: odoo_version, server_name, dns_domain,
                                     website_name, admin_email
-                        Uploads version-specific odoo_install.sh, patches vars,
+                        Uploads version-specific odoo_install.sh from scripts/installscript/<ver>, patches vars,
                         executes installer on remote host
 ```
 

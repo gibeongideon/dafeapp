@@ -122,12 +122,11 @@ if [[ "${ODOO_VERSION}" != "17" && "${ODOO_VERSION}" != "18" && "${ODOO_VERSION}
 fi
 
 # Resolve the version-specific install script
-# Layout: installscript/{version}.0/InstallScript/odoo_install.sh
-INSTALL_SCRIPT="${PROJECT_ROOT}/installscript/${ODOO_VERSION}.0/InstallScript/odoo_install.sh"
+INSTALL_SCRIPT="${SCRIPT_DIR}/installscript/${ODOO_VERSION}/odoo_install.sh"
 
 if [[ ! -f "${INSTALL_SCRIPT}" ]]; then
   echo "[error] Install script not found: ${INSTALL_SCRIPT}"
-  echo "        Expected: installscript/${ODOO_VERSION}.0/InstallScript/odoo_install.sh"
+  echo "        Expected: scripts/installscript/${ODOO_VERSION}/odoo_install.sh"
   exit 1
 fi
 

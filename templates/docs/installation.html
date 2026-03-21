@@ -119,7 +119,7 @@ DafeApp UI
             ├─ PYOS infrastructure
             │    └─ configure_odoo_server
             │         └─ Ansible: setup_odoo_server_bare.yml
-            │              └─ uploads InstallScript/odoo_install.sh
+            │              └─ uploads odoo_install.sh from scripts/installscript/<ver>/
             │                   └─ Odoo 18 / 19 running on :8069
             │
             └─ MANAGED infrastructure (DO / AWS)
@@ -127,7 +127,7 @@ DafeApp UI
                  │    ├─ digitalocean_droplet  (DigitalOcean)
                  │    └─ aws_instance          (AWS EC2)
                  └─ configure_odoo_server
-                      └─ Ansible: setup_odoo_server_bare.yml
+                           └─ Ansible: setup_odoo_server_bare.yml
                            └─ Odoo 18 / 19 running on :8069</pre>
     </div>
   </div>
