@@ -23,6 +23,28 @@
         enabled: true
         state: started
 
+    - name: Inspect PostgreSQL clusters
+      command: pg_lsclusters --no-header
+      register: pg_clusters
+      changed_when: false
+      failed_when: false
+
+    - name: Detect installed PostgreSQL major version
+      shell: "ls -1 /usr/lib/postgresql 2>/dev/null | sort -V | tail -n 1"
+      register: pg_major_version
+      changed_when: false
+      failed_when: pg_major_version.stdout | trim == ""
+
+    - name: Create a default PostgreSQL cluster if none exists
+      command: "pg_createcluster {{ pg_major_version.stdout | trim }} main --start"
+      when: pg_clusters.stdout_lines | length == 0
+
+    - name: Reinspect PostgreSQL clusters after bootstrap
+      command: pg_lsclusters --no-header
+      register: pg_clusters
+      changed_when: false
+      failed_when: false
+
     - name: Ensure instance directory exists
       file:
         path: "{{ odoo_home }}/instances/{{ db_name }}"
@@ -39,20 +61,58 @@
         group: "{{ odoo_user }}"
         mode: "0755"
 
-    - name: Wait for PostgreSQL to become ready
-      command: pg_isready -q
-      register: pg_ready
-      retries: 12
-      delay: 5
-      until: pg_ready.rc == 0
-      changed_when: false
-      failed_when: pg_ready.rc != 0
+    - name: Start any PostgreSQL clusters that are not online
+      command: "pg_ctlcluster {{ item[0] }} {{ item[1] }} start"
+      loop: "{{ pg_clusters.stdout_lines | map('split') | list }}"
+      when:
+        - item | length >= 4
+        - item[3] != 'online'
+      changed_when: true
 
-    - name: Ensure PostgreSQL database exists
-      become_user: postgres
-      shell: "psql -tAc \"SELECT 1 FROM pg_database WHERE datname='{{ db_name }}'\" | grep -q 1 || createdb {{ db_name }}"
-      args:
-        executable: /bin/bash
+    - block:
+        - name: Wait for PostgreSQL to become ready
+          command: pg_isready -q
+          register: pg_ready
+          retries: 12
+          delay: 5
+          until: pg_ready.rc == 0
+          changed_when: false
+          failed_when: pg_ready.rc != 0
+
+        - name: Ensure PostgreSQL role exists for the instance owner
+          become_user: postgres
+          shell: "psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='{{ odoo_user }}'\" | grep -q 1 || createuser -s {{ odoo_user }}"
+          args:
+            executable: /bin/bash
+
+        - name: Ensure PostgreSQL database exists
+          become_user: postgres
+          shell: "psql -tAc \"SELECT 1 FROM pg_database WHERE datname='{{ db_name }}'\" | grep -q 1 || createdb {{ db_name }}"
+          args:
+            executable: /bin/bash
+      rescue:
+        - name: Collect PostgreSQL cluster status
+          command: pg_lsclusters
+          register: pg_cluster_status
+          changed_when: false
+          failed_when: false
+
+        - name: Collect PostgreSQL service status
+          command: systemctl status postgresql --no-pager -l
+          register: pg_service_status
+          changed_when: false
+          failed_when: false
+
+        - name: Show PostgreSQL diagnostics
+          debug:
+            msg:
+              - "PostgreSQL was not ready for instance creation."
+              - "{{ pg_cluster_status.stdout_lines | default([]) }}"
+              - "{{ pg_service_status.stdout_lines | default([]) }}"
+
+        - name: Fail with a clearer PostgreSQL readiness error
+          fail:
+            msg: "PostgreSQL not ready on {{ inventory_hostname }}; database creation aborted."
 
     - name: Render instance Odoo config
       template:

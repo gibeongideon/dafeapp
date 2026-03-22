@@ -281,6 +281,12 @@ DafeApp UI
           command at your remote host.
         </p>
 
+        <p class="text-sm text-gray-500 mb-4">
+          Instance playbooks also bootstrap PostgreSQL now: they create a default cluster if needed, start it, wait
+          for <code class="font-mono text-xs bg-gray-100 rounded px-1">pg_isready</code>, and create the Odoo role
+          before database creation. This avoids the old socket and missing-role failures during multi-instance setup.
+        </p>
+
         <!-- With nginx + ssl -->
         <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">With Nginx + SSL (Let's Encrypt)</p>
         <div class="bg-slate-900 rounded-lg p-4 font-mono text-xs text-green-400 overflow-x-auto mb-4">

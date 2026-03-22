@@ -102,6 +102,15 @@ ansible-playbook infra/ansible/create_odoo_instance.yml \
 
 The app uses the same playbooks from `deployments/tasks.py`, so these commands are the closest manual simulation of what DafeApp runs after server creation.
 
+The instance playbooks now include PostgreSQL preflight checks and bootstrap logic:
+
+- `pg_lsclusters` is checked first so we can detect whether a real cluster exists.
+- If no cluster is present, the playbook creates a default `main` cluster with `pg_createcluster`.
+- If PostgreSQL is installed but the instance owner role is missing, the playbook creates it before database creation.
+- `pg_isready` is still used as a readiness gate before `createdb`.
+
+That means a failed instance run now points to a real PostgreSQL readiness or role problem instead of a generic socket error.
+
 ---
 
 ## 4. Create an Odoo Instance
