@@ -25,12 +25,31 @@
           <span class="inline-flex items-center justify-center w-8 h-8 rounded-md bg-blue-100 text-blue-700 text-[11px] font-bold">DO</span>
           {% elif s.cloud_account and s.cloud_account.provider == "AWS" %}
           <span class="inline-flex items-center justify-center w-8 h-8 rounded-md bg-orange-100 text-orange-700 text-[11px] font-bold">AWS</span>
+          {% elif s.infrastructure and s.infrastructure.infra_type == "PYOS" %}
+          <span class="inline-flex items-center justify-center w-8 h-8 rounded-md bg-emerald-100 text-emerald-700 text-[11px] font-bold">PY</span>
           {% else %}
           <span class="inline-flex items-center justify-center w-8 h-8 rounded-md bg-gray-100 text-gray-700 text-[11px] font-bold">VPS</span>
           {% endif %}
           <div>
             <p class="text-sm font-semibold text-gray-900">{{ s.name }}</p>
-            <p class="text-[11px] text-gray-500">Odoo {{ s.odoo_version }} · {{ s.region }} · {{ s.size }}</p>
+            <p class="text-[11px] text-gray-500">
+              {% if s.infrastructure and s.infrastructure.infra_type == "PYOS" %}
+              PYOS · existing server
+              {% else %}
+              Odoo {{ s.odoo_version }} · {{ s.region }} · {{ s.size }}
+              {% endif %}
+            </p>
+            <div class="mt-1 flex items-center gap-2 text-[11px] text-gray-500">
+              <span class="inline-flex items-center gap-1">
+                <span class="text-gray-400">IP</span>
+                <span id="server-top-ip-{{ s.id }}" class="font-mono text-gray-700">{{ s.ip_address|default:"pending" }}</span>
+              </span>
+              <span class="text-gray-300">•</span>
+              <span class="inline-flex items-center gap-1">
+                <span class="text-gray-400">Instances</span>
+                <span id="server-top-instances-{{ s.id }}" class="font-medium text-gray-700">{{ s.active_instance_count }}/{{ s.max_instances }}</span>
+              </span>
+            </div>
           </div>
         </div>
         <div class="flex flex-col items-end gap-1">
@@ -43,70 +62,77 @@
           {% if s.status == 'PROVISIONED' %}bg-green-100 text-green-700
           {% elif s.status == 'FAILED' %}bg-red-100 text-red-700
           {% elif s.status in 'CONFIGURING PROVISIONING' %}bg-yellow-100 text-yellow-700
+          {% elif s.status == 'ARCHIVED' %}bg-gray-100 text-gray-500
           {% else %}bg-gray-100 text-gray-700{% endif %}">
           {{ s.get_status_display }}
         </span>
+          <span id="server-conn-badge-{{ s.id }}" class="px-1.5 py-0.5 rounded text-[10px] font-medium
+            {% if s.infrastructure and s.infrastructure.infra_type == 'PYOS' and s.infrastructure.external_server %}
+              {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
+                {% if s.infrastructure.external_server.last_verified_at %}
+                  {% if s.infrastructure.external_server.is_verified %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}
+                {% else %}bg-yellow-50 text-yellow-600{% endif %}
+              {% elif s.infrastructure.external_server.last_verified_at %}
+                {% if s.infrastructure.external_server.is_verified %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}
+              {% else %}bg-gray-50 text-gray-400{% endif %}
+            {% else %}
+              {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
+                {% if s.last_checked_at %}{% if s.is_reachable %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}{% else %}bg-yellow-50 text-yellow-600{% endif %}
+              {% elif s.last_checked_at %}{% if s.is_reachable %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}{% else %}bg-gray-50 text-gray-400{% endif %}
+            {% endif %}">
+            {% if s.infrastructure and s.infrastructure.infra_type == 'PYOS' and s.infrastructure.external_server %}
+              {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
+                {% if s.infrastructure.external_server.last_verified_at %}
+                  {% if s.infrastructure.external_server.is_verified %}SSH: Connected{% else %}SSH: Disconnected{% endif %}
+                {% else %}SSH: Checking…{% endif %}
+              {% elif s.infrastructure.external_server.last_verified_at %}
+                {% if s.infrastructure.external_server.is_verified %}SSH: Connected{% else %}SSH: Disconnected{% endif %}
+              {% else %}SSH: Unknown{% endif %}
+            {% else %}
+              {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
+                {% if s.last_checked_at %}{% if s.is_reachable %}SSH: Connected{% else %}SSH: Disconnected{% endif %}{% else %}SSH: Checking…{% endif %}
+              {% elif s.last_checked_at %}{% if s.is_reachable %}SSH: Connected{% else %}SSH: Disconnected{% endif %}{% else %}SSH: Unknown{% endif %}
+            {% endif %}
+          </span>
+          <span id="server-conn-msg-{{ s.id }}" class="text-[10px] text-gray-400 max-w-[11rem] text-right leading-tight">
+            {% if s.infrastructure and s.infrastructure.infra_type == 'PYOS' and s.infrastructure.external_server %}
+              {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
+                {% if s.infrastructure.external_server.last_verified_at %}
+                  {% if s.infrastructure.external_server.verification_error %}
+                  {{ s.infrastructure.external_server.verification_error }}
+                  {% elif s.infrastructure.external_server.is_verified %}
+                  SSH connection successful.
+                  {% else %}
+                  SSH connection failed.
+                  {% endif %}
+                {% else %}
+                SSH connection is being verified...
+                {% endif %}
+              {% elif s.infrastructure.external_server.verification_error %}
+              {{ s.infrastructure.external_server.verification_error }}
+              {% elif s.infrastructure.external_server.is_verified %}
+              SSH connection successful.
+              {% else %}
+              SSH connection has not been verified yet.
+              {% endif %}
+            {% elif s.last_checked_at %}
+              {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
+                {% if s.is_reachable %}SSH connection successful.{% else %}SSH connection failed.{% endif %}
+              {% else %}
+                {% if s.is_reachable %}SSH connection successful.{% else %}SSH connection failed.{% endif %}
+              {% endif %}
+            {% else %}
+              {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
+              SSH connection is being verified...
+              {% else %}
+              SSH connection has not been checked yet.
+              {% endif %}
+            {% endif %}
+          </span>
         </div>
       </div>
 
-      <div class="mt-3 text-xs text-gray-600 space-y-1.5">
-        <div class="flex items-center justify-between">
-          <span class="text-gray-500">IP Address</span>
-          <span class="font-mono text-[11px] text-gray-800">{{ s.ip_address|default:"—" }}</span>
-        </div>
-        {% if s.deployment_mode == 'DOCKER' %}
-        <div class="flex items-center justify-between">
-          <span class="text-gray-500">Routing</span>
-          <span class="text-[11px] text-gray-800">Domain → HTTPS (Traefik)</span>
-        </div>
-        {% else %}
-        <div class="flex items-center justify-between">
-          <span class="text-gray-500">Port Range</span>
-          <span class="font-mono text-[11px] text-gray-800">{{ s.min_port }}–{{ s.max_port }}</span>
-        </div>
-        {% endif %}
-        <div class="flex items-center justify-between">
-          <span class="text-gray-500">Instances</span>
-          <span>{{ s.instances.count }}/{{ s.max_instances }}</span>
-        </div>
-        <div class="flex items-center justify-between">
-          <span class="text-gray-500">SSH Connection</span>
-          <div class="flex items-center gap-2">
-            <span id="server-conn-badge-{{ s.id }}" class="px-1.5 py-0.5 rounded text-[10px] font-medium
-              {% if s.last_checked_at %}{% if s.is_reachable %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}{% else %}bg-gray-50 text-gray-400{% endif %}">
-              {% if s.last_checked_at %}{% if s.is_reachable %}Connected{% else %}Disconnected{% endif %}{% else %}Unknown{% endif %}
-            </span>
-            <button type="button" class="check-connectivity-btn text-[10px] text-gray-400 hover:text-gray-600 underline"
-                    data-server-id="{{ s.id }}">Check</button>
-          </div>
-        </div>
-        {% if s.ip_address %}
-        <div class="flex items-center justify-between">
-          <span class="text-gray-500">Example access</span>
-          {% if s.deployment_mode == 'DOCKER' %}
-          <span class="font-mono text-[11px] text-purple-600">https://domain.example.com</span>
-          {% else %}
-          <span class="font-mono text-[11px] text-blue-600">http://{{ s.ip_address }}:{{ s.min_port }}</span>
-          {% endif %}
-        </div>
-        {% endif %}
-      </div>
-
-      {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
-      <div class="mt-3 pt-3 border-t border-gray-100">
-        <p class="text-[10px] uppercase tracking-wide text-gray-400 mb-1.5">Live Progress</p>
-        <ul id="server-progress-{{ s.id }}" class="space-y-1.5 max-h-36 overflow-y-auto"></ul>
-      </div>
-      {% endif %}
-
-      <div id="server-summary-wrap-{{ s.id }}"
-           class="{% if s.installation_summary_text %}mt-3 pt-3 border-t border-gray-100{% else %}hidden mt-3 pt-3 border-t border-gray-100{% endif %}">
-        <p class="text-[10px] uppercase tracking-wide text-gray-400 mb-1.5">Installation Summary</p>
-        <pre id="server-summary-text-{{ s.id }}"
-             class="text-[11px] font-mono text-gray-700 bg-gray-50 border border-gray-100 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap">{{ s.installation_summary_text }}</pre>
-      </div>
-
-      <div class="mt-4 pt-3 border-t border-gray-100 flex gap-2">
+      <div class="mt-4 flex gap-2">
         <button type="button"
                 class="open-instance-modal flex-1 inline-flex items-center justify-center px-3 py-2 text-xs font-medium rounded-lg transition-colors
                   {% if s.status == 'PROVISIONED' and not s.last_checked_at or s.status == 'PROVISIONED' and s.is_reachable %}text-white bg-gray-900 hover:bg-gray-700{% else %}text-gray-400 bg-gray-100 cursor-not-allowed{% endif %}"
@@ -126,11 +152,79 @@
           SSH Keys
         </button>
         <button type="button"
-                class="delete-server-btn px-3 py-2 text-xs font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
+                class="archive-server-btn px-3 py-2 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
                 data-server-id="{{ s.id }}"
                 data-server-name="{{ s.name }}">
-          Delete
+          Archive
         </button>
+        <button type="button"
+                class="toggle-server-details px-3 py-2 text-xs font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                data-server-id="{{ s.id }}"
+                aria-expanded="false">
+          More
+        </button>
+      </div>
+
+      <div id="server-details-{{ s.id }}" class="hidden mt-3 pt-3 border-t border-gray-100 space-y-3">
+        <div class="grid grid-cols-2 gap-2 text-xs text-gray-600">
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-gray-500">IP</span>
+            <span id="server-ip-{{ s.id }}" class="font-mono text-[11px] text-gray-800">{{ s.ip_address|default:"—" }}</span>
+          </div>
+          {% if s.deployment_mode == 'DOCKER' %}
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-gray-500">Routing</span>
+            <span id="server-routing-{{ s.id }}" class="text-[11px] text-gray-800">Domain → HTTPS (Traefik)</span>
+          </div>
+          {% else %}
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-gray-500">Port Range</span>
+            <span id="server-port-range-{{ s.id }}" class="font-mono text-[11px] text-gray-800">{{ s.min_port }}–{{ s.max_port }}</span>
+          </div>
+          {% endif %}
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-gray-500">Instances</span>
+            <span id="server-instances-{{ s.id }}">{{ s.instances.count }}/{{ s.max_instances }}</span>
+          </div>
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-gray-500">SSH Check</span>
+            <button type="button" class="check-connectivity-btn text-[10px] text-gray-400 hover:text-gray-600 underline"
+                    data-server-id="{{ s.id }}">Check now</button>
+          </div>
+          <div class="flex items-center justify-between gap-3 col-span-2">
+            <span class="text-gray-500">Example access</span>
+            {% if s.ip_address %}
+              {% if s.deployment_mode == 'DOCKER' %}
+              <span id="server-example-access-{{ s.id }}" class="font-mono text-[11px] text-purple-600">https://domain.example.com</span>
+              {% else %}
+              <span id="server-example-access-{{ s.id }}" class="font-mono text-[11px] text-blue-600">http://{{ s.ip_address }}:{{ s.min_port }}</span>
+              {% endif %}
+            {% else %}
+              <span id="server-example-access-{{ s.id }}" class="text-[11px] text-gray-400">pending</span>
+            {% endif %}
+          </div>
+        </div>
+
+        <div id="server-progress-wrap-{{ s.id }}"
+             class="{% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' or s.provisioning_log %}{% else %}hidden{% endif %}">
+          <p class="text-[10px] uppercase tracking-wide text-gray-400 mb-1.5">Live Progress</p>
+          <ul id="server-progress-{{ s.id }}" class="space-y-1.5 max-h-36 overflow-y-auto"></ul>
+        </div>
+
+        <div id="server-summary-wrap-{{ s.id }}"
+             class="{% if s.installation_summary_text %}{% else %}hidden{% endif %}">
+          <p class="text-[10px] uppercase tracking-wide text-gray-400 mb-1.5">Installation Summary</p>
+          <pre id="server-summary-text-{{ s.id }}"
+               class="text-[11px] font-mono text-gray-700 bg-gray-50 border border-gray-100 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap">{{ s.installation_summary_text }}</pre>
+        </div>
+        <div class="pt-2">
+          <button type="button"
+                  class="delete-server-btn text-[11px] font-medium text-red-600 underline"
+                  data-server-id="{{ s.id }}"
+                  data-server-name="{{ s.name }}">
+            Delete permanently
+          </button>
+        </div>
       </div>
     </article>
     {% empty %}
@@ -363,27 +457,45 @@
 
         <!-- PYOS panel -->
         <div id="pyos-panel" class="hidden space-y-3">
-          <p class="text-xs text-gray-500">Enter your VPS SSH details. DafeApp will connect and install Odoo automatically.</p>
+          <p class="text-xs text-gray-500">Provide the existing server connection details below. No region or size is needed for PYOS.</p>
 
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="block text-xs font-medium text-gray-600 mb-1">Label</label>
-              <input id="vps-name" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" placeholder="e.g. my-vps-1" />
+              <label class="block text-xs font-medium text-gray-600 mb-1">Server Name</label>
+              <input id="pyos-server-name" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" placeholder="e.g. odoo-ssh-1" />
             </div>
             <div>
-              <label class="block text-xs font-medium text-gray-600 mb-1">Host (IP Address)</label>
-              <input id="vps-host" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg font-mono" placeholder="e.g. 192.168.1.10" />
+              <label class="block text-xs font-medium text-gray-600 mb-1">Odoo Version</label>
+              <select id="pyos-version" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white">
+                <option value="19">19 (Latest)</option>
+                <option value="18">18</option>
+                <option value="17">17</option>
+              </select>
             </div>
           </div>
 
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="block text-xs font-medium text-gray-600 mb-1">SSH Port</label>
-              <input id="vps-port" type="number" value="22" min="1" max="65535" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+              <label class="block text-xs font-medium text-gray-600 mb-1">IP / Host</label>
+              <input id="pyos-host" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg font-mono" placeholder="e.g. 192.168.1.10" />
             </div>
             <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1">SSH Port</label>
+              <input id="pyos-port" type="number" value="22" min="1" max="65535" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
               <label class="block text-xs font-medium text-gray-600 mb-1">Username</label>
-              <input id="vps-username" value="root" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+              <input id="pyos-username" value="root" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1">Deployment Mode</label>
+              <select id="pyos-deployment-mode" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white">
+                <option value="BARE_METAL">Bare-metal</option>
+                <option value="DOCKER">Docker</option>
+              </select>
             </div>
           </div>
 
@@ -391,31 +503,40 @@
             <label class="block text-xs font-medium text-gray-600 mb-2">Auth Method</label>
             <div class="flex gap-4">
               <label class="flex items-center gap-1.5 text-sm cursor-pointer">
-                <input type="radio" name="vps-auth" id="vps-auth-key" value="DAFEAPP_KEY" checked class="accent-gray-900" />
+                <input type="radio" name="pyos-auth" id="pyos-auth-key" value="DAFEAPP_KEY" checked class="accent-gray-900" />
                 DafeApp SSH Key
               </label>
               <label class="flex items-center gap-1.5 text-sm cursor-pointer">
-                <input type="radio" name="vps-auth" id="vps-auth-password" value="PASSWORD" class="accent-gray-900" />
+                <input type="radio" name="pyos-auth" id="pyos-auth-password" value="PASSWORD" class="accent-gray-900" />
                 Password
               </label>
             </div>
           </div>
 
           <!-- DafeApp public key instructions -->
-          <div id="vps-key-info" class="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2.5 space-y-1.5">
+          <div id="pyos-key-info" class="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2.5 space-y-1.5">
             <p class="text-xs font-medium text-amber-700">Add this public key to <code class="bg-amber-100 px-1 rounded">~/.ssh/authorized_keys</code> on your VPS:</p>
             <code class="block text-[11px] font-mono text-amber-800 break-all select-all">{{ dafeapp_public_key }}</code>
           </div>
 
+          <div id="pyos-key-path-field" class="hidden">
+            <label class="block text-xs font-medium text-gray-600 mb-1">SSH Key Path (optional)</label>
+            <input id="pyos-key-path"
+                   class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg font-mono"
+                   placeholder="/home/rock/.ssh/id_ed25519"
+                   value="{{ pyos_default_ssh_key_path|default:'' }}" />
+            <p class="text-[11px] text-gray-500 mt-1">Use a private key path on the server running DafeApp. Leave blank to use the built-in DafeApp keypair.</p>
+          </div>
+
           <!-- Password field -->
-          <div id="vps-password-field" class="hidden">
+          <div id="pyos-password-field" class="hidden">
             <label class="block text-xs font-medium text-gray-600 mb-1">Password</label>
-            <input id="vps-password" type="password" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" placeholder="SSH password" />
+            <input id="pyos-password" type="password" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" placeholder="SSH password" />
           </div>
 
           <div class="flex justify-end">
-            <button id="next-pyos-details" type="button" class="px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700">
-              Next: Configure Server
+            <button id="submit-create-pyos-server" type="button" class="px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700">
+              Provision Server
             </button>
           </div>
         </div>
@@ -618,13 +739,296 @@
     wrap.classList.remove("hidden");
   }
 
+  function serverBadgeClass(status) {
+    const value = (status || "").trim().toUpperCase();
+    if (value === "PROVISIONED") return "px-2 py-1 rounded-md text-[11px] font-medium bg-green-100 text-green-700";
+    if (value === "FAILED") return "px-2 py-1 rounded-md text-[11px] font-medium bg-red-100 text-red-700";
+    if (value === "CONFIGURING" || value === "PROVISIONING") return "px-2 py-1 rounded-md text-[11px] font-medium bg-yellow-100 text-yellow-700";
+    if (value === "ARCHIVED") return "px-2 py-1 rounded-md text-[11px] font-medium bg-gray-100 text-gray-500";
+    return "px-2 py-1 rounded-md text-[11px] font-medium bg-gray-100 text-gray-700";
+  }
+
+  function serverBadgeLabel(status) {
+    const value = (status || "").trim().toUpperCase();
+    if (!value) return "Unknown";
+    return value.charAt(0) + value.slice(1).toLowerCase();
+  }
+
+  function connBadgeClass(server) {
+    const status = (server.ssh_connection_status || "").toLowerCase();
+    if (status === "checking") return "px-1.5 py-0.5 rounded text-[10px] font-medium bg-yellow-50 text-yellow-600";
+    if (!status || status === "unknown") return "px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-50 text-gray-400";
+    return status === "connected"
+      ? "px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-50 text-green-600"
+      : "px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-50 text-red-600";
+  }
+
+  function connBadgeLabel(server) {
+    const status = (server.ssh_connection_status || "").toLowerCase();
+    if (status === "checking") return "SSH: Checking…";
+    if (!status || status === "unknown") return "SSH: Unknown";
+    return status === "connected" ? "SSH: Connected" : "SSH: Disconnected";
+  }
+
+  function connMessageLabel(server) {
+    return server.ssh_connection_message || "";
+  }
+
+  function extractProgressLines(text, limit = 4) {
+    if (!text) return [];
+    return String(text)
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .slice(-limit);
+  }
+
+  let liveServerRefreshTimer = null;
+
+  function syncLiveServerPolling(servers) {
+    const hasLiveServers = (servers || []).some((server) => {
+      const status = (server.status || "").toUpperCase();
+      return status === "PROVISIONING" || status === "CONFIGURING";
+    });
+    if (hasLiveServers && !liveServerRefreshTimer) {
+      liveServerRefreshTimer = setInterval(refreshServerCards, 5000);
+    } else if (!hasLiveServers && liveServerRefreshTimer) {
+      clearInterval(liveServerRefreshTimer);
+      liveServerRefreshTimer = null;
+    }
+  }
+
+  function updateServerProgressFromApi(server) {
+    const sid = server.id;
+    const wrap = document.getElementById(`server-progress-wrap-${sid}`);
+    const ul = document.getElementById(`server-progress-${sid}`);
+    if (!wrap || !ul) return;
+
+    const status = (server.status || "").toUpperCase();
+    const isLive = status === "PROVISIONING" || status === "CONFIGURING";
+    const lines = extractProgressLines(server.provisioning_log, 4);
+
+    if (!lines.length && !isLive) {
+      wrap.classList.add("hidden");
+      return;
+    }
+
+    if (!isLive || !ul.children.length) {
+      ul.innerHTML = "";
+      lines.forEach((line) => addStepTo(ul, line, false));
+      wrap.classList.remove("hidden");
+    }
+  }
+
+  function removeMissingServerCards(seenIds) {
+    document.querySelectorAll("#server-kanban article[id^='server-card-']").forEach((card) => {
+      const sid = card.id.replace("server-card-", "");
+      if (!seenIds.has(sid)) card.remove();
+    });
+    const remaining = document.querySelectorAll("#server-kanban article[id^='server-card-']").length;
+    const empty = $("server-kanban-empty");
+    if (remaining === 0 && !empty) {
+      const placeholder = document.createElement("div");
+      placeholder.id = "server-kanban-empty";
+      placeholder.className = "md:col-span-2 xl:col-span-3 bg-gray-50 border border-gray-200 rounded-xl p-8 text-center";
+      placeholder.innerHTML = '<p class="text-sm text-gray-500">No servers yet. Click <strong>Create Server</strong> to provision a DigitalOcean droplet with Odoo 19.</p>';
+      $("server-kanban").appendChild(placeholder);
+    }
+  }
+
+  function removeServerCard(serverId) {
+    const card = document.getElementById(`server-card-${serverId}`);
+    if (card) card.remove();
+    const remaining = document.querySelectorAll("#server-kanban article[id^='server-card-']").length;
+    const empty = $("server-kanban-empty");
+    if (remaining === 0 && !empty) {
+      const placeholder = document.createElement("div");
+      placeholder.id = "server-kanban-empty";
+      placeholder.className = "md:col-span-2 xl:col-span-3 bg-gray-50 border border-gray-200 rounded-xl p-8 text-center";
+      placeholder.innerHTML = '<p class="text-sm text-gray-500">No servers yet. Click <strong>Create Server</strong> to provision a DigitalOcean droplet with Odoo 19.</p>';
+      $("server-kanban").appendChild(placeholder);
+    }
+  }
+
+  function updateServerCardFromApi(server) {
+    const sid = server.id;
+    if (server.is_active === false || (server.status || "").toUpperCase() === "ARCHIVED") {
+      removeServerCard(sid);
+      return;
+    }
+    const statusBadge = document.getElementById(`server-badge-${sid}`);
+    const connBadge = document.getElementById(`server-conn-badge-${sid}`);
+    const connMsg = document.getElementById(`server-conn-msg-${sid}`);
+    const topIp = document.getElementById(`server-top-ip-${sid}`);
+    const topInstances = document.getElementById(`server-top-instances-${sid}`);
+    const detailsWrap = document.getElementById(`server-details-${sid}`);
+    const toggleBtn = document.querySelector(`.toggle-server-details[data-server-id="${sid}"]`);
+    const ipEl = document.getElementById(`server-ip-${sid}`);
+    const routingEl = document.getElementById(`server-routing-${sid}`);
+    const portRangeEl = document.getElementById(`server-port-range-${sid}`);
+    const instancesEl = document.getElementById(`server-instances-${sid}`);
+    const exampleAccessEl = document.getElementById(`server-example-access-${sid}`);
+    const summaryWrap = document.getElementById(`server-summary-wrap-${sid}`);
+    const summaryText = document.getElementById(`server-summary-text-${sid}`);
+    const instanceBtn = document.querySelector(`.open-instance-modal[data-server-id="${sid}"]`);
+    if (statusBadge) {
+      statusBadge.textContent = serverBadgeLabel(server.status);
+      statusBadge.className = serverBadgeClass(server.status);
+    }
+    const sshPending = pendingServerChecks.has(String(sid));
+    if (connBadge) {
+      if (sshPending) {
+        connBadge.textContent = "SSH: Checking…";
+        connBadge.className = "px-1.5 py-0.5 rounded text-[10px] font-medium bg-yellow-50 text-yellow-600";
+        connBadge.title = "Checking connection…";
+      } else {
+        connBadge.textContent = connBadgeLabel(server);
+        connBadge.className = connBadgeClass(server);
+        connBadge.title = connMessageLabel(server);
+      }
+    }
+    if (connMsg) {
+      if (sshPending) {
+        connMsg.textContent = "SSH connection is being verified...";
+        connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-yellow-600";
+      } else {
+        const msg = connMessageLabel(server);
+        const sshStatus = (server.ssh_connection_status || "").toLowerCase();
+        connMsg.textContent = msg;
+        connMsg.className = msg
+          ? `text-[10px] max-w-[11rem] text-right leading-tight ${sshStatus === "connected" ? "text-green-500" : sshStatus === "checking" ? "text-yellow-600" : "text-red-500"}`
+          : "text-[10px] max-w-[11rem] text-right leading-tight text-gray-400";
+      }
+    }
+    if (ipEl) {
+      ipEl.textContent = server.ip_address || "—";
+    }
+    if (topIp) {
+      topIp.textContent = server.ip_address || "pending";
+    }
+    if (routingEl) {
+      routingEl.textContent = "Domain → HTTPS (Traefik)";
+    }
+    if (portRangeEl) {
+      portRangeEl.textContent = `${server.min_port || 8069}–${server.max_port || 8100}`;
+    }
+    if (instancesEl) {
+      const used = typeof server.instance_count === "number" ? server.instance_count : null;
+      const maxInstances = server.max_instances || 0;
+      instancesEl.textContent = used === null ? `${maxInstances ? "—" : "0"}/${maxInstances || "—"}` : `${used}/${maxInstances}`;
+    }
+    if (topInstances) {
+      const used = typeof server.instance_count === "number" ? server.instance_count : 0;
+      topInstances.textContent = `${used}/${server.max_instances || "—"}`;
+    }
+    if (exampleAccessEl) {
+      const mode = (server.deployment_mode || "").toUpperCase();
+      if (mode === "DOCKER") {
+        exampleAccessEl.textContent = server.dns_domain ? `https://${server.dns_domain}` : "https://domain.example.com";
+        exampleAccessEl.className = "font-mono text-[11px] text-purple-600";
+      } else if (server.ip_address) {
+        const port = server.min_port || 8069;
+        exampleAccessEl.textContent = `http://${server.ip_address}:${port}`;
+        exampleAccessEl.className = "font-mono text-[11px] text-blue-600";
+      } else {
+        exampleAccessEl.textContent = "pending";
+        exampleAccessEl.className = "text-[11px] text-gray-400";
+      }
+    }
+    if (summaryWrap && summaryText && server.installation_summary_text) {
+      summaryText.textContent = server.installation_summary_text;
+      summaryWrap.classList.remove("hidden");
+    }
+    if (toggleBtn) {
+      toggleBtn.textContent = detailsWrap && detailsWrap.classList.contains("hidden") ? "More" : "Hide";
+    }
+    updateServerProgressFromApi(server);
+    if (instanceBtn) {
+      const reachable = !!server.is_reachable;
+      const provisioned = (server.status || "").toUpperCase() === "PROVISIONED";
+      if (server.ip_address !== undefined) instanceBtn.dataset.serverIp = server.ip_address || "";
+      if (server.min_port !== undefined) instanceBtn.dataset.serverMinPort = String(server.min_port || 8069);
+      if (server.deployment_mode) instanceBtn.dataset.serverMode = server.deployment_mode;
+      instanceBtn.disabled = !(provisioned && (!server.last_checked_at || reachable));
+      instanceBtn.className = instanceBtn.disabled
+        ? "open-instance-modal flex-1 inline-flex items-center justify-center px-3 py-2 text-xs font-medium rounded-lg transition-colors text-gray-400 bg-gray-100 cursor-not-allowed"
+        : "open-instance-modal flex-1 inline-flex items-center justify-center px-3 py-2 text-xs font-medium rounded-lg transition-colors text-white bg-gray-900 hover:bg-gray-700";
+    }
+  }
+
+  async function refreshServerCards() {
+    try {
+      const resp = await fetch("/api/deployments/odoo/servers/");
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const servers = data.results || [];
+      const seenIds = new Set();
+      servers.forEach(updateServerCardFromApi);
+      servers.forEach((server) => seenIds.add(String(server.id)));
+      removeMissingServerCards(seenIds);
+      syncLiveServerPolling(servers);
+    } catch (err) {
+      // Silent: the page still works with websocket updates and manual refresh.
+    }
+  }
+
+  const pendingServerChecks = new Set();
+  const pendingServerCheckTimeouts = new Map();
+
   function connectServerProgress(serverId, ul) {
     const ws = new WebSocket(`${wsBase}/ws/deployments/servers/${serverId}/`);
     ws.onmessage = (e) => {
       const data = JSON.parse(e.data);
+      if (data.type === "snapshot" && data.server) {
+        pendingServerChecks.delete(String(serverId));
+        const timeoutId = pendingServerCheckTimeouts.get(String(serverId));
+        if (timeoutId) clearTimeout(timeoutId);
+        pendingServerCheckTimeouts.delete(String(serverId));
+        updateServerCardFromApi(data.server);
+        return;
+      }
+      if (data.type === "removed") {
+        pendingServerChecks.delete(String(serverId));
+        const timeoutId = pendingServerCheckTimeouts.get(String(serverId));
+        if (timeoutId) clearTimeout(timeoutId);
+        pendingServerCheckTimeouts.delete(String(serverId));
+        removeServerCard(serverId);
+        ws.close();
+        return;
+      }
       const isFailed = data.type === "done" && data.status === "FAILED";
       addStepTo(ul, data.step, isFailed);
+      const connBadge = document.getElementById(`server-conn-badge-${serverId}`);
+      const connMsg = document.getElementById(`server-conn-msg-${serverId}`);
+      if (connBadge && data.step) {
+        const step = String(data.step);
+        if (step.toLowerCase().includes("validating ssh connection") || step.toLowerCase().includes("using pyos infrastructure connection")) {
+          connBadge.textContent = "SSH: Checking…";
+          connBadge.className = "px-1.5 py-0.5 rounded text-[10px] font-medium bg-yellow-50 text-yellow-600";
+          connBadge.title = step;
+          if (connMsg) { connMsg.textContent = "SSH connection is being verified..."; connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-yellow-600"; }
+          setTimeout(refreshServerCards, 800);
+        } else
+        if (step.toLowerCase().includes("ssh connection confirmed") || step.toLowerCase().includes("ssh connection successful")) {
+          connBadge.textContent = "SSH: Connected";
+          connBadge.className = "px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-50 text-green-600";
+          connBadge.title = step;
+          if (connMsg) { connMsg.textContent = step; connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-green-500"; }
+          setTimeout(refreshServerCards, 800);
+        } else if (step.toLowerCase().includes("failed:") || step.toLowerCase().includes("authentication failed") || step.toLowerCase().includes("host unreachable")) {
+          connBadge.textContent = "SSH: Disconnected";
+          connBadge.className = "px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-50 text-red-600";
+          connBadge.title = step;
+          if (connMsg) { connMsg.textContent = step; connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-red-500"; }
+        }
+      }
       if (data.type === "done") {
+        pendingServerChecks.delete(String(serverId));
+        const timeoutId = pendingServerCheckTimeouts.get(String(serverId));
+        if (timeoutId) clearTimeout(timeoutId);
+        pendingServerCheckTimeouts.delete(String(serverId));
+        const wrap = document.getElementById(`server-progress-wrap-${serverId}`);
+        if (wrap) wrap.classList.remove("hidden");
         const badge = document.getElementById(`server-badge-${serverId}`);
         if (badge) {
           badge.textContent = isFailed ? "Failed" : "Provisioned";
@@ -633,12 +1037,20 @@
         if (!isFailed && data.summary && data.summary.installation_summary_text) {
           updateServerSummary(serverId, data.summary.installation_summary_text);
         }
+        if (data.log) {
+          const tail = extractProgressLines(data.log, 2);
+          tail.forEach((line) => addStepTo(ul, line, false));
+        }
         if (!isFailed) {
           const btn = document.querySelector(`.open-instance-modal[data-server-id="${serverId}"]`);
           if (btn) {
             btn.disabled = false;
             btn.className = "open-instance-modal flex-1 inline-flex items-center justify-center px-3 py-2 text-xs font-medium rounded-lg transition-colors text-white bg-gray-900 hover:bg-gray-700";
           }
+          refreshServerCards();
+        }
+        if (isFailed) {
+          refreshServerCards();
         }
         addStepTo(ul, '<button onclick="location.reload()" class="text-blue-600 underline">Reload page</button>', false);
         ws.close();
@@ -666,18 +1078,190 @@
     ws.onerror = () => addStepTo(ul, "Connection error — is Daphne running?", true);
   }
 
-  // Auto-connect for items already in progress when page loads
-  {% for s in odoo_servers %}{% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
+  function insertServerCard(server, { name, odooVersion, deployMode, isPyos }) {
+    const sid = server.id;
+    const kanban = $("server-kanban");
+    const emptyPlaceholder = $("server-kanban-empty");
+    if (emptyPlaceholder) emptyPlaceholder.remove();
+    const newCard = document.createElement("article");
+    newCard.id = `server-card-${sid}`;
+    newCard.className = "bg-white border border-gray-200 rounded-xl p-4";
+    const modeBadgeHtml = deployMode === "DOCKER"
+      ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-100 text-purple-700">Docker</span>`
+      : `<span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500">Bare-metal</span>`;
+    const subtitle = isPyos
+      ? "PYOS · existing server"
+      : `Odoo ${odooVersion} · ${server.region || "-"} · ${server.size || "-"}`;
+    const connBadgeText = connBadgeLabel(server);
+    const connBadgeCls = connBadgeClass(server);
+    const connMsgText = connMessageLabel(server) || (isPyos ? "SSH connection is being verified..." : "SSH connection has not been checked yet.");
+    const exampleAccessText = server.deployment_mode === "DOCKER"
+      ? (server.dns_domain ? `https://${server.dns_domain}` : "https://domain.example.com")
+      : (server.ip_address ? `http://${server.ip_address}:${server.min_port || 8069}` : "pending");
+    const exampleAccessClass = server.deployment_mode === "DOCKER"
+      ? "font-mono text-[11px] text-purple-600"
+      : (server.ip_address ? "font-mono text-[11px] text-blue-600" : "text-[11px] text-gray-400");
+    newCard.innerHTML = `
+      <div class="flex items-start justify-between gap-3">
+        <div class="flex items-center gap-2">
+          <span class="inline-flex items-center justify-center w-8 h-8 rounded-md bg-gray-100 text-gray-700 text-[11px] font-bold">${isPyos ? "PY" : "VPS"}</span>
+          <div>
+            <p class="text-sm font-semibold text-gray-900">${name}</p>
+            <p class="text-[11px] text-gray-500">${subtitle}</p>
+            <div class="mt-1 flex items-center gap-2 text-[11px] text-gray-500">
+              <span class="inline-flex items-center gap-1">
+                <span class="text-gray-400">IP</span>
+                <span id="server-top-ip-${sid}" class="font-mono text-gray-700">${server.ip_address || "pending"}</span>
+              </span>
+              <span class="text-gray-300">•</span>
+              <span class="inline-flex items-center gap-1">
+                <span class="text-gray-400">Instances</span>
+                <span id="server-top-instances-${sid}" class="font-medium text-gray-700">${typeof server.instance_count === "number" ? server.instance_count : 0}/${server.max_instances || "—"}</span>
+              </span>
+            </div>
+          </div>
+        </div>
+        <div class="flex flex-col items-end gap-1">
+          ${modeBadgeHtml}
+          <span id="server-badge-${sid}" class="px-2 py-1 rounded-md text-[11px] font-medium bg-yellow-100 text-yellow-700">${serverBadgeLabel(server.status || "PROVISIONING")}</span>
+          <span id="server-conn-badge-${sid}" class="${connBadgeCls}">${connBadgeText}</span>
+          <span id="server-conn-msg-${sid}" class="text-[10px] max-w-[11rem] text-right leading-tight ${((server.ssh_connection_status || "").toLowerCase() === "connected") ? "text-green-500" : ((server.ssh_connection_status || "").toLowerCase() === "disconnected" ? "text-red-500" : ((server.ssh_connection_status || "").toLowerCase() === "checking" ? "text-yellow-600" : "text-gray-400"))}">${connMsgText}</span>
+        </div>
+      </div>
+      <div class="mt-4 flex gap-2">
+        <button type="button" disabled
+                class="open-instance-modal flex-1 inline-flex items-center justify-center px-3 py-2 text-xs font-medium rounded-lg transition-colors text-gray-400 bg-gray-100 cursor-not-allowed"
+                data-server-id="${sid}" data-server-name="${name}" data-server-ip="" data-server-min-port="8069" data-server-mode="${deployMode}">
+          + Instance
+        </button>
+        <button type="button"
+                class="toggle-server-details px-3 py-2 text-xs font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                data-server-id="${sid}"
+                aria-expanded="false">
+          More
+        </button>
+      </div>`;
+    newCard.innerHTML += `
+      <div id="server-details-${sid}" class="hidden mt-3 pt-3 border-t border-gray-100 space-y-3">
+        <div class="grid grid-cols-2 gap-2 text-xs text-gray-600">
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-gray-500">IP</span>
+            <span id="server-ip-${sid}" class="font-mono text-[11px] text-gray-800">${server.ip_address || "—"}</span>
+          </div>
+          ${deployMode === "DOCKER"
+            ? `<div class="flex items-center justify-between gap-3"><span class="text-gray-500">Routing</span><span id="server-routing-${sid}" class="text-[11px] text-gray-800">Domain → HTTPS (Traefik)</span></div>`
+            : `<div class="flex items-center justify-between gap-3"><span class="text-gray-500">Port Range</span><span id="server-port-range-${sid}" class="font-mono text-[11px] text-gray-800">${server.min_port || 8069}–${server.max_port || 8100}</span></div>`
+          }
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-gray-500">Instances</span>
+            <span id="server-instances-${sid}">${typeof server.instance_count === "number" ? server.instance_count : 0}/${server.max_instances || "—"}</span>
+          </div>
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-gray-500">SSH Check</span>
+            <button type="button" class="check-connectivity-btn text-[10px] text-gray-400 hover:text-gray-600 underline"
+                    data-server-id="${sid}">Check now</button>
+          </div>
+          <div class="flex items-center justify-between gap-3 col-span-2">
+            <span class="text-gray-500">Example access</span>
+            <span id="server-example-access-${sid}" class="${exampleAccessClass}">${exampleAccessText}</span>
+          </div>
+        </div>
+        <div id="server-progress-wrap-${sid}" class="hidden">
+          <p class="text-[10px] uppercase tracking-wide text-gray-400 mb-1.5">Live Progress</p>
+          <ul id="server-progress-${sid}" class="space-y-1.5 max-h-36 overflow-y-auto"></ul>
+        </div>
+        <div id="server-summary-wrap-${sid}" class="hidden">
+          <p class="text-[10px] uppercase tracking-wide text-gray-400 mb-1.5">Installation Summary</p>
+          <pre id="server-summary-text-${sid}" class="text-[11px] font-mono text-gray-700 bg-gray-50 border border-gray-100 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap"></pre>
+        </div>
+        <div class="pt-2">
+          <button type="button"
+                  class="delete-server-btn text-[11px] font-medium text-red-600 underline"
+                  data-server-id="${sid}"
+                  data-server-name="${name}">
+            Delete permanently
+          </button>
+        </div>
+      </div>`;
+    kanban.prepend(newCard);
+    newCard.querySelector(".toggle-server-details")?.addEventListener("click", (e) => {
+      const btn = e.currentTarget;
+      const details = newCard.querySelector(`#server-details-${sid}`);
+      if (!details) return;
+      const isHidden = details.classList.contains("hidden");
+      if (isHidden) {
+        details.classList.remove("hidden");
+        btn.textContent = "Hide";
+        btn.setAttribute("aria-expanded", "true");
+      } else {
+        details.classList.add("hidden");
+        btn.textContent = "More";
+        btn.setAttribute("aria-expanded", "false");
+      }
+    });
+    newCard.querySelector(".open-ssh-keys-modal")?.addEventListener("click", () => {
+      sshKeysServerId = String(sid);
+      $("ssh-keys-server-name").textContent = name || "";
+      $("ssh-key-label").value = "";
+      $("ssh-key-value").value = "";
+      setMsg($("ssh-keys-msg"), "");
+      $("ssh-keys-list").innerHTML = "";
+      hide($("ssh-keys-empty"));
+      loadSSHKeys(sshKeysServerId);
+      show(sshKeysModal);
+    });
+    newCard.querySelector(".open-instance-modal")?.addEventListener("click", () => {
+      const btn = newCard.querySelector(".open-instance-modal");
+      if (!btn || btn.disabled) return;
+      selectedServerId = btn.dataset.serverId || "";
+      selectedServerIp = btn.dataset.serverIp || "";
+      selectedServerMinPort = parseInt(btn.dataset.serverMinPort || "8069", 10);
+      selectedServerMode = btn.dataset.serverMode || "BARE_METAL";
+      $("instance-server-name").textContent = btn.dataset.serverName || "";
+      $("instance-name").value = "";
+      $("instance-db-name").value = "";
+      $("instance-port").value = "";
+      if ($("instance-domain")) $("instance-domain").value = "";
+      setMsg($("instance-modal-msg"), "");
+      const domainRow = $("instance-domain-row");
+      const portRow   = $("instance-port-row");
+      const modeBadge = $("instance-server-mode-badge");
+      const accessBox   = $("instance-access-box");
+      const accessLabel = $("instance-access-label");
+      if (selectedServerMode === "DOCKER") {
+        if (domainRow)   show(domainRow);
+        if (portRow)     hide(portRow);
+        if (modeBadge)   { modeBadge.textContent = "Docker · HTTPS"; modeBadge.className = "ml-2 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700"; show(modeBadge); }
+        if (accessBox)   accessBox.className = "border rounded-lg px-3 py-2.5 bg-purple-50 border-purple-100";
+        if (accessLabel) { accessLabel.textContent = "Access URL (Traefik HTTPS)"; accessLabel.className = "text-xs text-purple-600 mb-1"; }
+      } else {
+        if (domainRow)   hide(domainRow);
+        if (portRow)     show(portRow);
+        if (modeBadge)   hide(modeBadge);
+        if (accessBox)   accessBox.className = "border rounded-lg px-3 py-2.5 bg-blue-50 border-blue-100";
+        if (accessLabel) { accessLabel.textContent = "Access URL (auto-assigned next port)"; accessLabel.className = "text-xs text-blue-600 mb-1"; }
+      }
+      updateAccessPreview();
+      show(instanceModal);
+    });
+    connectServerProgress(sid, document.getElementById(`server-progress-${sid}`));
+    setTimeout(refreshServerCards, 1200);
+  }
+
+  // Auto-connect for all server cards so live snapshots can refresh status.
+  {% for s in odoo_servers %}
   (function(){ const ul = document.getElementById("server-progress-{{ s.id }}"); if (ul) connectServerProgress({{ s.id }}, ul); })();
-  {% endif %}{% endfor %}
+  {% endfor %}
   {% for oi in odoo_instances %}{% if oi.status == 'CONFIGURING' %}
   (function(){ const ul = document.getElementById("instance-progress-{{ oi.id }}"); if (ul) connectInstanceProgress({{ oi.id }}, ul); })();
   {% endif %}{% endfor %}
 
+  refreshServerCards();
+  setInterval(refreshServerCards, 120000);
+
   // ─── state ───────────────────────────────────────────────────────────────
   let mode = null;          // "cloud" | "pyos"
   let selectedAccountId = "";
-  let pyosInfraId = "";
   let selectedServerId = "";
   let selectedServerIp = "";
   let selectedServerMinPort = 8069;
@@ -701,7 +1285,6 @@
     hide(detailsModal);
     showCloud();
     selectedAccountId = "";
-    pyosInfraId = "";
     $("source-modal-msg").textContent = "";
   });
 
@@ -798,6 +1381,8 @@
   const sizeEl     = $("server-size");
   const versionEl  = $("server-version");
   const versionLabel = $("version-label");
+  const pyosVersionEl = $("pyos-version");
+  const pyosDeploymentModeEl = $("pyos-deployment-mode");
 
   versionEl.addEventListener("change", () => { versionLabel.textContent = versionEl.value; });
 
@@ -815,14 +1400,20 @@
   function showPyos() {
     mode = "pyos";
     show(pyosPanel); hide(cloudPanel);
+    hide(detailsModal);
     activateBtn(pickPyos, pickCloud);
     $("source-modal-msg").textContent = "";
-    setOptions(regionEl, [["pyos", "PYOS (self-hosted)"]]);
-    setOptions(sizeEl,   [["self-hosted", "Self-hosted"]]);
-    $("vps-name").value = ""; $("vps-host").value = "";
-    $("vps-port").value = "22"; $("vps-username").value = "root";
-    $("vps-auth-key").checked = true;
-    show($("vps-key-info")); hide($("vps-password-field"));
+    $("pyos-server-name").value = "";
+    $("pyos-host").value = "";
+    $("pyos-port").value = "22";
+    $("pyos-username").value = "root";
+    $("pyos-auth-key").checked = true;
+    pyosVersionEl.value = "19";
+    pyosDeploymentModeEl.value = "BARE_METAL";
+    $("pyos-key-info").classList.remove("hidden");
+    $("pyos-key-path-field").classList.remove("hidden");
+    $("pyos-key-path").value = "";
+    $("pyos-password-field").classList.add("hidden");
   }
 
   pickCloud.addEventListener("click", showCloud);
@@ -851,11 +1442,11 @@
     if (Array.isArray(data.sizes)   && data.sizes.length)   setOptions(sizeEl,   data.sizes);
   });
 
-  document.querySelectorAll("input[name='vps-auth']").forEach(r => {
+  document.querySelectorAll("input[name='pyos-auth']").forEach(r => {
     r.addEventListener("change", () => {
-      const isKey = $("vps-auth-key").checked;
-      if (isKey) { show($("vps-key-info")); hide($("vps-password-field")); }
-      else { hide($("vps-key-info")); show($("vps-password-field")); }
+      const isKey = $("pyos-auth-key").checked;
+      if (isKey) { $("pyos-key-info").classList.remove("hidden"); $("pyos-key-path-field").classList.remove("hidden"); $("pyos-password-field").classList.add("hidden"); }
+      else { $("pyos-key-info").classList.add("hidden"); $("pyos-key-path-field").classList.add("hidden"); $("pyos-password-field").classList.remove("hidden"); }
     });
   });
 
@@ -873,22 +1464,35 @@
     if (!selectedAccountId) { $("source-modal-msg").textContent = "Select a cloud account first."; return; }
     openDetailsModal();
   });
-  $("next-pyos-details").addEventListener("click", async () => {
+  $("submit-create-pyos-server").addEventListener("click", async () => {
     const msgEl = $("source-modal-msg");
-    const name = ($("vps-name").value || "").trim();
-    const host = ($("vps-host").value || "").trim();
-    const port = ($("vps-port").value || "22").trim();
-    const username = ($("vps-username").value || "root").trim();
-    const authType = $("vps-auth-key").checked ? "DAFEAPP_KEY" : "PASSWORD";
-    const password = $("vps-password") ? $("vps-password").value : "";
-    if (!name) { setMsg(msgEl, "VPS label is required.", true); return; }
-    if (!host) { setMsg(msgEl, "Host IP address is required.", true); return; }
+    const name = ($("pyos-server-name").value || "").trim();
+    const host = ($("pyos-host").value || "").trim();
+    const port = ($("pyos-port").value || "22").trim();
+    const username = ($("pyos-username").value || "root").trim();
+    const authType = $("pyos-auth-key").checked ? "DAFEAPP_KEY" : "PASSWORD";
+    const password = $("pyos-password") ? $("pyos-password").value : "";
+    const sshKeyPath = $("pyos-key-path") ? $("pyos-key-path").value.trim() : "";
+    const odooVersion = pyosVersionEl.value || "19";
+    const deployMode = pyosDeploymentModeEl.value || "BARE_METAL";
+    if (!name) { setMsg(msgEl, "Server name is required.", true); return; }
+    if (!host) { setMsg(msgEl, "IP / host is required.", true); return; }
     if (authType === "PASSWORD" && !password.trim()) { setMsg(msgEl, "Password is required.", true); return; }
     setMsg(msgEl, "Registering VPS…");
-    const resp = await postForm("/api/deployments/pyos/vps/create/", { name, host, port, username, auth_type: authType, password });
-    if (!resp.ok) { setMsg(msgEl, resp.data.error || "VPS registration failed.", true); return; }
-    pyosInfraId = String(resp.data.infrastructure_id);
-    openDetailsModal();
+    const resp = await postForm("/api/deployments/odoo/servers/create/", {
+      name,
+      host,
+      port,
+      username,
+      auth_type: authType,
+      ssh_key_path: sshKeyPath,
+      password,
+      odoo_version: odooVersion,
+      deployment_mode: deployMode,
+    });
+    if (!resp.ok) { setMsg(msgEl, resp.data.error || "Server provisioning failed.", true); return; }
+    hide(sourceModal);
+    insertServerCard(resp.data, { name, odooVersion, deploymentMode: deployMode, isPyos: true });
   });
 
   // ─── deployment mode radio toggle styling ────────────────────────────────
@@ -936,57 +1540,12 @@
       } else {
         payload.cloud_account_id = selectedAccountId;
       }
-    } else {
-      if (!pyosInfraId) { setMsg(msgEl, "VPS registration incomplete.", true); return; }
-      payload.infrastructure_id = pyosInfraId;
     }
 
     const resp = await postForm("/api/deployments/odoo/servers/create/", payload);
     if (!resp.ok) { setMsg(msgEl, resp.data.error || "Server creation failed.", true); return; }
     hide(detailsModal);
-    // Insert a provisional server card with live progress
-    const sid = resp.data.id;
-    const isDockerServer = deployMode === "DOCKER";
-    const kanban = $("server-kanban");
-    const emptyPlaceholder = $("server-kanban-empty");
-    if (emptyPlaceholder) emptyPlaceholder.remove();
-    const newCard = document.createElement("article");
-    newCard.id = `server-card-${sid}`;
-    newCard.className = "bg-white border border-gray-200 rounded-xl p-4";
-    const modeBadgeHtml = isDockerServer
-      ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-100 text-purple-700">Docker</span>`
-      : `<span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500">Bare-metal</span>`;
-    newCard.innerHTML = `
-      <div class="flex items-start justify-between gap-3">
-        <div class="flex items-center gap-2">
-          <span class="inline-flex items-center justify-center w-8 h-8 rounded-md bg-gray-100 text-gray-700 text-[11px] font-bold">VPS</span>
-          <div>
-            <p class="text-sm font-semibold text-gray-900">${name}</p>
-            <p class="text-[11px] text-gray-500">Odoo ${versionEl.value}</p>
-          </div>
-        </div>
-        <div class="flex flex-col items-end gap-1">
-          ${modeBadgeHtml}
-          <span id="server-badge-${sid}" class="px-2 py-1 rounded-md text-[11px] font-medium bg-yellow-100 text-yellow-700">Provisioning</span>
-        </div>
-      </div>
-      <div class="mt-3 pt-3 border-t border-gray-100">
-        <p class="text-[10px] uppercase tracking-wide text-gray-400 mb-1.5">Live Progress</p>
-        <ul id="server-progress-${sid}" class="space-y-1.5 max-h-36 overflow-y-auto"></ul>
-      </div>
-      <div id="server-summary-wrap-${sid}" class="hidden mt-3 pt-3 border-t border-gray-100">
-        <p class="text-[10px] uppercase tracking-wide text-gray-400 mb-1.5">Installation Summary</p>
-        <pre id="server-summary-text-${sid}" class="text-[11px] font-mono text-gray-700 bg-gray-50 border border-gray-100 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap"></pre>
-      </div>
-      <div class="mt-4 pt-3 border-t border-gray-100 flex gap-2">
-        <button type="button" disabled
-                class="open-instance-modal flex-1 inline-flex items-center justify-center px-3 py-2 text-xs font-medium rounded-lg transition-colors text-gray-400 bg-gray-100 cursor-not-allowed"
-                data-server-id="${sid}" data-server-name="${name}" data-server-ip="" data-server-min-port="8069" data-server-mode="${deployMode}">
-          + Instance
-        </button>
-      </div>`;
-    kanban.prepend(newCard);
-    connectServerProgress(sid, document.getElementById(`server-progress-${sid}`));
+    insertServerCard(resp.data, { name, odooVersion: versionEl.value, deployMode, isPyos: false });
   });
 
   // ─── create instance modal ───────────────────────────────────────────────
@@ -1101,27 +1660,62 @@
   });
 
   // ─── connectivity check ───────────────────────────────────────────────────
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest(".toggle-server-details");
+    if (!btn) return;
+    const sid = btn.dataset.serverId;
+    const details = document.getElementById(`server-details-${sid}`);
+    if (!details) return;
+    const isHidden = details.classList.contains("hidden");
+    if (isHidden) {
+      details.classList.remove("hidden");
+      btn.textContent = "Hide";
+      btn.setAttribute("aria-expanded", "true");
+    } else {
+      details.classList.add("hidden");
+      btn.textContent = "More";
+      btn.setAttribute("aria-expanded", "false");
+    }
+  });
+
   document.addEventListener("click", async (e) => {
     const btn = e.target.closest(".check-connectivity-btn");
     if (!btn) return;
     const sid = btn.dataset.serverId;
+    pendingServerChecks.add(String(sid));
     const connBadge = document.getElementById(`server-conn-badge-${sid}`);
     const connBadgeBase = "px-1.5 py-0.5 rounded text-[10px] font-medium";
-    if (connBadge) { connBadge.textContent = "Checking…"; connBadge.className = `${connBadgeBase} bg-gray-50 text-gray-400`; }
+    if (connBadge) { connBadge.textContent = "SSH: Checking…"; connBadge.className = `${connBadgeBase} bg-yellow-50 text-yellow-600`; connBadge.title = "Checking connection…"; }
+    const connMsg = document.getElementById(`server-conn-msg-${sid}`);
+    if (connMsg) {
+      connMsg.textContent = "SSH connection is being verified...";
+      connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-yellow-600";
+    }
     btn.disabled = true;
 
     const resp = await postForm(`/api/deployments/odoo/servers/${sid}/check/`, {});
     btn.disabled = false;
 
     if (!resp.ok) {
-      if (connBadge) { connBadge.textContent = "Error"; connBadge.className = `${connBadgeBase} bg-red-50 text-red-600`; }
+      const errorText = resp.data.message || resp.data.error || "SSH: Error";
+      if (connBadge) { connBadge.textContent = "SSH: Checking…"; connBadge.className = `${connBadgeBase} bg-yellow-50 text-yellow-600`; connBadge.title = errorText; }
+      if (connMsg) { connMsg.textContent = "SSH connection is being verified..."; connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-yellow-600"; connMsg.title = errorText; }
+      const existingTimeout = pendingServerCheckTimeouts.get(String(sid));
+      if (existingTimeout) clearTimeout(existingTimeout);
+      pendingServerCheckTimeouts.set(String(sid), setTimeout(() => {
+        pendingServerChecks.delete(String(sid));
+        pendingServerCheckTimeouts.delete(String(sid));
+        refreshServerCards();
+      }, 1800));
       return;
     }
-    const reachable = resp.data.is_reachable;
-    if (connBadge) {
-      connBadge.textContent = reachable ? "Connected" : "Disconnected";
-      connBadge.className = `${connBadgeBase} ${reachable ? "bg-green-50 text-green-600" : "bg-red-50 text-red-600"}`;
-    }
+    const existingTimeout = pendingServerCheckTimeouts.get(String(sid));
+    if (existingTimeout) clearTimeout(existingTimeout);
+    pendingServerCheckTimeouts.set(String(sid), setTimeout(() => {
+      pendingServerChecks.delete(String(sid));
+      pendingServerCheckTimeouts.delete(String(sid));
+      refreshServerCards();
+    }, 1800));
 
     // Update + Instance button if server is PROVISIONED
     const serverBadge = document.getElementById(`server-badge-${sid}`);
@@ -1166,14 +1760,31 @@
     });
   });
 
-  document.querySelectorAll(".delete-server-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
+  document.addEventListener("click", async (e) => {
+    const archiveBtn = e.target.closest(".archive-server-btn");
+    if (archiveBtn) {
+      const sid = archiveBtn.dataset.serverId;
+      archiveBtn.disabled = true;
+      archiveBtn.textContent = "Archiving…";
+      const resp = await postForm(`/api/deployments/odoo/servers/${sid}/archive/`, {});
+      if (resp.ok) {
+        removeServerCard(sid);
+      } else {
+        archiveBtn.disabled = false;
+        archiveBtn.textContent = "Archive";
+        alert(resp.data.error || "Archive failed.");
+      }
+      return;
+    }
+
+    const deleteBtn = e.target.closest(".delete-server-btn");
+    if (deleteBtn) {
       showConfirm(
-        "Delete Server",
-        `Delete server "${btn.dataset.serverName}" and ALL its instances? The cloud droplet will be destroyed.`,
-        `/api/deployments/odoo/servers/${btn.dataset.serverId}/delete/`
+        "Delete Server Permanently",
+        `Permanently delete server "${deleteBtn.dataset.serverName}" from the database? This cannot be undone.`,
+        `/api/deployments/odoo/servers/${deleteBtn.dataset.serverId}/delete/`
       );
-    });
+    }
   });
 
   // init

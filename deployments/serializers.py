@@ -49,6 +49,60 @@ class TerraformRunSerializer(serializers.ModelSerializer):
 
 
 class OdooServerSerializer(serializers.ModelSerializer):
+    ssh_connection_status = serializers.SerializerMethodField()
+    ssh_connection_message = serializers.SerializerMethodField()
+    ssh_last_checked_at = serializers.SerializerMethodField()
+    instance_count = serializers.SerializerMethodField()
+
+    def _pyos_ext(self, obj):
+        infra = getattr(obj, "infrastructure", None)
+        if infra and infra.infra_type == Infrastructure.InfraType.PYOS:
+            return getattr(infra, "external_server", None)
+        return None
+
+    def get_ssh_connection_status(self, obj):
+        if obj.status == OdooServer.Status.ARCHIVED:
+            return "unknown"
+        ext = self._pyos_ext(obj)
+        if ext:
+            if obj.status in (OdooServer.Status.PROVISIONING, OdooServer.Status.CONFIGURING) and ext.last_verified_at is None:
+                return "checking"
+            if ext.last_verified_at is None and not ext.is_verified:
+                return "unknown"
+            return "connected" if ext.is_verified else "disconnected"
+        if obj.status in (OdooServer.Status.PROVISIONING, OdooServer.Status.CONFIGURING) and obj.last_checked_at is None:
+            return "checking"
+        if obj.last_checked_at is None:
+            return "unknown"
+        return "connected" if obj.is_reachable else "disconnected"
+
+    def get_ssh_connection_message(self, obj):
+        if obj.status == OdooServer.Status.ARCHIVED:
+            return "Server is archived."
+        ext = self._pyos_ext(obj)
+        if ext:
+            if obj.status in (OdooServer.Status.PROVISIONING, OdooServer.Status.CONFIGURING) and ext.last_verified_at is None:
+                return "SSH connection is being verified..."
+            if ext.is_verified:
+                return "SSH connection successful."
+            if ext.verification_error:
+                return ext.verification_error
+            return "SSH connection has not been verified yet."
+        if obj.status in (OdooServer.Status.PROVISIONING, OdooServer.Status.CONFIGURING) and obj.last_checked_at is None:
+            return "SSH connection is being verified..."
+        if obj.last_checked_at is None:
+            return "SSH connection has not been checked yet."
+        return "SSH connection successful." if obj.is_reachable else "SSH connection failed."
+
+    def get_ssh_last_checked_at(self, obj):
+        ext = self._pyos_ext(obj)
+        if ext and ext.last_verified_at:
+            return ext.last_verified_at
+        return obj.last_checked_at
+
+    def get_instance_count(self, obj):
+        return obj.instances.exclude(status=OdooInstance.Status.DELETED).count()
+
     class Meta:
         model = OdooServer
         fields = [
@@ -63,7 +117,9 @@ class OdooServerSerializer(serializers.ModelSerializer):
             "dns_domain",
             "firewall_configured",
             "status",
+            "is_active",
             "max_instances",
+            "instance_count",
             "capacity_cpu_cores",
             "capacity_ram_mb",
             "min_port",
@@ -75,6 +131,9 @@ class OdooServerSerializer(serializers.ModelSerializer):
             "deployment_mode",
             "is_reachable",
             "last_checked_at",
+            "ssh_connection_status",
+            "ssh_connection_message",
+            "ssh_last_checked_at",
             "created_at",
             "updated_at",
         ]

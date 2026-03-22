@@ -1,7 +1,8 @@
 from django import forms
 
 from cloud.digitalocean import DO_REGIONS, DO_SIZES
-from cloud.models import CloudAccount, CloudServer, ExternalServer
+from cloud.pyos import looks_like_public_key_text
+from cloud.models import CloudAccount, CloudServer, ExternalServer, PyOSSSHSettings
 from cloud.providers import get_provider
 
 _INPUT = "w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400"
@@ -20,6 +21,12 @@ class ExternalServerForm(forms.ModelForm):
         widget=forms.PasswordInput(render_value=False, attrs={"class": _INPUT}),
         required=False,
     )
+    ssh_key_path = forms.CharField(
+        label="SSH Key Path",
+        widget=forms.TextInput(attrs={"class": _INPUT, "placeholder": "~/.ssh/id_ed25519"}),
+        required=False,
+        help_text="Optional. Use a private key path on the server running DafeApp.",
+    )
 
     class Meta:
         model = ExternalServer
@@ -37,14 +44,56 @@ class ExternalServerForm(forms.ModelForm):
         auth_type = cleaned.get("auth_type")
         if auth_type == ExternalServer.AuthType.PASSWORD and not cleaned.get("password"):
             self.add_error("password", "Password is required for password-based auth.")
+        ssh_key_path = (cleaned.get("ssh_key_path") or "").strip()
+        if ssh_key_path:
+            if looks_like_public_key_text(ssh_key_path):
+                self.add_error(
+                    "ssh_key_path",
+                    "SSH key path must be a file path on the machine running DafeApp, not pasted public key text.",
+                )
+            else:
+                cleaned["ssh_key_path"] = ssh_key_path
         # DAFEAPP_KEY: no credential needed — DafeApp's own keypair is used
         return cleaned
 
     def save(self, commit=True):
         instance = super().save(commit=False)
         pw = self.cleaned_data.get("password")
+        instance.ssh_key_path = (self.cleaned_data.get("ssh_key_path") or "").strip()
         if pw:
             instance._raw_password = pw
+        if commit:
+            instance.save()
+        return instance
+
+
+class PyOSSSHSettingsForm(forms.ModelForm):
+    default_ssh_key_path = forms.CharField(
+        label="Default SSH Key Path",
+        widget=forms.TextInput(attrs={"class": _INPUT, "placeholder": "/home/rock/.ssh/id_ed25519"}),
+        required=False,
+        help_text="Optional. Used for PYOS servers when no per-server path is provided.",
+    )
+
+    class Meta:
+        model = PyOSSSHSettings
+        fields = ["default_ssh_key_path"]
+
+    def clean(self):
+        cleaned = super().clean()
+        key_path = (cleaned.get("default_ssh_key_path") or "").strip()
+        if key_path and looks_like_public_key_text(key_path):
+            self.add_error(
+                "default_ssh_key_path",
+                "SSH key path must be a file path on the machine running DafeApp, not pasted public key text.",
+            )
+        else:
+            cleaned["default_ssh_key_path"] = key_path
+        return cleaned
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        instance.default_ssh_key_path = (self.cleaned_data.get("default_ssh_key_path") or "").strip()
         if commit:
             instance.save()
         return instance

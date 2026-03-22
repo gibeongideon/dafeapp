@@ -4,6 +4,8 @@ PyOS service — validates and prepares a user-supplied VPS via SSH (paramiko).
 
 import logging
 import socket
+import io
+from pathlib import Path
 
 import paramiko
 
@@ -16,6 +18,74 @@ PREPARE_COMMANDS = [
     "ufw allow 22 && ufw allow 80 && ufw allow 443 && ufw allow 8069 && ufw --force enable",
     "mkdir -p /opt/dafeapp/deployments",
 ]
+
+
+def looks_like_public_key_text(value: str) -> bool:
+    value = (value or "").strip()
+    return value.startswith("ssh-") or value.startswith("ecdsa-") or value.startswith("sk-ssh-") or value.startswith("-----BEGIN")
+
+
+def resolve_private_key_string(server) -> tuple[str | None, str]:
+    """Return (private_key_str, source_label) for an ExternalServer-like object."""
+    key_path = (getattr(server, "ssh_key_path", "") or "").strip()
+    if key_path:
+        if looks_like_public_key_text(key_path):
+            raise paramiko.SSHException("SSH key path looks like a public key string, not a file path.")
+        path = Path(key_path).expanduser()
+        if not path.exists():
+            raise paramiko.SSHException(f"SSH key path not found: {path}")
+        return path.read_text(), str(path)
+
+    try:
+        from cloud.models import PyOSSSHSettings
+
+        settings_obj = PyOSSSHSettings.get_or_create_settings()
+        default_path = (settings_obj.default_ssh_key_path or "").strip()
+        if default_path:
+            if looks_like_public_key_text(default_path):
+                raise paramiko.SSHException(
+                    "Default SSH key path looks like a public key string, not a file path."
+                )
+            path = Path(default_path).expanduser()
+            if not path.exists():
+                raise paramiko.SSHException(f"Default SSH key path not found: {path}")
+            return path.read_text(), str(path)
+    except ImportError:
+        pass
+
+    from cloud.models import SystemSSHKey
+
+    system_key = SystemSSHKey.get_or_create_keypair()
+    private_key_str = system_key.get_private_key()
+    return private_key_str, "DafeApp system SSH key"
+
+
+def load_private_key_from_string(private_key_str: str, source: str):
+    """
+    Parse a private key string using the common Paramiko key types.
+
+    This keeps us from assuming every valid SSH key is Ed25519 and gives a
+    clearer error when the file is actually public-key text or is encrypted.
+    """
+    key_types = (
+        paramiko.Ed25519Key,
+        paramiko.RSAKey,
+        paramiko.ECDSAKey,
+    )
+    last_error: Exception | None = None
+    for key_cls in key_types:
+        try:
+            return key_cls.from_private_key(io.StringIO(private_key_str))
+        except Exception as exc:
+            last_error = exc
+
+    if looks_like_public_key_text(private_key_str):
+        raise paramiko.SSHException(
+            f"SSH key source {source} contains public key text, not a private key."
+        )
+    raise paramiko.SSHException(
+        f"SSH key source {source} is not a supported private key format: {last_error}"
+    )
 
 
 class PyOSService:
@@ -33,6 +103,8 @@ class PyOSService:
         Open an SSH connection, run `echo OK`, close.
         Returns (success, message).
         """
+        target = f"{self.server.username}@{self.server.host}:{self.server.port}"
+        auth_label = self.server.auth_type or "UNKNOWN"
         client = None
         try:
             client = self._get_client()
@@ -40,13 +112,13 @@ class PyOSService:
             if stdout.strip() == "OK":
                 return True, "SSH connection successful."
             return False, f"Unexpected output: {stdout!r}"
-        except paramiko.AuthenticationException:
-            return False, "Authentication failed — check username and credentials."
+        except paramiko.AuthenticationException as exc:
+            return False, f"Authentication failed for {target} using {auth_label}: {exc}"
         except (socket.timeout, paramiko.ssh_exception.NoValidConnectionsError) as exc:
-            return False, f"Host unreachable: {exc}"
+            return False, f"Host unreachable for {target}: {exc}"
         except Exception as exc:
             logger.exception("SSH validate error for server %s", self.server.pk)
-            return False, f"Error: {exc}"
+            return False, f"SSH validation error for {target}: {type(exc).__name__}: {exc}"
         finally:
             if client:
                 client.close()
@@ -93,8 +165,6 @@ class PyOSService:
         SSHClient.connect() can trigger agent auth even with allow_agent=False
         in paramiko 4.x when SSH_AUTH_SOCK is present in the environment.
         """
-        import io
-
         sock = socket.create_connection(
             (self.server.host, self.server.port), timeout=15
         )
@@ -108,16 +178,14 @@ class PyOSService:
         username = self.server.username
 
         if self.server.auth_type == "DAFEAPP_KEY":
-            from cloud.models import SystemSSHKey
-            system_key = SystemSSHKey.get_or_create_keypair()
-            private_key_str = system_key.get_private_key()
+            private_key_str, source = resolve_private_key_string(self.server)
             if not private_key_str:
                 transport.close()
                 raise paramiko.ssh_exception.SSHException(
-                    "DafeApp system SSH key could not be loaded. "
-                    "Check FIELD_ENCRYPTION_KEY in .env."
+                    f"DafeApp SSH key could not be loaded from {source}. "
+                    "Check the configured SSH key path or FIELD_ENCRYPTION_KEY in .env."
                 )
-            pkey = paramiko.Ed25519Key.from_private_key(io.StringIO(private_key_str))
+            pkey = load_private_key_from_string(private_key_str, source)
             transport.auth_publickey(username, pkey)
 
         else:

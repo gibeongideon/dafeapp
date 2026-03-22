@@ -68,8 +68,6 @@ class Infrastructure(models.Model):
         if self.infra_type == self.InfraType.PYOS:
             if not self.external_server:
                 return False, "PYOS infrastructure requires an external server."
-            if not self.external_server.is_verified:
-                return False, "PYOS infrastructure requires a verified external server."
             return True, ""
         return False, "Unsupported infrastructure type."
 
@@ -165,6 +163,7 @@ class OdooServer(models.Model):
         CONFIGURING = "CONFIGURING", "Configuring"
         PROVISIONED = "PROVISIONED", "Provisioned"
         FAILED = "FAILED", "Failed"
+        ARCHIVED = "ARCHIVED", "Archived"
         DELETED = "DELETED", "Deleted"
 
     organization = models.ForeignKey(
@@ -205,6 +204,7 @@ class OdooServer(models.Model):
         choices=DeploymentMode.choices,
         default=DeploymentMode.BARE_METAL,
     )
+    is_active = models.BooleanField(default=True)
     docker_postgres_password = models.CharField(max_length=255, blank=True, default="")
     terraform_state_path = models.CharField(max_length=500, blank=True, default="")
     provisioning_log = models.TextField(blank=True)
@@ -242,6 +242,10 @@ class OdooServer(models.Model):
         if infra and infra.infra_type == Infrastructure.InfraType.MANAGED and infra.cloud_account:
             return infra.cloud_account
         return self.cloud_account
+
+    @property
+    def active_instance_count(self):
+        return self.instances.exclude(status=OdooInstance.Status.DELETED).count()
 
 
 class OdooInstance(models.Model):

@@ -67,13 +67,13 @@
           <h3 class="font-semibold text-gray-900">Path A — Via DafeApp UI</h3>
         </div>
         <p class="text-sm text-gray-600 mb-4">
-          DafeApp provisions the server (Terraform) and bootstraps Odoo (Ansible) automatically.
+          DafeApp provisions the server (Terraform) and prepares the Odoo environment (Ansible) automatically.
           Best for managed cloud accounts on DigitalOcean or AWS.
         </p>
         <ol class="space-y-2 text-sm text-gray-700">
           <li class="flex gap-2"><span class="text-blue-500 font-bold shrink-0">1.</span>Add a Cloud Account (DO or AWS) under Connections.</li>
           <li class="flex gap-2"><span class="text-blue-500 font-bold shrink-0">2.</span>Create an Infrastructure record (type: Managed).</li>
-          <li class="flex gap-2"><span class="text-blue-500 font-bold shrink-0">3.</span>Create an Odoo Server — DafeApp runs Terraform + Ansible.</li>
+          <li class="flex gap-2"><span class="text-blue-500 font-bold shrink-0">3.</span>Create an Odoo Server — DafeApp runs Terraform + Ansible to prepare the environment.</li>
           <li class="flex gap-2"><span class="text-blue-500 font-bold shrink-0">4.</span>Add Odoo Instances to the provisioned server.</li>
         </ol>
         <a href="{% url 'deployments_ui:create-instance' %}"
@@ -95,13 +95,13 @@
         </div>
         <p class="text-sm text-gray-600 mb-4">
           Use <code class="bg-gray-100 px-1.5 py-0.5 rounded text-xs font-mono">scripts/deploy_bare.sh</code>
-          to deploy Odoo directly to any SSH-accessible server in one command.
-          Ideal for PYOS / bring-your-own servers.
+          to prepare an Odoo environment directly on any SSH-accessible server in one command.
+          Add <code class="bg-gray-100 px-1 rounded text-xs font-mono">--standalone</code> only if you explicitly want the legacy 8069 service too.
         </p>
         <ol class="space-y-2 text-sm text-gray-700">
           <li class="flex gap-2"><span class="text-slate-500 font-bold shrink-0">1.</span>Spin up an Ubuntu 22.04 or 24.04 server.</li>
           <li class="flex gap-2"><span class="text-slate-500 font-bold shrink-0">2.</span>Run <code class="bg-gray-100 px-1 rounded text-xs font-mono">deploy_bare.sh --ip &lt;IP&gt; --key &lt;KEY&gt;</code>.</li>
-          <li class="flex gap-2"><span class="text-slate-500 font-bold shrink-0">3.</span>Optionally add the server to DafeApp as a PYOS External Server.</li>
+          <li class="flex gap-2"><span class="text-slate-500 font-bold shrink-0">3.</span>In DafeApp, use the PYOS form to provision the existing server in one step.</li>
         </ol>
         <button @click="tab = 'manual'" class="mt-4 inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:underline">
           See manual guide &rarr;
@@ -120,7 +120,7 @@ DafeApp UI
             │    └─ configure_odoo_server
             │         └─ Ansible: setup_odoo_server_bare.yml
             │              └─ uploads odoo_install.sh from scripts/installscript/<ver>/
-            │                   └─ Odoo 18 / 19 running on :8069
+            │                   └─ prepares Odoo environment (no service started)
             │
             └─ MANAGED infrastructure (DO / AWS)
                  └─ Terraform: infra/terraform/odoo_server/
@@ -128,7 +128,7 @@ DafeApp UI
                  │    └─ aws_instance          (AWS EC2)
                  └─ configure_odoo_server
                            └─ Ansible: setup_odoo_server_bare.yml
-                           └─ Odoo 18 / 19 running on :8069</pre>
+                           └─ prepares Odoo environment (no service started)</pre>
     </div>
   </div>
 
@@ -157,7 +157,7 @@ DafeApp UI
               <li class="flex items-center gap-2"><span class="text-blue-400">&#9656;</span>2 vCPU (4 recommended)</li>
               <li class="flex items-center gap-2"><span class="text-blue-400">&#9656;</span>2 GB RAM minimum (4 GB recommended)</li>
               <li class="flex items-center gap-2"><span class="text-blue-400">&#9656;</span>30 GB disk (SSD preferred)</li>
-              <li class="flex items-center gap-2"><span class="text-blue-400">&#9656;</span>Ports open: 22 (SSH), 80, 443, 8069</li>
+              <li class="flex items-center gap-2"><span class="text-blue-400">&#9656;</span>Ports open: 22 (SSH). Instance ports are opened separately when you create an Odoo instance.</li>
             </ul>
           </div>
         </div>
@@ -220,7 +220,7 @@ DafeApp UI
       <!-- Quick start -->
       <div class="bg-white rounded-xl border border-gray-200 p-6">
         <h3 class="font-semibold text-gray-900 mb-1">Quick Start — <code class="text-blue-600 text-sm font-mono">scripts/deploy_bare.sh</code></h3>
-        <p class="text-sm text-gray-500 mb-4">One script deploys Odoo to any SSH-accessible Ubuntu server. Add <code class="font-mono text-xs bg-gray-100 rounded px-1">--local</code> to run the same installer on this machine for phase-one testing without Docker.</p>
+        <p class="text-sm text-gray-500 mb-4">One script prepares an Odoo environment on any SSH-accessible Ubuntu server. Add <code class="font-mono text-xs bg-gray-100 rounded px-1">--local</code> to run the same installer on this machine for phase-one testing without Docker, or <code class="font-mono text-xs bg-gray-100 rounded px-1">--standalone</code> if you want the legacy 8069 service too.</p>
 
         <!-- Minimal -->
         <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Minimal (community, no nginx)</p>
@@ -237,8 +237,7 @@ DafeApp UI
             <p>sudo ./scripts/deploy_bare.sh \</p>
             <p>&nbsp; --local \</p>
             <p>&nbsp; --fresh \</p>
-            <p>&nbsp; --version 19 \</p>
-            <p>&nbsp; --port 8069</p>
+            <p>&nbsp; --version 19</p>
             <p class="mt-3 text-slate-400"># Then create instances on localhost with:</p>
             <p>sudo ansible-playbook infra/ansible/create_odoo_instance_direct.yml \</p>
             <p>&nbsp; -i localhost, -c local \</p>
@@ -250,9 +249,8 @@ DafeApp UI
             <p>&nbsp; --ip 168.144.24.219 \</p>
             <p>&nbsp; --user root \</p>
             <p>&nbsp; --key ~/.ssh/id_rsa \</p>
-            <p>&nbsp; --version 19 \</p>
-            <p>&nbsp; --port 8069</p>
-            <p class="mt-3 text-slate-400"># If you use the UI, add the server as PYOS first, then provision it.</p>
+            <p>&nbsp; --version 19</p>
+            <p class="mt-3 text-slate-400"># If you use the UI, create the PYOS server from the single form in one step.</p>
           </div>
         </div>
 
@@ -261,8 +259,7 @@ DafeApp UI
         <div class="bg-slate-900 rounded-lg p-4 font-mono text-xs text-green-400 overflow-x-auto mb-4">
           <p>./scripts/deploy_bare.sh \</p>
           <p>&nbsp; --local \</p>
-          <p>&nbsp; --version 19 \</p>
-          <p>&nbsp; --port 8069</p>
+          <p>&nbsp; --version 19</p>
         </div>
 
         <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Fresh local test (wipe old host state first)</p>
@@ -270,15 +267,15 @@ DafeApp UI
           <p>./scripts/deploy_bare.sh \</p>
           <p>&nbsp; --local \</p>
           <p>&nbsp; --fresh \</p>
-          <p>&nbsp; --version 19 \</p>
-          <p>&nbsp; --port 8069</p>
+          <p>&nbsp; --version 19</p>
         </div>
 
         <p class="text-sm text-gray-500 mb-4">
           Use <code class="font-mono text-xs bg-gray-100 rounded px-1">--fresh</code> for repeat local tests so stale
           <code class="font-mono text-xs bg-gray-100 rounded px-1">/odoo</code> state does not block the installer.
           For SSH tests, omit <code class="font-mono text-xs bg-gray-100 rounded px-1">--local</code> and point the
-          command at your remote host.
+          command at your remote host. Add <code class="font-mono text-xs bg-gray-100 rounded px-1">--standalone</code>
+          only when you intentionally want a running Odoo service on 8069.
         </p>
 
         <p class="text-sm text-gray-500 mb-4">
@@ -290,13 +287,14 @@ DafeApp UI
         <!-- With nginx + ssl -->
         <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">With Nginx + SSL (Let's Encrypt)</p>
         <div class="bg-slate-900 rounded-lg p-4 font-mono text-xs text-green-400 overflow-x-auto mb-4">
-          <p>./scripts/deploy_bare.sh \</p>
-          <p>&nbsp; --ip 165.22.100.50 \</p>
-          <p>&nbsp; --user ubuntu \</p>
-          <p>&nbsp; --key ~/.ssh/dafeapp_odoo \</p>
-          <p>&nbsp; --version 19 \</p>
-          <p>&nbsp; --domain odoo.example.com \</p>
-          <p>&nbsp; --email admin@example.com</p>
+              <p>./scripts/deploy_bare.sh \</p>
+              <p>&nbsp; --ip 165.22.100.50 \</p>
+              <p>&nbsp; --user ubuntu \</p>
+              <p>&nbsp; --key ~/.ssh/dafeapp_odoo \</p>
+              <p>&nbsp; --version 19 \</p>
+              <p>&nbsp; --domain odoo.example.com \</p>
+              <p>&nbsp; --email admin@example.com \</p>
+              <p>&nbsp; --standalone</p>
         </div>
 
         <!-- All options table -->
@@ -332,19 +330,18 @@ DafeApp UI
           <div>
             <p class="font-medium text-gray-700 mb-2">File locations on the server</p>
             <dl class="space-y-1 font-mono text-xs">
-              <div class="flex gap-2"><dt class="text-gray-500 w-28 shrink-0">Config:</dt><dd class="text-gray-800">/etc/odoo-server.conf</dd></div>
               <div class="flex gap-2"><dt class="text-gray-500 w-28 shrink-0">Logs:</dt><dd class="text-gray-800">/var/log/odoo/</dd></div>
               <div class="flex gap-2"><dt class="text-gray-500 w-28 shrink-0">Source code:</dt><dd class="text-gray-800">/odoo/odoo-server/</dd></div>
+              <div class="flex gap-2"><dt class="text-gray-500 w-28 shrink-0">Python venv:</dt><dd class="text-gray-800">/odoo/venv/</dd></div>
               <div class="flex gap-2"><dt class="text-gray-500 w-28 shrink-0">Custom addons:</dt><dd class="text-gray-800">/odoo/custom/addons/</dd></div>
             </dl>
           </div>
           <div>
-            <p class="font-medium text-gray-700 mb-2">Service management</p>
+            <p class="font-medium text-gray-700 mb-2">What happens next</p>
             <div class="bg-slate-900 rounded-lg p-3 font-mono text-xs text-green-400 space-y-1">
-              <p>sudo service odoo-server start</p>
-              <p>sudo service odoo-server stop</p>
-              <p>sudo service odoo-server restart</p>
-              <p>sudo service odoo-server status</p>
+              <p>Instance creation is the next step</p>
+              <p>Use infra/ansible/create_odoo_instance_direct.yml</p>
+              <p>or create an instance from the UI</p>
             </div>
           </div>
         </div>

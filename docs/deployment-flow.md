@@ -9,10 +9,9 @@ This document describes how DafeApp provisions an Odoo server and creates Odoo i
 Before deploying, the user connects their infrastructure.
 
 ### Option A — PYOS (External SSH Server)
-1. User goes to **Cloud > Add Server**, enters host/port/credentials.
-2. DafeApp SSHes in (via Paramiko) and runs a verification check.
-3. User adds the **DafeApp public SSH key** (Ed25519 system key) to the server's `authorized_keys`.
-4. DafeApp runs a "prepare" step to confirm connectivity with key-based auth.
+1. User goes to **Deployments > Create Server**, picks **PYOS**, and fills a single form with server name, host, SSH port, username, auth method, Odoo version, and deployment mode.
+2. DafeApp stores the external server details, creates the infrastructure wrapper, and queues provisioning in one submission.
+3. DafeApp verifies SSH access and then prepares the Odoo environment for later instance creation.
 
 ### Option B — Managed Cloud (DigitalOcean / AWS)
 1. User goes to **Cloud > Add Cloud Account**, enters API token / AWS keys.
@@ -27,9 +26,11 @@ In **Deployments > Infrastructure**, the user links an org to either a PYOS serv
 
 ---
 
-## 3. Provision an Odoo Server
+## 3. Provision an Odoo Server Environment
 
-The user fills in: Odoo version, region, size (for managed), server name, optional domain.
+The user fills in:
+- PYOS: server name, host, SSH port, username, auth method, Odoo version, and deployment mode
+- Managed: server name, region, size, Odoo version, deployment mode, optional domain
 
 A Celery task `provision_odoo_server` is triggered:
 
@@ -51,7 +52,7 @@ provision_odoo_server(odoo_server_id)
                         extra_vars: odoo_version, server_name, dns_domain,
                                     website_name, admin_email
                         Uploads version-specific odoo_install.sh from scripts/installscript/<ver>, patches vars,
-                        executes installer on remote host
+                        prepares the Odoo environment only (no standalone service)
 ```
 
 **OdooServer status progression:**
@@ -59,16 +60,17 @@ provision_odoo_server(odoo_server_id)
 
 ### Testing the same flow locally or over SSH
 
-The bare-metal installer used by the UI is the same one you can run from the CLI:
+The bare-metal bootstrap used by the UI is the same one you can run from the CLI:
 
-- Local simulation: `sudo ./scripts/deploy_bare.sh --local --fresh --version 19 --port 8069`
-- SSH simulation: `./scripts/deploy_bare.sh --ip <server-ip> --user <ssh-user> --key ~/.ssh/<private-key> --version 19 --port 8069`
+- Local simulation: `sudo ./scripts/deploy_bare.sh --local --fresh --version 19`
+- SSH simulation: `./scripts/deploy_bare.sh --ip <server-ip> --user <ssh-user> --key ~/.ssh/<private-key> --version 19`
+- Legacy standalone mode: add `--standalone` if you explicitly want a running Odoo service on 8069.
 
-Local mode is for phase-one validation on your workstation or a disposable VM. SSH mode is the production-like path and is what the DafeApp UI drives for PYOS / bare-metal servers.
+Local mode is for phase-one validation on your workstation or a disposable VM. SSH mode is the production-like path and is what the DafeApp UI drives for PYOS / bare-metal servers. By default, both paths only prepare the environment for later instance creation.
 
 ### Simulating instance creation with Ansible
 
-After the server is provisioned and Odoo is running, you can simulate instance creation by running the instance playbook directly against the host.
+After the server environment is provisioned, you can simulate instance creation by running the instance playbook directly against the host.
 
 For bare-metal / direct-IP instances:
 

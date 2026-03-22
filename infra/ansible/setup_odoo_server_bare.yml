@@ -2,7 +2,7 @@
 # ---------------------------------------------------------------------------
 # Ansible Playbook: setup_odoo_server_bare.yml
 #
-# Installs Odoo directly on an Ubuntu 22.04/24.04 server (bare-metal / no Docker)
+# Prepares an Odoo environment directly on an Ubuntu 22.04/24.04 server (bare-metal / no Docker)
 # by uploading the version-specific odoo_install.sh from scripts/installscript/{ver}/
 #
 # Script layout:
@@ -19,12 +19,13 @@
 #   dns_domain    - FQDN if SSL is wanted; empty string disables nginx+ssl
 #
 # Optional extra vars (override defaults):
-#   odoo_port     - Odoo HTTP port (default: 8069)
+#   odoo_port     - Standalone Odoo HTTP port (default: 8069, legacy opt-in)
 #   admin_email   - Let's Encrypt / certbot email (required when ssl=true)
 #   is_enterprise - "True" / "False"  (default: False)
 #   ssh_user      - remote user (default: ubuntu)
+#   bootstrap_standalone - "True" / "False" (default: False)
 # ---------------------------------------------------------------------------
-- name: Install Odoo (bare-metal) using odoo_install.sh
+- name: Prepare Odoo environment (bare-metal) using odoo_install.sh
   hosts: all
   become: true
 
@@ -32,9 +33,10 @@
     # --- DafeApp-supplied vars (tasks.py passes these) -------------------
     odoo_version:   "{{ odoo_version   | default('19') }}"
     dns_domain:     "{{ dns_domain     | default('') }}"
+    bootstrap_standalone: "{{ bootstrap_standalone | default('False') }}"
 
     # --- Derived nginx / SSL flags ----------------------------------------
-    # Nginx is enabled whenever a domain name is provided.
+    # Nginx/SSL only matter when standalone mode is explicitly enabled.
     install_nginx:  "{{ 'True' if dns_domain | length > 0 else 'False' }}"
     # SSL is enabled when a domain AND a real admin email are supplied.
     enable_ssl:     "{{ 'True' if (dns_domain | length > 0 and admin_email is defined and admin_email != 'odoo@example.com') else 'False' }}"
@@ -137,6 +139,12 @@
         regexp: '^IS_ENTERPRISE="[^"]*"'
         replace: 'IS_ENTERPRISE="{{ is_enterprise }}"'
 
+    - name: Set BOOTSTRAP_STANDALONE
+      replace:
+        path: "{{ remote_script_dir }}/{{ install_script_name }}"
+        regexp: '^BOOTSTRAP_STANDALONE="[^"]*"'
+        replace: 'BOOTSTRAP_STANDALONE="{{ bootstrap_standalone }}"'
+
     # ------------------------------------------------------------------
     # 5. Run the installer
     #    async=3600 → wait up to 1 hour (git clone + pip can be slow)
@@ -155,12 +163,14 @@
 
     # ------------------------------------------------------------------
     # 6. Capture the generated admin password from the Odoo config file
+    #    only when standalone mode is explicitly enabled.
     # ------------------------------------------------------------------
     - name: Read Odoo config (to capture generated admin password)
       slurp:
         src: "/etc/odoo-server.conf"
       register: odoo_conf_raw
       ignore_errors: true
+      when: bootstrap_standalone == 'True'
 
     - name: Extract admin_passwd from config
       set_fact:
@@ -168,10 +178,13 @@
           {{ (odoo_conf_raw.content | b64decode)
              | regex_search('admin_passwd = (.+)', '\\1')
              | first | default('(could not read)') }}
-      when: odoo_conf_raw is succeeded
+      when:
+        - bootstrap_standalone == 'True'
+        - odoo_conf_raw is succeeded
 
     # ------------------------------------------------------------------
     # 7. Allow Odoo port through UFW (if UFW is active)
+    #    only when standalone mode is explicitly enabled.
     # ------------------------------------------------------------------
     - name: Allow Odoo port in UFW
       ufw:
@@ -179,11 +192,12 @@
         port: "{{ odoo_port }}"
         proto: tcp
       ignore_errors: true
+      when: bootstrap_standalone == 'True'
 
     # ------------------------------------------------------------------
     # 8. Summary
     # ------------------------------------------------------------------
-    - name: Installation summary
+    - name: Installation summary (standalone)
       debug:
         msg:
           - "=========================================="
@@ -197,3 +211,17 @@
           - "Log file      : /var/log/odoo/odoo-server.log"
           - "Admin password: {{ odoo_admin_passwd | default('check /etc/odoo-server.conf') }}"
           - "=========================================="
+      when: bootstrap_standalone == 'True'
+
+    - name: Installation summary (environment only)
+      debug:
+        msg:
+          - "=========================================="
+          - "Odoo {{ odoo_version }} environment ready (bare-metal)"
+          - "Server prepared for instance creation only"
+          - "Source code   : /odoo/odoo-server"
+          - "Python venv   : /odoo/venv"
+          - "Log directory : /var/log/odoo"
+          - "Next step     : create an Odoo instance with Ansible"
+          - "=========================================="
+      when: bootstrap_standalone != 'True'

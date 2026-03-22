@@ -9,8 +9,20 @@ from django.utils import timezone
 from django.views.generic import TemplateView, View
 
 from audit.models import AuditLog
-from cloud.forms import CloudAccountForm, ExternalServerForm, ProvisionDropletForm
-from cloud.models import CloudAccount, CloudServer, ExternalServer, Infrastructure, SystemSSHKey
+from cloud.forms import (
+    CloudAccountForm,
+    ExternalServerForm,
+    ProvisionDropletForm,
+    PyOSSSHSettingsForm,
+)
+from cloud.models import (
+    CloudAccount,
+    CloudServer,
+    ExternalServer,
+    Infrastructure,
+    PyOSSSHSettings,
+    SystemSSHKey,
+)
 from cloud.providers import get_provider
 from core.utils import log_audit
 
@@ -53,6 +65,7 @@ class CloudDashboardView(CloudSuperAdminMixin, TemplateView):
         ctx["cloud_servers"] = CloudServer.objects.filter(
             organization=org
         ).exclude(status=CloudServer.Status.DELETED)
+        ctx["pyos_ssh_settings"] = PyOSSSHSettings.get_or_create_settings()
         return ctx
 
 
@@ -63,10 +76,17 @@ class AddExternalServerView(CloudSuperAdminMixin, View):
 
     def _ctx(self, form):
         key_obj = SystemSSHKey.get_or_create_keypair()
-        return {"form": form, "dafeapp_public_key": key_obj.public_key}
+        settings_obj = PyOSSSHSettings.get_or_create_settings()
+        return {
+            "form": form,
+            "dafeapp_public_key": key_obj.public_key,
+            "pyos_default_ssh_key_path": settings_obj.default_ssh_key_path,
+        }
 
     def get(self, request):
-        return render(request, self.template_name, self._ctx(ExternalServerForm()))
+        settings_obj = PyOSSSHSettings.get_or_create_settings()
+        form = ExternalServerForm(initial={"ssh_key_path": settings_obj.default_ssh_key_path})
+        return render(request, self.template_name, self._ctx(form))
 
     def post(self, request):
         form = ExternalServerForm(request.POST)
@@ -94,6 +114,24 @@ class AddExternalServerView(CloudSuperAdminMixin, View):
             return redirect("cloud:server-detail", pk=server.pk)
 
         return render(request, self.template_name, self._ctx(form))
+
+
+class PyOSSSHSettingsView(CloudSuperAdminMixin, View):
+    template_name = "cloud/ssh_settings.html"
+
+    def get(self, request):
+        settings_obj = PyOSSSHSettings.get_or_create_settings()
+        form = PyOSSSHSettingsForm(instance=settings_obj)
+        return render(request, self.template_name, {"form": form, "settings": settings_obj})
+
+    def post(self, request):
+        settings_obj = PyOSSSHSettings.get_or_create_settings()
+        form = PyOSSSHSettingsForm(request.POST, instance=settings_obj)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Default SSH key path saved.")
+            return redirect("cloud:ssh-settings")
+        return render(request, self.template_name, {"form": form, "settings": settings_obj})
 
 
 class ServerDetailView(CloudSuperAdminMixin, TemplateView):

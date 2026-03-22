@@ -100,6 +100,14 @@
               x-text="copied ? 'Copied!' : 'Copy'"
             ></button>
           </div>
+          <div class="mt-3">
+            <label class="block text-sm font-medium text-gray-700 mb-1">SSH Key Path (optional)</label>
+            {{ form.ssh_key_path }}
+            <p class="text-xs text-gray-500 mt-1">
+              Use this if the DafeApp backend can read a private key file on the server running the app.
+            </p>
+            {% if form.ssh_key_path.errors %}<p class="text-xs text-red-500 mt-1">{{ form.ssh_key_path.errors.0 }}</p>{% endif %}
+          </div>
         </div>
 
       </div>

@@ -56,6 +56,28 @@ def _broadcast_server(
         logger.warning("Server broadcast skipped for server %s", server_id, exc_info=True)
 
 
+def _broadcast_server_snapshot(server: OdooServer):
+    """Push a full server snapshot to any open websocket listeners."""
+    try:
+        from deployments.serializers import OdooServerSerializer
+
+        channel_layer = get_channel_layer()
+        if channel_layer is None:
+            return
+        async_to_sync(channel_layer.group_send)(
+            f"odoo.server.{server.id}",
+            {
+                "type": "server.update",
+                "payload": {
+                    "type": "snapshot",
+                    "server": OdooServerSerializer(server).data,
+                },
+            },
+        )
+    except Exception:
+        logger.warning("Server snapshot broadcast skipped for server %s", server.id, exc_info=True)
+
+
 def _broadcast_instance(instance_id: int, step: str, status: str, done: bool = False, log: str = ""):
     channel_layer = get_channel_layer()
     if channel_layer is None:
@@ -171,47 +193,30 @@ def _build_installation_summary_text(
     *,
     server: OdooServer,
     ssh_user: str,
-    admin_password: str,
-    enable_ssl: bool,
 ) -> str:
-    """Format the post-install summary shown in the UI."""
+    """Format the environment bootstrap summary shown in the UI."""
     ip = str(server.ip_address or "")
-    open_urls = [f"http://{ip}:8069"] if ip else []
-    if server.dns_domain:
-        proto = "https" if enable_ssl else "http"
-        open_urls.append(f"{proto}://{server.dns_domain}")
-
     lines = [
         "============================================================",
-        f"  Odoo {server.odoo_version} installation complete!",
+        f"  Odoo {server.odoo_version} environment ready!",
         "============================================================",
         f"  Server IP     : {ip or '(not available)'}",
-        "  Odoo port     : 8069",
-        "  Config file   : /etc/odoo-server.conf",
-        "  Log file      : /var/log/odoo/odoo-server.log",
+        "  Source code   : /odoo/odoo-server",
+        "  Python venv   : /odoo/venv",
+        "  Log directory : /var/log/odoo",
     ]
     if ssh_user:
         lines.append(f"  SSH user      : {ssh_user}")
-    if admin_password:
-        lines.append(f"  admin_passwd = {admin_password}")
-    if server.dns_domain:
-        lines.append(f"  Nginx site    : /etc/nginx/sites-available/{server.dns_domain}")
-    if enable_ssl:
-        lines.append("  SSL           : enabled (Let's Encrypt)")
     lines.extend(
         [
+            "  PostgreSQL    : ready for instance creation",
             "",
-            "  Service management:",
-            "    sudo service odoo-server start",
-            "    sudo service odoo-server stop",
-            "    sudo service odoo-server restart",
+            "  Next step:",
+            "    Create an Odoo instance with infra/ansible/create_odoo_instance_direct.yml",
             "",
+            "  No standalone Odoo service was started.",
         ]
     )
-    if open_urls:
-        lines.append(f"  Open Odoo:    {open_urls[0]}")
-        for url in open_urls[1:]:
-            lines.append(f"             {url}")
     lines.extend(
         [
             "============================================================",
@@ -224,36 +229,22 @@ def _store_installation_summary(
     server: OdooServer,
     *,
     ssh_user: str,
-    admin_password: str,
-    enable_ssl: bool,
 ) -> tuple[dict, str]:
     summary = {
         "server_ip": str(server.ip_address or ""),
         "odoo_version": server.odoo_version,
-        "odoo_port": 8069,
-        "config_file": "/etc/odoo-server.conf",
-        "log_file": "/var/log/odoo/odoo-server.log",
+        "mode": "environment",
+        "source_dir": "/odoo/odoo-server",
+        "venv_dir": "/odoo/venv",
+        "log_dir": "/var/log/odoo",
         "ssh_user": ssh_user,
-        "admin_password": admin_password,
-        "service_commands": [
-            "sudo service odoo-server start",
-            "sudo service odoo-server stop",
-            "sudo service odoo-server restart",
-        ],
+        "service_commands": [],
         "open_urls": [],
-        "nginx_site": f"/etc/nginx/sites-available/{server.dns_domain}" if server.dns_domain else "",
-        "ssl_enabled": enable_ssl,
+        "next_step": "create an Odoo instance with infra/ansible/create_odoo_instance_direct.yml",
     }
-    if summary["server_ip"]:
-        summary["open_urls"].append(f"http://{summary['server_ip']}:8069")
-    if server.dns_domain:
-        proto = "https" if enable_ssl else "http"
-        summary["open_urls"].append(f"{proto}://{server.dns_domain}")
     summary_text = _build_installation_summary_text(
         server=server,
         ssh_user=ssh_user,
-        admin_password=admin_password,
-        enable_ssl=enable_ssl,
     )
     server.installation_summary = summary
     server.installation_summary_text = summary_text
@@ -476,12 +467,11 @@ def _pyos_ssh_creds(ext_server) -> tuple[str | None, str | None, str | None, str
     temp_key_file is a path to a NamedTemporaryFile the caller must delete.
     """
     from cloud.encryption import FieldEncryptor
-    from cloud.models import SystemSSHKey
+    from cloud.pyos import resolve_private_key_string
 
     user = ext_server.username or None
     if ext_server.auth_type == "DAFEAPP_KEY":
-        system_key = SystemSSHKey.get_or_create_keypair()
-        private_key_str = system_key.get_private_key()
+        private_key_str, _ = resolve_private_key_string(ext_server)
         if not private_key_str:
             return user, None, None, None
         tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".pem", delete=False)
@@ -672,7 +662,8 @@ def provision_odoo_server(self, server_id: int):
     server.status = OdooServer.Status.PROVISIONING
     server.installation_summary = {}
     server.installation_summary_text = ""
-    server.save(update_fields=["status", "installation_summary", "installation_summary_text", "updated_at"])
+    server.provisioning_log = ""
+    server.save(update_fields=["status", "installation_summary", "installation_summary_text", "provisioning_log", "updated_at"])
     _broadcast_server(server.id, "Starting provisioning…", server.status)
 
     infra = server.infrastructure
@@ -683,15 +674,6 @@ def provision_odoo_server(self, server_id: int):
         _broadcast_server(server.id, "Failed: server is missing infrastructure.", server.status, done=True)
         return
 
-    _broadcast_server(server.id, "Validating infrastructure connection…", server.status)
-    ok, err = infra.validate_connection_target()
-    if not ok:
-        server.status = OdooServer.Status.FAILED
-        server.provisioning_log = _append_text(server.provisioning_log, err)
-        server.save(update_fields=["status", "provisioning_log", "updated_at"])
-        _broadcast_server(server.id, f"Failed: {err}", server.status, done=True)
-        return
-
     managed_account = server.effective_cloud_account
     if managed_account and not server.cloud_account_id:
         server.cloud_account = managed_account
@@ -699,21 +681,60 @@ def provision_odoo_server(self, server_id: int):
 
     if infra.infra_type == Infrastructure.InfraType.PYOS:
         ext = infra.external_server
+        from cloud.pyos import PyOSService
+        from django.utils import timezone
+
+        ext.last_verified_at = None
+        ext.verification_error = "SSH connection is being verified..."
+        ext.save(update_fields=["last_verified_at", "verification_error"])
+        _broadcast_server(server.id, "Validating SSH connection…", server.status)
+        reachable, err = PyOSService(ext).validate()
+        now = timezone.now()
+        ext.is_verified = reachable
+        ext.verification_error = "" if reachable else err
+        ext.last_verified_at = now
+        ext.save(update_fields=["is_verified", "verification_error", "last_verified_at"])
+
         server.ip_address = ext.host
+        server.is_reachable = reachable
+        server.last_checked_at = now
         server.firewall_configured = True
-        server.provisioning_log = _append_text(
-            server.provisioning_log,
-            "Using PYOS infrastructure connection. Compute already exists; proceeding to configuration.",
+        server.provisioning_log = _append_text(server.provisioning_log, "Using PYOS infrastructure connection.")
+        server.provisioning_log = _append_text(server.provisioning_log, "SSH connection verified." if reachable else err)
+        server.save(
+            update_fields=[
+                "ip_address",
+                "is_reachable",
+                "last_checked_at",
+                "firewall_configured",
+                "provisioning_log",
+                "updated_at",
+            ]
         )
+        if not reachable:
+            server.status = OdooServer.Status.FAILED
+            server.save(update_fields=["status", "provisioning_log", "updated_at"])
+            _broadcast_server(server.id, f"Failed: {err}", server.status, done=True)
+            return
+
         server.status = OdooServer.Status.CONFIGURING
         server.save(
-            update_fields=["ip_address", "firewall_configured", "provisioning_log", "status", "updated_at"]
+            update_fields=["status", "updated_at"]
         )
-        _broadcast_server(server.id, f"PYOS host confirmed ({ext.host}) — starting Odoo configuration…", server.status)
+        _broadcast_server(server.id, f"SSH connection confirmed ({ext.host}) — starting Odoo configuration…", server.status)
         if server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
             _queue_or_run(configure_docker_host, server.id)
         else:
             _queue_or_run(configure_odoo_server, server.id)
+        return
+
+    _broadcast_server(server.id, "Validating infrastructure connection…", server.status)
+    ok, err = infra.validate_connection_target()
+    if not ok:
+        server.status = OdooServer.Status.FAILED
+        server.provisioning_log = _append_text(server.provisioning_log, err)
+        server.save(update_fields=["status", "provisioning_log", "updated_at"])
+        _broadcast_server(server.id, f"Failed: {err}", server.status, done=True)
         return
 
     state_root = Path(settings.BASE_DIR) / ".terraform_state" / f"org_{org.id}" / f"odoo_server_{server.id}"
@@ -875,23 +896,21 @@ def configure_odoo_server(self, server_id: int, job_id: int | None = None):
 
     server.provisioning_log = _append_text(server.provisioning_log, f"[ansible server]\n{log_blob}".strip())
     server.status = OdooServer.Status.PROVISIONED if ok else OdooServer.Status.FAILED
+    final_msg = "Server provisioned successfully — ready for instances." if ok else "Server configuration failed."
+    server.provisioning_log = _append_text(server.provisioning_log, final_msg)
     summary = {}
     summary_text = ""
     if ok:
-        admin_password = _extract_admin_password(log_blob)
-        enable_ssl = bool(server.dns_domain and admin_email and admin_email != "odoo@example.com")
         summary, summary_text = _store_installation_summary(
             server,
             ssh_user=ssh_user or "root",
-            admin_password=admin_password,
-            enable_ssl=enable_ssl,
         )
     else:
         server.save(update_fields=["installation_summary", "installation_summary_text", "updated_at"])
     server.save(update_fields=["status", "provisioning_log", "updated_at"])
     _broadcast_server(
         server.id,
-        "Server provisioned successfully — ready for instances." if ok else "Server configuration failed.",
+        final_msg,
         server.status,
         done=True,
         log=log_blob,
@@ -1092,27 +1111,57 @@ def _tcp_reachable(host: str, port: int, timeout: int = 5) -> bool:
     return False
 
 
+def _odoo_server_ssh_target(server: OdooServer) -> tuple[str | None, int]:
+    """Return the SSH host/port for an OdooServer, preferring PYOS external hosts."""
+    infra = getattr(server, "infrastructure", None)
+    if infra and infra.infra_type == Infrastructure.InfraType.PYOS and infra.external_server:
+        ext = infra.external_server
+        return str(ext.host), ext.port or 22
+    if server.ip_address:
+        return str(server.ip_address), 22
+    return None, 22
+
+
 @shared_task
 def check_server_connectivity():
     """
-    Periodic task: TCP-probe port 22 on every active OdooServer and ExternalServer.
+    Periodic task: TCP-probe every active OdooServer and ExternalServer.
     Updates is_reachable + last_checked_at without touching other fields.
     """
     from cloud.models import ExternalServer
+    from cloud.pyos import PyOSService
     from django.utils import timezone
 
     now = timezone.now()
 
-    # --- OdooServer: probe SSH port 22 ---
-    servers = OdooServer.objects.filter(
-        ip_address__isnull=False,
-    ).exclude(status=OdooServer.Status.DELETED)
+    # --- OdooServer: probe the saved SSH target (PYOS host or direct IP) ---
+    servers = OdooServer.objects.select_related(
+        "infrastructure",
+        "infrastructure__external_server",
+    ).filter(is_active=True)
 
     for server in servers:
-        reachable = _tcp_reachable(str(server.ip_address), 22)
+        host, port = _odoo_server_ssh_target(server)
+        if not host:
+            continue
+        infra = getattr(server, "infrastructure", None)
+        if infra and infra.infra_type == Infrastructure.InfraType.PYOS and infra.external_server:
+            reachable, message = PyOSService(infra.external_server).validate()
+            ext = infra.external_server
+            ext.is_verified = reachable
+            ext.verification_error = "" if reachable else message
+            ext.last_verified_at = now
+            ext.save(update_fields=["is_verified", "verification_error", "last_verified_at"])
+        else:
+            reachable = _tcp_reachable(host, port)
         server.is_reachable = reachable
         server.last_checked_at = now
-        server.save(update_fields=["is_reachable", "last_checked_at"])
+        update_fields = ["is_reachable", "last_checked_at"]
+        if server.ip_address != host:
+            server.ip_address = host
+            update_fields.append("ip_address")
+        server.save(update_fields=update_fields)
+        _broadcast_server_snapshot(server)
 
     # --- ExternalServer: probe the configured SSH port ---
     ext_servers = ExternalServer.objects.filter(host__isnull=False)
@@ -1426,10 +1475,12 @@ def configure_docker_host(self, server_id: int, job_id: int | None = None):
 
     server.provisioning_log = _append_text(server.provisioning_log, f"[docker host setup]\n{log_blob}".strip())
     server.status = OdooServer.Status.PROVISIONED if ok else OdooServer.Status.FAILED
+    final_msg = "Docker host ready — Traefik + PostgreSQL running." if ok else "Docker host setup failed."
+    server.provisioning_log = _append_text(server.provisioning_log, final_msg)
     server.save(update_fields=["status", "provisioning_log", "updated_at"])
     _broadcast_server(
         server.id,
-        "Docker host ready — Traefik + PostgreSQL running." if ok else "Docker host setup failed.",
+        final_msg,
         server.status,
         done=True,
         log=log_blob,

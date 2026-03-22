@@ -1,0 +1,46 @@
+{% extends "dashboard/layout.html" %}
+
+{% block page_title %}PYOS SSH Settings{% endblock %}
+
+{% block content %}
+<div class="-m-6 min-h-full bg-slate-50">
+  <div class="max-w-3xl mx-auto px-6 py-8 space-y-6">
+    <div>
+      <p class="text-[10px] font-bold tracking-[0.2em] uppercase text-gray-400 mb-2">Cloud · PYOS</p>
+      <h1 class="text-3xl font-bold text-gray-950">Default SSH Key Path</h1>
+      <p class="text-sm text-gray-500 mt-2 max-w-2xl">
+        Set a reusable private key path once. PYOS servers will use this path whenever no per-server SSH key path is provided.
+      </p>
+    </div>
+
+    <form method="post" class="bg-white border border-gray-200 rounded-3xl shadow-sm p-6 space-y-5">
+      {% csrf_token %}
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-2" for="{{ form.default_ssh_key_path.id_for_label }}">
+          {{ form.default_ssh_key_path.label }}
+        </label>
+        {{ form.default_ssh_key_path }}
+        {% if form.default_ssh_key_path.errors %}
+          <p class="text-xs text-red-500 mt-1">{{ form.default_ssh_key_path.errors.0 }}</p>
+        {% endif %}
+        {% if form.default_ssh_key_path.help_text %}
+          <p class="text-xs text-gray-500 mt-1">{{ form.default_ssh_key_path.help_text }}</p>
+        {% endif %}
+      </div>
+
+      <div class="flex items-center gap-3">
+        <button type="submit" class="px-4 py-2.5 rounded-xl bg-gray-950 text-white text-sm font-medium hover:bg-gray-800">
+          Save
+        </button>
+        <a href="{% url 'cloud:dashboard' %}" class="px-4 py-2.5 rounded-xl bg-white border border-gray-200 text-gray-700 text-sm font-medium hover:border-gray-300">
+          Back
+        </a>
+      </div>
+    </form>
+
+    <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-sm text-amber-900">
+      Use the private key file path, not the <code>.pub</code> public key file and not pasted key text.
+    </div>
+  </div>
+</div>
+{% endblock %}

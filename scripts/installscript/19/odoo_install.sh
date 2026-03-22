@@ -79,6 +79,8 @@ INSTALL_NGINX="False"
 OE_SUPERADMIN="admin"
 # Set to "True" to generate a random password, "False" to use the variable in OE_SUPERADMIN
 GENERATE_RANDOM_PASSWORD="True"
+# Set to "True" only if you want this server to also host a standalone Odoo service.
+BOOTSTRAP_STANDALONE="False"
 OE_CONFIG="${OE_USER}-server"
 # Set the website name
 WEBSITE_NAME="_"
@@ -233,6 +235,7 @@ sudo su $OE_USER -c "mkdir $OE_HOME/custom/addons"
 echo -e "\n---- Setting permissions on home folder ----"
 sudo chown -R $OE_USER:$OE_USER $OE_HOME/*
 
+if [ "$BOOTSTRAP_STANDALONE" = "True" ]; then
 echo -e "* Create server config file"
 
 
@@ -476,3 +479,14 @@ if [ $INSTALL_NGINX = "True" ]; then
   echo "Nginx configuration file: /etc/nginx/sites-available/$WEBSITE_NAME"
 fi
 echo "-----------------------------------------------------------"
+else
+echo "-----------------------------------------------------------"
+echo "Environment-only provisioning complete."
+echo "The server is prepared for Odoo instance creation, but no standalone Odoo service was started."
+echo "Server home    : $OE_HOME"
+echo "Source code    : $OE_HOME_EXT"
+echo "Python venv    : $OE_HOME/venv"
+echo "Log directory  : /var/log/$OE_USER"
+echo "Use the instance playbook to create a running Odoo instance on this server."
+echo "-----------------------------------------------------------"
+fi

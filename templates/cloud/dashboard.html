@@ -21,6 +21,13 @@
         </p>
       </div>
       <div class="flex items-center gap-2 mt-1">
+        <a href="{% url 'cloud:ssh-settings' %}"
+           class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-xl hover:border-gray-300 shadow-sm transition-all">
+          <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.25 3.75H6A2.25 2.25 0 003.75 6v12A2.25 2.25 0 006 20.25h12A2.25 2.25 0 0020.25 18V12.75m-6.75-9l6 6m0 0v-5.25m0 5.25h-5.25"/>
+          </svg>
+          SSH Settings
+        </a>
         <a href="{% url 'cloud:add-account' %}"
            class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-xl hover:border-gray-300 shadow-sm transition-all">
           <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -37,6 +44,24 @@
         </a>
       </div>
     </header>
+
+    <section class="bg-white rounded-3xl border border-gray-200 shadow-sm p-5 flex items-center justify-between gap-4">
+      <div>
+        <p class="text-[10px] font-bold tracking-[0.18em] uppercase text-gray-400">PYOS SSH</p>
+        <h2 class="text-lg font-semibold text-gray-950 mt-1">Default SSH key path</h2>
+        <p class="text-sm text-gray-500 mt-1">
+          {% if pyos_ssh_settings.default_ssh_key_path %}
+            {{ pyos_ssh_settings.default_ssh_key_path }}
+          {% else %}
+            No default path set. PYOS will fall back to DafeApp’s managed SSH keypair.
+          {% endif %}
+        </p>
+      </div>
+      <a href="{% url 'cloud:ssh-settings' %}"
+         class="px-4 py-2.5 rounded-xl bg-gray-950 text-white text-sm font-medium hover:bg-gray-800">
+        Configure
+      </a>
+    </section>
 
     {# CLOUD PROVIDERS MARKETPLACE #}
     <section>

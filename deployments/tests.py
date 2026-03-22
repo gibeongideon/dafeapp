@@ -239,3 +239,35 @@ class OdooVersionedFlowTests(TestCase):
         )
         self.assertEqual(resp.status_code, 400)
         self.assertTrue(OdooServer.objects.filter(pk=server.pk).exists())
+
+    def test_archive_hides_server_and_delete_removes_it(self):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-archive",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            status=OdooServer.Status.PROVISIONED,
+            is_active=True,
+        )
+
+        archive_resp = self.client.post(
+            reverse("deployments:odoo-server-archive", kwargs={"server_id": server.id}),
+            data={},
+        )
+        self.assertEqual(archive_resp.status_code, 200)
+        server.refresh_from_db()
+        self.assertFalse(server.is_active)
+        self.assertEqual(server.status, OdooServer.Status.ARCHIVED)
+
+        list_resp = self.client.get(reverse("deployments:odoo-server-list"))
+        self.assertNotContains(list_resp, "odoo19-archive")
+
+        delete_resp = self.client.post(
+            reverse("deployments:odoo-server-delete", kwargs={"server_id": server.id}),
+            data={},
+        )
+        self.assertEqual(delete_resp.status_code, 200)
+        self.assertFalse(OdooServer.objects.filter(pk=server.pk).exists())

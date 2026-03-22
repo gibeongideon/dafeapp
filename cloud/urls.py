@@ -7,6 +7,7 @@ app_name = "cloud"
 urlpatterns = [
     # Dashboard
     path("", views.CloudDashboardView.as_view(), name="dashboard"),
+    path("ssh-settings/", views.PyOSSSHSettingsView.as_view(), name="ssh-settings"),
 
     # PYOS servers
     path("servers/add/", views.AddExternalServerView.as_view(), name="add-server"),

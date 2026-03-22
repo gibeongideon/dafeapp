@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # deploy_bare.sh
-# Direct bare-metal Odoo installer for Ubuntu 22.04 / 24.04 servers.
+# Direct bare-metal Odoo environment bootstrapper for Ubuntu 22.04 / 24.04 servers.
 #
 # Works with:  DigitalOcean Droplets  (default SSH user: ubuntu)
 #              AWS EC2 Ubuntu AMIs    (default SSH user: ubuntu)
@@ -15,33 +15,34 @@
 #   -u, --user       USER        SSH username               [default: ubuntu]
 #   -k, --key        PATH        Path to SSH private key    [default: ~/.ssh/id_rsa]
 #   -v, --version    VERSION     Odoo major version: 17|18|19  [default: 19]
-#   -p, --port       PORT        Odoo HTTP port             [default: 8069]
+#   -p, --port       PORT        Standalone Odoo HTTP port  [default: 8069]
 #   -d, --domain     DOMAIN      FQDN for Nginx + SSL       [optional]
 #   -e, --email      EMAIL       Admin e-mail for certbot   [optional, required with --domain]
+#   --standalone                 Also start a standalone Odoo service
 #   --enterprise                 Install Odoo Enterprise    [default: Community]
 #   --local                      Run the installer on this machine instead of SSH
 #   --fresh                      Remove stale local Odoo host state before install
 #   -h, --help                   Show this help message
 #
 # Examples:
-#   # Minimal – Community, no Nginx, no SSL
+#   # Minimal – environment only (no running Odoo service)
 #   ./scripts/deploy_bare.sh --ip 165.22.100.50 --key ~/.ssh/do_key
 #
 #   # Local test on this machine (no Docker)
-#   ./scripts/deploy_bare.sh --local --version 19 --port 8069
+#   ./scripts/deploy_bare.sh --local --version 19
 #
 #   # Fresh local test from a clean slate
-#   ./scripts/deploy_bare.sh --local --fresh --version 19 --port 8069
+#   ./scripts/deploy_bare.sh --local --fresh --version 19
 #
-#   # DigitalOcean with Nginx + SSL
+#   # Legacy standalone service with Nginx + SSL
 #   ./scripts/deploy_bare.sh \
 #     --ip 165.22.100.50 --user ubuntu --key ~/.ssh/do_key \
-#     --version 19 --domain odoo.example.com --email admin@example.com
+#     --version 19 --domain odoo.example.com --email admin@example.com --standalone
 #
-#   # AWS EC2 with default ubuntu user
+#   # AWS EC2 environment bootstrap (standalone optional via --standalone)
 #   ./scripts/deploy_bare.sh \
 #     --ip 54.10.20.30 --key ~/.ssh/aws_key.pem \
-#     --version 18 --port 8069 --domain odoo.mycompany.com --email me@mycompany.com
+#     --version 18 --domain odoo.mycompany.com --email me@mycompany.com
 # =============================================================================
 
 set -euo pipefail
@@ -61,6 +62,7 @@ OE_PORT="${DEPLOY_PORT:-8069}"
 DOMAIN="${DEPLOY_DOMAIN:-}"
 ADMIN_EMAIL="${DEPLOY_ADMIN_EMAIL:-odoo@example.com}"
 IS_ENTERPRISE="${DEPLOY_ENTERPRISE:-False}"
+BOOTSTRAP_STANDALONE="${DEPLOY_STANDALONE:-False}"
 LOCAL_MODE="${DEPLOY_LOCAL:-False}"
 FRESH_MODE="${DEPLOY_FRESH:-False}"
 REMOTE_DIR="/opt/dafeapp-install"
@@ -82,6 +84,7 @@ while [[ $# -gt 0 ]]; do
     -p|--port)      OE_PORT="$2";         shift 2 ;;
     -d|--domain)    DOMAIN="$2";          shift 2 ;;
     -e|--email)     ADMIN_EMAIL="$2";     shift 2 ;;
+    --standalone)   BOOTSTRAP_STANDALONE="True"; shift ;;
     --enterprise)   IS_ENTERPRISE="True"; shift   ;;
     --local)        LOCAL_MODE="True";    shift   ;;
     --fresh)        FRESH_MODE="True";    shift   ;;
@@ -185,11 +188,17 @@ else
   echo "  SSH key      : ${KEY_PATH}"
 fi
 echo "  Odoo version : ${ODOO_VERSION}"
-echo "  Port         : ${OE_PORT}"
-echo "  Nginx        : ${INSTALL_NGINX}"
-echo "  SSL/certbot  : ${ENABLE_SSL}"
-echo "  Domain       : ${DOMAIN}"
-echo "  Admin email  : ${ADMIN_EMAIL}"
+if [[ "${BOOTSTRAP_STANDALONE}" == "True" ]]; then
+  echo "  Mode         : standalone service"
+  echo "  Port         : ${OE_PORT}"
+  echo "  Nginx        : ${INSTALL_NGINX}"
+  echo "  SSL/certbot  : ${ENABLE_SSL}"
+  echo "  Domain       : ${DOMAIN}"
+  echo "  Admin email  : ${ADMIN_EMAIL}"
+else
+  echo "  Mode         : environment only"
+  echo "  Standalone   : disabled"
+fi
 echo "  Enterprise   : ${IS_ENTERPRISE}"
 echo "============================================================"
 
@@ -244,6 +253,7 @@ sed -i "s|^ENABLE_SSL=\"[^\"]*\"|ENABLE_SSL=\"${ENABLE_SSL}\"|"          "${PATC
 sed -i "s|^ADMIN_EMAIL=\"[^\"]*\"|ADMIN_EMAIL=\"${ADMIN_EMAIL}\"|"       "${PATCHED_SCRIPT}"
 sed -i "s|^WEBSITE_NAME=\"[^\"]*\"|WEBSITE_NAME=\"${DOMAIN}\"|"         "${PATCHED_SCRIPT}"
 sed -i "s|^IS_ENTERPRISE=\"[^\"]*\"|IS_ENTERPRISE=\"${IS_ENTERPRISE}\"|" "${PATCHED_SCRIPT}"
+sed -i "s|^BOOTSTRAP_STANDALONE=\"[^\"]*\"|BOOTSTRAP_STANDALONE=\"${BOOTSTRAP_STANDALONE}\"|" "${PATCHED_SCRIPT}"
 
 echo "      Script patched OK."
 
@@ -272,9 +282,17 @@ fi
 # ---------------------------------------------------------------------------
 echo ""
 if [[ "${LOCAL_MODE}" == "True" ]]; then
-  echo "[5/5] Running Odoo installer locally..."
+  if [[ "${BOOTSTRAP_STANDALONE}" == "True" ]]; then
+    echo "[5/5] Running standalone Odoo installer locally..."
+  else
+    echo "[5/5] Running Odoo environment bootstrap locally..."
+  fi
 else
-  echo "[5/5] Running Odoo installer on remote server..."
+  if [[ "${BOOTSTRAP_STANDALONE}" == "True" ]]; then
+    echo "[5/5] Running standalone Odoo installer on remote server..."
+  else
+    echo "[5/5] Running Odoo environment bootstrap on remote server..."
+  fi
 fi
 echo "      This typically takes 5–15 minutes depending on network speed."
 echo "      Output is streamed below."
@@ -293,52 +311,69 @@ echo ""
 # Post-install summary
 # ---------------------------------------------------------------------------
 echo "[done] Fetching post-install summary..."
-if [[ "${LOCAL_MODE}" != "True" ]]; then
-  echo "      Waiting for SSH to respond..."
-  if ! wait_for_ssh 12 10; then
-    echo "[warn] SSH is still unavailable on ${IP}; skipping post-install summary."
-    echo "       The installer may still have completed successfully."
+if [[ "${BOOTSTRAP_STANDALONE}" == "True" ]]; then
+  if [[ "${LOCAL_MODE}" != "True" ]]; then
+    echo "      Waiting for SSH to respond..."
+    if ! wait_for_ssh 12 10; then
+      echo "[warn] SSH is still unavailable on ${IP}; skipping post-install summary."
+      echo "       The installer may still have completed successfully."
+    fi
   fi
-fi
-if [[ "${LOCAL_MODE}" == "True" ]]; then
-  ADMIN_PASS=$(sudo grep 'admin_passwd' /etc/odoo-server.conf 2>/dev/null || echo '(not found)')
-  SERVICE_STATUS=$(sudo service odoo-server status 2>/dev/null | head -5 || echo '(status unavailable)')
-else
-  if ssh_cmd "echo ssh-ready" >/dev/null 2>&1; then
-    ADMIN_PASS=$(ssh_cmd "sudo grep 'admin_passwd' /etc/odoo-server.conf 2>/dev/null || echo '(not found)'")
-    SERVICE_STATUS=$(ssh_cmd "sudo service odoo-server status 2>/dev/null | head -5 || echo '(status unavailable)'")
+  if [[ "${LOCAL_MODE}" == "True" ]]; then
+    ADMIN_PASS=$(sudo grep 'admin_passwd' /etc/odoo-server.conf 2>/dev/null || echo '(not found)')
+    SERVICE_STATUS=$(sudo service odoo-server status 2>/dev/null | head -5 || echo '(status unavailable)')
   else
-    ADMIN_PASS="(not found)"
-    SERVICE_STATUS="(status unavailable)"
+    if ssh_cmd "echo ssh-ready" >/dev/null 2>&1; then
+      ADMIN_PASS=$(ssh_cmd "sudo grep 'admin_passwd' /etc/odoo-server.conf 2>/dev/null || echo '(not found)'")
+      SERVICE_STATUS=$(ssh_cmd "sudo service odoo-server status 2>/dev/null | head -5 || echo '(status unavailable)'")
+    else
+      ADMIN_PASS="(not found)"
+      SERVICE_STATUS="(status unavailable)"
+    fi
   fi
+else
+  ADMIN_PASS="(not applicable)"
+  SERVICE_STATUS="(no standalone service started)"
 fi
 
 echo ""
 echo "============================================================"
-echo "  Odoo ${ODOO_VERSION} installation complete!"
+if [[ "${BOOTSTRAP_STANDALONE}" == "True" ]]; then
+  echo "  Odoo ${ODOO_VERSION} installation complete!"
+else
+  echo "  Odoo ${ODOO_VERSION} environment ready!"
+fi
 echo "============================================================"
 echo "  Server IP     : ${IP}"
-echo "  Odoo port     : ${OE_PORT}"
-echo "  Config file   : /etc/odoo-server.conf"
-echo "  Log file      : /var/log/odoo/odoo-server.log"
-echo "  ${ADMIN_PASS}"
-if [[ "${INSTALL_NGINX}" == "True" ]]; then
-  echo "  Nginx site    : /etc/nginx/sites-available/${DOMAIN}"
-fi
-if [[ "${ENABLE_SSL}" == "True" ]]; then
-  echo "  SSL           : enabled (Let's Encrypt)"
-fi
-echo ""
-echo "  Service management:"
-echo "    sudo service odoo-server start"
-echo "    sudo service odoo-server stop"
-echo "    sudo service odoo-server restart"
-echo ""
-echo "  Open Odoo:    http://${IP}:${OE_PORT}"
-if [[ -n "${DOMAIN}" && "${DOMAIN}" != "_" ]]; then
-  PROTO="http"
-  [[ "${ENABLE_SSL}" == "True" ]] && PROTO="https"
-  echo "             ${PROTO}://${DOMAIN}"
+echo "  Odoo version  : ${ODOO_VERSION}"
+if [[ "${BOOTSTRAP_STANDALONE}" == "True" ]]; then
+  echo "  Odoo port     : ${OE_PORT}"
+  echo "  Config file   : /etc/odoo-server.conf"
+  echo "  Log file      : /var/log/odoo/odoo-server.log"
+  echo "  ${ADMIN_PASS}"
+  if [[ "${INSTALL_NGINX}" == "True" ]]; then
+    echo "  Nginx site    : /etc/nginx/sites-available/${DOMAIN}"
+  fi
+  if [[ "${ENABLE_SSL}" == "True" ]]; then
+    echo "  SSL           : enabled (Let's Encrypt)"
+  fi
+  echo ""
+  echo "  Service management:"
+  echo "    sudo service odoo-server start"
+  echo "    sudo service odoo-server stop"
+  echo "    sudo service odoo-server restart"
+  echo ""
+  echo "  Open Odoo:    http://${IP}:${OE_PORT}"
+  if [[ -n "${DOMAIN}" && "${DOMAIN}" != "_" ]]; then
+    PROTO="http"
+    [[ "${ENABLE_SSL}" == "True" ]] && PROTO="https"
+    echo "             ${PROTO}://${DOMAIN}"
+  fi
+else
+  echo "  Source code   : /odoo/odoo-server"
+  echo "  Python venv   : /odoo/venv"
+  echo "  Log directory : /var/log/odoo"
+  echo "  Next step     : create an Odoo instance with Ansible"
 fi
 echo "============================================================"
 echo ""

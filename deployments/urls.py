@@ -13,6 +13,7 @@ urlpatterns = [
     path("odoo/servers/", views.OdooServerListAPIView.as_view(), name="odoo-server-list"),
     path("odoo/servers/create/", views.OdooServerCreateAPIView.as_view(), name="odoo-server-create"),
     path("odoo/servers/<int:server_id>/", views.OdooServerDetailAPIView.as_view(), name="odoo-server-detail"),
+    path("odoo/servers/<int:server_id>/archive/", views.OdooServerArchiveAPIView.as_view(), name="odoo-server-archive"),
     path("odoo/servers/<int:server_id>/delete/", views.OdooServerDeleteAPIView.as_view(), name="odoo-server-delete"),
     path("odoo/servers/<int:server_id>/check/", views.OdooServerCheckConnectivityView.as_view(), name="odoo-server-check"),
     path("pyos/vps/create/", views.PyosVpsCreateAPIView.as_view(), name="pyos-vps-create"),

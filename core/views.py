@@ -224,9 +224,10 @@ class InstallationDocsView(LoginRequiredMixin, TemplateView):
             {"flag": "--user",       "env": "DEPLOY_USER",         "default": "ubuntu",               "desc": "SSH username"},
             {"flag": "--key",        "env": "DEPLOY_KEY",          "default": "~/.ssh/id_rsa",        "desc": "Path to SSH private key"},
             {"flag": "--version",    "env": "DEPLOY_ODOO_VERSION", "default": "19",                   "desc": "Odoo major version: 17, 18, or 19"},
-            {"flag": "--port",       "env": "DEPLOY_PORT",         "default": "8069",                 "desc": "Odoo HTTP port"},
-            {"flag": "--domain",     "env": "DEPLOY_DOMAIN",       "default": "(empty)",              "desc": "FQDN — enables Nginx reverse proxy"},
+            {"flag": "--port",       "env": "DEPLOY_PORT",         "default": "8069",                 "desc": "Standalone Odoo HTTP port"},
+            {"flag": "--domain",     "env": "DEPLOY_DOMAIN",       "default": "(empty)",              "desc": "FQDN — only used for standalone Nginx/SSL"},
             {"flag": "--email",      "env": "DEPLOY_ADMIN_EMAIL",  "default": "odoo@example.com",     "desc": "Admin e-mail for certbot / Let's Encrypt"},
+            {"flag": "--standalone", "env": "DEPLOY_STANDALONE",   "default": "False",                "desc": "Also start a standalone Odoo service on the server"},
             {"flag": "--enterprise", "env": "DEPLOY_ENTERPRISE",   "default": "False",                "desc": "Set to install Odoo Enterprise edition"},
         ]
 
@@ -234,6 +235,7 @@ class InstallationDocsView(LoginRequiredMixin, TemplateView):
             # Ansible / playbook
             {"name": "ANSIBLE_ODOO_SERVER_PLAYBOOK",  "required": True,  "default": "—",                 "desc": "Path to setup_odoo_server_bare.yml. The playbook picks the version-specific script from scripts/installscript/{ver}/odoo_install.sh."},
             {"name": "ANSIBLE_ODOO_INSTANCE_PLAYBOOK","required": False, "default": "—",                 "desc": "Path to the Ansible playbook for per-instance setup (nginx site, systemd service, SSL)."},
+            {"name": "DEPLOY_STANDALONE",             "required": False, "default": "False",             "desc": "Set to True only if you want deploy_bare.sh to start a standalone Odoo service on the server."},
             {"name": "ODOO_ADMIN_EMAIL",              "required": False, "default": "odoo@example.com",  "desc": "E-mail passed to certbot. SSL is skipped when this is the placeholder value."},
             # Terraform
             {"name": "TERRAFORM_SERVER_MODULE_DIR",   "required": False, "default": "—",                 "desc": "Path to infra/terraform/odoo_server/. Required for managed-cloud (DO/AWS) provisioning."},

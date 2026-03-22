@@ -2,13 +2,17 @@ import logging
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db import transaction
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.views import View
 from django.views.generic import TemplateView
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
 
-from cloud.models import CloudAccount
+from cloud.models import CloudAccount, PyOSSSHSettings
 from cloud.providers import get_provider
+from cloud.pyos import looks_like_public_key_text
 from deployments.models import (
     DeploymentJob,
     Infrastructure,
@@ -51,6 +55,83 @@ def _dispatch(task, *args):
     except Exception:
         logger.warning("Celery broker unavailable; running task synchronously.", exc_info=True)
         task(*args)
+
+
+def _broadcast_server_event(server_id: int, payload: dict):
+    channel_layer = get_channel_layer()
+    if channel_layer is None:
+        return
+    try:
+        async_to_sync(channel_layer.group_send)(
+            f"odoo.server.{server_id}",
+            {"type": "server.update", "payload": payload},
+        )
+    except Exception:
+        logger.warning("Server broadcast skipped for server %s", server_id, exc_info=True)
+
+
+def _broadcast_server_snapshot(server: OdooServer):
+    """Push a full server snapshot to open websocket listeners."""
+    try:
+        channel_layer = get_channel_layer()
+        if channel_layer is None:
+            return
+        async_to_sync(channel_layer.group_send)(
+            f"odoo.server.{server.id}",
+            {
+                "type": "server.update",
+                "payload": {
+                    "type": "snapshot",
+                    "server": OdooServerSerializer(server).data,
+                },
+            },
+        )
+    except Exception:
+        logger.warning("Server snapshot broadcast skipped for server %s", server.id, exc_info=True)
+
+
+def _create_pyos_infrastructure(
+    org,
+    name: str,
+    host: str,
+    port: int,
+    username: str,
+    auth_type: str,
+    password: str,
+    ssh_key_path: str,
+    created_by,
+):
+    """Create the ExternalServer + Infrastructure records for a direct PYOS server."""
+    from cloud.models import ExternalServer
+
+    ext = ExternalServer(
+        organization=org,
+        name=name,
+        host=host,
+        port=port,
+        username=username,
+        auth_type=auth_type,
+        ssh_key_path=ssh_key_path.strip(),
+        is_verified=False,
+        verification_error="SSH connection has not been verified yet.",
+    )
+    if auth_type == "PASSWORD":
+        ext._raw_password = password.strip()
+    ext.save()
+
+    infra_name = name
+    if Infrastructure.objects.filter(organization=org, name=infra_name).exists():
+        infra_name = f"{name}-{ext.id}"
+    infra = Infrastructure.objects.create(
+        organization=org,
+        name=infra_name,
+        infra_type=Infrastructure.InfraType.PYOS,
+        external_server=ext,
+        is_connected=True,
+        validation_log="Created via inline deployment form.",
+        created_by=created_by,
+    )
+    return infra, ext
 
 
 def _active_instances_for_server(server: OdooServer):
@@ -108,11 +189,14 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
         ctx["infrastructures"] = Infrastructure.objects.filter(
             organization=org
         ).select_related("cloud_account", "external_server")[:100]
-        ctx["odoo_servers"] = OdooServer.objects.filter(
-            organization=org
-        ).select_related("infrastructure", "cloud_account").order_by("-created_at")[:100]
+        ctx["odoo_servers"] = (
+            OdooServer.objects.filter(organization=org)
+            .filter(is_active=True)
+            .select_related("infrastructure", "infrastructure__external_server", "cloud_account")
+            .order_by("-created_at")[:100]
+        )
         ctx["odoo_instances"] = (
-            OdooInstance.objects.filter(organization=org)
+            OdooInstance.objects.filter(organization=org, server__is_active=True)
             .select_related("server")
             .order_by("-created_at")[:20]
         )
@@ -122,6 +206,7 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
         ctx["enforcer"] = getattr(self.request, "subscription_enforcer", SubscriptionEnforcer(org))
         from cloud.models import SystemSSHKey
         ctx["dafeapp_public_key"] = SystemSSHKey.get_or_create_keypair().public_key
+        ctx["pyos_default_ssh_key_path"] = PyOSSSHSettings.get_or_create_settings().default_ssh_key_path
         return ctx
 
     def post(self, request):
@@ -210,15 +295,74 @@ class OdooServerCreateAPIView(LoginRequiredMixin, View):
             return JsonResponse({"error": "odoo_version must be '17', '18', or '19'."}, status=400)
 
         name = (request.POST.get("name") or "").strip()
-        region = (request.POST.get("region") or "").strip()
-        size = (request.POST.get("size") or "").strip()
         dns_domain = (request.POST.get("dns_domain") or "").strip()
-        if not name or not region or not size:
-            return JsonResponse({"error": "name, region and size are required."}, status=400)
-
         deployment_mode = (request.POST.get("deployment_mode") or "").strip()
         if deployment_mode not in (OdooServer.DeploymentMode.BARE_METAL, OdooServer.DeploymentMode.DOCKER):
             deployment_mode = OdooServer.DeploymentMode.BARE_METAL
+
+        # Direct PYOS provisioning: one request creates the external server
+        # connection, the infrastructure wrapper, and the OdooServer record.
+        host = (request.POST.get("host") or "").strip()
+        if host:
+            port_raw = request.POST.get("port") or "22"
+            username = (request.POST.get("username") or "root").strip()
+            auth_type = (request.POST.get("auth_type") or "DAFEAPP_KEY").strip()
+            password = request.POST.get("password") or ""
+            ssh_key_path = (request.POST.get("ssh_key_path") or "").strip()
+            if not name:
+                return JsonResponse({"error": "name is required."}, status=400)
+            if auth_type not in ("DAFEAPP_KEY", "PASSWORD"):
+                return JsonResponse({"error": "auth_type must be DAFEAPP_KEY or PASSWORD."}, status=400)
+            if auth_type == "PASSWORD" and not password.strip():
+                return JsonResponse({"error": "Password is required for password auth."}, status=400)
+            if ssh_key_path and looks_like_public_key_text(ssh_key_path):
+                return JsonResponse(
+                    {
+                        "error": (
+                            "SSH key path must be a file path on the machine running DafeApp, "
+                            "not pasted public key text."
+                        )
+                    },
+                    status=400,
+                )
+            try:
+                port = int(port_raw)
+                if not (1 <= port <= 65535):
+                    raise ValueError
+            except (ValueError, TypeError):
+                return JsonResponse({"error": "Port must be a number between 1 and 65535."}, status=400)
+
+            infrastructure, _ = _create_pyos_infrastructure(
+                org,
+                name=name,
+                host=host,
+                port=port,
+                username=username,
+                auth_type=auth_type,
+                password=password,
+                ssh_key_path=ssh_key_path,
+                created_by=request.user,
+            )
+            server = OdooServer.objects.create(
+                organization=org,
+                infrastructure=infrastructure,
+                cloud_account=None,
+                name=name,
+                odoo_version=odoo_version,
+                region="pyos",
+                size="existing-server",
+                ip_address=host,
+                dns_domain=dns_domain,
+                deployment_mode=deployment_mode,
+                created_by=request.user,
+            )
+            _dispatch(provision_odoo_server, server.id)
+            return JsonResponse(OdooServerSerializer(server).data, status=201)
+
+        region = (request.POST.get("region") or "").strip()
+        size = (request.POST.get("size") or "").strip()
+        if not name or not region or not size:
+            return JsonResponse({"error": "name, region and size are required."}, status=400)
 
         # Resolve infrastructure — accept either an existing infra id or a
         # bare cloud_account_id (auto-creates or reuses a MANAGED infrastructure).
@@ -270,7 +414,7 @@ class OdooServerListAPIView(LoginRequiredMixin, View):
         if not org:
             return JsonResponse({"error": "No active organization."}, status=400)
         version = (request.GET.get("odoo_version") or "").strip()
-        qs = OdooServer.objects.filter(organization=org)
+        qs = OdooServer.objects.filter(organization=org, is_active=True)
         if version in ("17", "18", "19"):
             qs = qs.filter(odoo_version=version)
         data = OdooServerSerializer(qs[:100], many=True).data
@@ -284,7 +428,7 @@ class OdooServerDetailAPIView(LoginRequiredMixin, View):
         org = getattr(request, "organization", None)
         if not org:
             return JsonResponse({"error": "No active organization."}, status=400)
-        server = get_object_or_404(OdooServer, pk=server_id, organization=org)
+        server = get_object_or_404(OdooServer, pk=server_id, organization=org, is_active=True)
         return JsonResponse(OdooServerSerializer(server).data)
 
 
@@ -292,8 +436,6 @@ class PyosVpsCreateAPIView(LoginRequiredMixin, View):
     """POST — create ExternalServer + Infrastructure inline from the deployment modal."""
 
     def post(self, request):
-        from cloud.models import ExternalServer
-
         org = getattr(request, "organization", None)
         if not org:
             return JsonResponse({"error": "No active organization."}, status=400)
@@ -313,6 +455,17 @@ class PyosVpsCreateAPIView(LoginRequiredMixin, View):
             return JsonResponse({"error": "auth_type must be DAFEAPP_KEY or PASSWORD."}, status=400)
         if auth_type == "PASSWORD" and not password.strip():
             return JsonResponse({"error": "Password is required for password auth."}, status=400)
+        ssh_key_path = (request.POST.get("ssh_key_path") or "").strip()
+        if ssh_key_path and looks_like_public_key_text(ssh_key_path):
+            return JsonResponse(
+                {
+                    "error": (
+                        "SSH key path must be a file path on the machine running DafeApp, "
+                        "not pasted public key text."
+                    )
+                },
+                status=400,
+            )
         try:
             port = int(port_raw)
             if not (1 <= port <= 65535):
@@ -320,29 +473,15 @@ class PyosVpsCreateAPIView(LoginRequiredMixin, View):
         except (ValueError, TypeError):
             return JsonResponse({"error": "Port must be a number between 1 and 65535."}, status=400)
 
-        ext = ExternalServer(
-            organization=org,
+        infra, ext = _create_pyos_infrastructure(
+            org,
             name=name,
             host=host,
             port=port,
             username=username,
             auth_type=auth_type,
-            is_verified=True,
-        )
-        if auth_type == "PASSWORD":
-            ext._raw_password = password.strip()
-        ext.save()
-
-        infra_name = name
-        if Infrastructure.objects.filter(organization=org, name=infra_name).exists():
-            infra_name = f"{name}-{ext.id}"
-        infra = Infrastructure.objects.create(
-            organization=org,
-            name=infra_name,
-            infra_type=Infrastructure.InfraType.PYOS,
-            external_server=ext,
-            is_connected=True,
-            validation_log="Created via inline deployment form.",
+            password=password,
+            ssh_key_path=ssh_key_path,
             created_by=request.user,
         )
         return JsonResponse({"infrastructure_id": infra.id, "external_server_id": ext.id}, status=201)
@@ -352,8 +491,10 @@ class OdooServerCheckConnectivityView(LoginRequiredMixin, View):
     """POST /odoo/servers/<server_id>/check/ — probe SSH port and update is_reachable."""
 
     def post(self, request, server_id):
-        import socket
         from django.utils import timezone
+        import socket
+
+        from cloud.pyos import PyOSService
 
         org = getattr(request, "organization", None)
         if not org:
@@ -363,35 +504,59 @@ class OdooServerCheckConnectivityView(LoginRequiredMixin, View):
             OdooServer.objects.select_related("infrastructure", "infrastructure__external_server"),
             pk=server_id,
             organization=org,
+            is_active=True,
         )
 
         infra = server.infrastructure
         if infra and infra.infra_type == Infrastructure.InfraType.PYOS and infra.external_server:
             ext = infra.external_server
+            service = PyOSService(ext)
+            reachable, message = service.validate()
             host = str(ext.host)
             port = ext.port or 22
+            ext.is_verified = reachable
+            ext.verification_error = "" if reachable else message
+            ext.last_verified_at = timezone.now()
+            ext.save(update_fields=["is_verified", "verification_error", "last_verified_at"])
         elif server.ip_address:
             host = str(server.ip_address)
             port = 22
-        else:
-            return JsonResponse({"error": "No host/IP to probe — server has no IP yet."}, status=400)
-
-        try:
-            with socket.create_connection((host, port), timeout=5):
-                reachable = True
-        except OSError:
             reachable = False
+            message = ""
+            try:
+                with socket.create_connection((host, port), timeout=5):
+                    reachable = True
+            except OSError as exc:
+                message = str(exc)
+        else:
+            host = ""
+            port = 22
+            reachable = False
+            message = "No host/IP to probe — server has no IP yet."
 
         now = timezone.now()
         server.is_reachable = reachable
         server.last_checked_at = now
-        server.save(update_fields=["is_reachable", "last_checked_at"])
+        update_fields = ["is_reachable", "last_checked_at"]
+        if host and server.ip_address != host:
+            server.ip_address = host
+            update_fields.append("ip_address")
+        server.save(update_fields=update_fields)
+        if infra and infra.infra_type == Infrastructure.InfraType.PYOS and infra.external_server:
+            ext.is_reachable = reachable
+            ext.last_checked_at = now
+            ext.save(update_fields=["is_reachable", "last_checked_at"])
 
-        return JsonResponse({
+        _broadcast_server_snapshot(server)
+
+        payload = {
             "is_reachable": reachable,
             "last_checked_at": now.isoformat(),
             "connectivity_status": "connected" if reachable else "disconnected",
-        })
+        }
+        if message:
+            payload["message"] = message
+        return JsonResponse(payload)
 
 
 class OdooInstanceCreateAPIView(LoginRequiredMixin, View):
@@ -414,6 +579,8 @@ class OdooInstanceCreateAPIView(LoginRequiredMixin, View):
             pk=request.POST.get("server_id"),
             organization=org,
         )
+        if not server.is_active:
+            return JsonResponse({"error": "Server is archived."}, status=400)
         if server.status != OdooServer.Status.PROVISIONED:
             return JsonResponse({"error": "Server is not PROVISIONED yet."}, status=400)
         if server.last_checked_at is not None and not server.is_reachable:
@@ -466,7 +633,17 @@ class OdooInstanceListAPIView(LoginRequiredMixin, View):
         if not org:
             return JsonResponse({"error": "No active organization."}, status=400)
         server_id = request.GET.get("server_id")
-        qs = OdooInstance.objects.filter(organization=org).select_related("server")
+        qs = OdooInstance.objects.filter(
+            organization=org,
+            server__is_active=True,
+            server__status__in=[
+                OdooServer.Status.PENDING,
+                OdooServer.Status.PROVISIONING,
+                OdooServer.Status.CONFIGURING,
+                OdooServer.Status.PROVISIONED,
+                OdooServer.Status.FAILED,
+            ],
+        ).select_related("server")
         if server_id:
             qs = qs.filter(server_id=server_id)
         data = OdooInstanceSerializer(qs[:200], many=True).data
@@ -531,8 +708,6 @@ class InfrastructureCreateAPIView(LoginRequiredMixin, View):
         if infra_type == Infrastructure.InfraType.PYOS:
             from cloud.models import ExternalServer
             ext = get_object_or_404(ExternalServer, pk=request.POST.get("external_server_id"), organization=org)
-            if not ext.is_verified:
-                return JsonResponse({"error": "PYOS infrastructure requires a verified external server."}, status=400)
         else:
             account = get_object_or_404(CloudAccount, pk=request.POST.get("cloud_account_id"), organization=org, is_verified=True)
 
@@ -579,7 +754,7 @@ class OdooInstanceDeleteAPIView(LoginRequiredMixin, View):
         return JsonResponse({"ok": True, "message": "Instance deletion queued."})
 
 
-class OdooServerDeleteAPIView(LoginRequiredMixin, View):
+class OdooServerArchiveAPIView(LoginRequiredMixin, View):
     def post(self, request, server_id):
         org = getattr(request, "organization", None)
         if not org:
@@ -598,40 +773,45 @@ class OdooServerDeleteAPIView(LoginRequiredMixin, View):
         )
 
         try:
-            # Mark all non-deleted instances as deleted
-            for inst in server.instances.exclude(status=OdooInstance.Status.DELETED):
-                inst.status = OdooInstance.Status.DELETED
-                inst.provisioning_log = (inst.provisioning_log + "\n" + "Deleted due to server deletion.").strip()
-                inst.save(update_fields=["status", "provisioning_log", "updated_at"])
+            server.is_active = False
+            server.status = OdooServer.Status.ARCHIVED
+            server.provisioning_log = (server.provisioning_log + "\n" + "Server archived (inactivated).").strip()
+            server.save(update_fields=["is_active", "status", "provisioning_log", "updated_at"])
+            _broadcast_server_event(server.id, {"type": "removed", "server_id": server.id, "reason": "archived"})
+            return JsonResponse({"ok": True, "message": "Server archived and hidden from the UI."})
 
-            # Destroy the cloud provider resource if applicable
-            cloud_account = server.effective_cloud_account
-            infra_type = (
-                server.infrastructure.infra_type
-                if server.infrastructure
-                else (Infrastructure.InfraType.MANAGED if cloud_account else Infrastructure.InfraType.PYOS)
-            )
-            if infra_type == Infrastructure.InfraType.MANAGED and server.provider_server_id and cloud_account:
-                try:
-                    provider = get_provider(cloud_account)
-                    destroyed = provider.destroy_server(server.provider_server_id)
-                    if not destroyed:
-                        logger.warning(
-                            "destroy_server returned False for provider_server_id=%s (server %s) — "
-                            "droplet may need manual removal.",
-                            server.provider_server_id, server.pk,
-                        )
-                except Exception:
-                    logger.exception(
-                        "Error destroying cloud resource %s for OdooServer %s",
-                        server.provider_server_id, server.pk,
-                    )
+        except Exception as exc:
+            logger.exception("Unexpected error archiving OdooServer %s", server_id)
+            return JsonResponse({"error": f"Archive failed: {exc}"}, status=500)
 
-            server.status = OdooServer.Status.DELETED
-            server.provisioning_log = (server.provisioning_log + "\n" + "Server deleted.").strip()
-            server.save(update_fields=["status", "provisioning_log", "updated_at"])
-            return JsonResponse({"ok": True, "message": "Server and child instances deleted."})
 
+class OdooServerDeleteAPIView(LoginRequiredMixin, View):
+    def post(self, request, server_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if request.org_role not in ("SUPER_ADMIN", "ADMIN"):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        server = get_object_or_404(
+            OdooServer.objects.select_related(
+                "infrastructure",
+                "infrastructure__cloud_account",
+                "cloud_account",
+            ),
+            pk=server_id,
+            organization=org,
+        )
+        try:
+            with transaction.atomic():
+                # Clear the child rows first so hard-delete stays predictable.
+                server.instances.all().delete()
+                server.history.all().delete()
+                server.jobs.all().delete()
+                server.ssh_keys.all().delete()
+                server.delete()
+            _broadcast_server_event(server_id, {"type": "removed", "server_id": server_id, "reason": "deleted"})
+            return JsonResponse({"ok": True, "message": "Server deleted from the database."})
         except Exception as exc:
             logger.exception("Unexpected error deleting OdooServer %s", server_id)
             return JsonResponse({"error": f"Delete failed: {exc}"}, status=500)
@@ -647,7 +827,7 @@ class InfrastructureDeleteAPIView(LoginRequiredMixin, View):
 
         force = str(request.POST.get("force", "")).lower() in ("1", "true", "yes")
         infra = get_object_or_404(Infrastructure, pk=infrastructure_id, organization=org)
-        servers = infra.servers.exclude(status=OdooServer.Status.DELETED)
+        servers = infra.servers.all()
         if servers.exists() and not force:
             return JsonResponse(
                 {"error": "Infrastructure has servers. Set force=true to delete recursively."},
@@ -659,9 +839,7 @@ class InfrastructureDeleteAPIView(LoginRequiredMixin, View):
                     inst.status = OdooInstance.Status.DELETED
                     inst.provisioning_log = (inst.provisioning_log + "\n" + "Deleted due to infrastructure force delete.").strip()
                     inst.save(update_fields=["status", "provisioning_log", "updated_at"])
-                server.status = OdooServer.Status.DELETED
-                server.provisioning_log = (server.provisioning_log + "\n" + "Deleted due to infrastructure force delete.").strip()
-                server.save(update_fields=["status", "provisioning_log", "updated_at"])
+                server.delete()
         infra.delete()
         return JsonResponse({"ok": True, "message": "Infrastructure deleted."})
 

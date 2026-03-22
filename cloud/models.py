@@ -31,6 +31,7 @@ class ExternalServer(models.Model):
 
     # Encrypted credential field — raw value is NEVER stored
     encrypted_password = models.TextField(blank=True)
+    ssh_key_path = models.CharField(max_length=500, blank=True, default="")
 
     is_verified = models.BooleanField(default=False)
     is_prepared = models.BooleanField(default=False)
@@ -195,6 +196,32 @@ class Infrastructure(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.get_infra_type_display()})"
+
+
+class PyOSSSHSettings(models.Model):
+    """
+    Singleton settings for PYOS SSH behavior.
+
+    The default SSH key path is used when a server does not specify its own
+    per-server path. If blank, DafeApp falls back to its managed SSH keypair.
+    """
+
+    default_ssh_key_path = models.CharField(max_length=500, blank=True, default="")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "PYOS SSH Settings"
+        verbose_name_plural = "PYOS SSH Settings"
+
+    def __str__(self):
+        return "PYOS SSH Settings"
+
+    @classmethod
+    def get_or_create_settings(cls):
+        obj = cls.objects.first()
+        if obj:
+            return obj
+        return cls.objects.create(default_ssh_key_path="")
 
 
 class SystemSSHKey(models.Model):

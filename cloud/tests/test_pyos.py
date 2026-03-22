@@ -3,6 +3,8 @@ PyOS service tests — 4 cases, paramiko is fully mocked.
 """
 
 import socket
+import tempfile
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
@@ -11,8 +13,8 @@ from django.test import TestCase, override_settings
 import paramiko
 
 from cloud.encryption import FieldEncryptor
-from cloud.models import ExternalServer
-from cloud.pyos import PyOSService
+from cloud.models import ExternalServer, PyOSSSHSettings
+from cloud.pyos import PyOSService, resolve_private_key_string
 from organizations.models import Organization
 
 User = get_user_model()
@@ -114,3 +116,18 @@ class PyOSServiceTests(TestCase):
         # Verify each command was issued
         issued_cmds = [call.args[0] for call in mock_client.exec_command.call_args_list]
         self.assertEqual(issued_cmds, PREPARE_COMMANDS)
+
+    def test_resolve_private_key_string_uses_default_settings_path(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            key_file = Path(tmpdir) / "id_ed25519"
+            key_file.write_text("dummy-private-key")
+            settings_obj = PyOSSSHSettings.get_or_create_settings()
+            settings_obj.default_ssh_key_path = str(key_file)
+            settings_obj.save()
+
+            server = _make_server(self.org)
+            server.ssh_key_path = ""
+            private_key_str, source = resolve_private_key_string(server)
+
+            self.assertEqual(private_key_str, "dummy-private-key")
+            self.assertEqual(source, str(key_file))
