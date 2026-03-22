@@ -44,11 +44,11 @@ from cryptography.fernet import Fernet
 print(Fernet.generate_key().decode())
 ```
 
-**Infrastructure variables (needed for deployments):**
+**Infrastructure variables (used by deployments, but some now have repo-local defaults):**
 
 | Variable | Description |
 |----------|-------------|
-| `ANSIBLE_ODOO_SERVER_PLAYBOOK` | `setup_odoo_server_bare.yml` |
+| `ANSIBLE_ODOO_SERVER_PLAYBOOK` | `infra/ansible/setup_odoo_server_bare.yml` (default if unset) |
 | `ANSIBLE_ODOO_INSTANCE_PLAYBOOK` | `create_odoo_instance.yml` |
 | `ANSIBLE_ODOO_INSTANCE_DIRECT_PLAYBOOK` | `create_odoo_instance_direct.yml` |
 | `ANSIBLE_ODOO_INSTANCE_DELETE_PLAYBOOK` | `delete_odoo_instance_direct.yml` |

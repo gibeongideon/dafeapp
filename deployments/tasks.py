@@ -460,6 +460,11 @@ def _run_ansible_playbook(
     return code == 0, log_blob
 
 
+def _default_odoo_server_playbook() -> str:
+    """Absolute path to the repo-local bare-metal server bootstrap playbook."""
+    return str(Path(settings.BASE_DIR) / "infra" / "ansible" / "setup_odoo_server_bare.yml")
+
+
 def _pyos_ssh_creds(ext_server) -> tuple[str | None, str | None, str | None, str | None]:
     """
     Extract SSH creds from an ExternalServer for use with Ansible.
@@ -685,9 +690,9 @@ def provision_odoo_server(self, server_id: int):
         from django.utils import timezone
 
         ext.last_verified_at = None
-        ext.verification_error = "SSH connection is being verified..."
+        ext.verification_error = "Reachability is being verified..."
         ext.save(update_fields=["last_verified_at", "verification_error"])
-        _broadcast_server(server.id, "Validating SSH connection…", server.status)
+        _broadcast_server(server.id, "Validating reachability…", server.status)
         reachable, err = PyOSService(ext).validate()
         now = timezone.now()
         ext.is_verified = reachable
@@ -700,7 +705,7 @@ def provision_odoo_server(self, server_id: int):
         server.last_checked_at = now
         server.firewall_configured = True
         server.provisioning_log = _append_text(server.provisioning_log, "Using PYOS infrastructure connection.")
-        server.provisioning_log = _append_text(server.provisioning_log, "SSH connection verified." if reachable else err)
+        server.provisioning_log = _append_text(server.provisioning_log, "Reachability verified." if reachable else err)
         server.save(
             update_fields=[
                 "ip_address",
@@ -721,7 +726,7 @@ def provision_odoo_server(self, server_id: int):
         server.save(
             update_fields=["status", "updated_at"]
         )
-        _broadcast_server(server.id, f"SSH connection confirmed ({ext.host}) — starting Odoo configuration…", server.status)
+        _broadcast_server(server.id, f"Reachability confirmed ({ext.host}) — starting Odoo configuration…", server.status)
         if server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
             _queue_or_run(configure_docker_host, server.id)
         else:
@@ -859,13 +864,13 @@ def configure_odoo_server(self, server_id: int, job_id: int | None = None):
         _job_done(job_id, ok=False, log="No server IP available for configuration.")
         return
 
-    playbook = os.getenv("ANSIBLE_ODOO_SERVER_PLAYBOOK", "").strip()
-    if not playbook:
-        server.status = OdooServer.Status.PROVISIONED
-        msg = "ANSIBLE_ODOO_SERVER_PLAYBOOK not set. Marked PROVISIONED without server bootstrap."
+    playbook = os.getenv("ANSIBLE_ODOO_SERVER_PLAYBOOK", "").strip() or _default_odoo_server_playbook()
+    if not Path(playbook).exists():
+        server.status = OdooServer.Status.FAILED
+        msg = f"Server bootstrap playbook not found: {playbook}"
         server.provisioning_log = _append_text(server.provisioning_log, msg)
         server.save(update_fields=["status", "installation_summary", "installation_summary_text", "provisioning_log", "updated_at"])
-        _job_done(job_id, ok=True, log=msg)
+        _job_done(job_id, ok=False, log=msg)
         return
 
     admin_email = os.getenv("ODOO_ADMIN_EMAIL", "odoo@example.com").strip()
@@ -1129,7 +1134,6 @@ def check_server_connectivity():
     Updates is_reachable + last_checked_at without touching other fields.
     """
     from cloud.models import ExternalServer
-    from cloud.pyos import PyOSService
     from django.utils import timezone
 
     now = timezone.now()
@@ -1146,7 +1150,8 @@ def check_server_connectivity():
             continue
         infra = getattr(server, "infrastructure", None)
         if infra and infra.infra_type == Infrastructure.InfraType.PYOS and infra.external_server:
-            reachable, message = PyOSService(infra.external_server).validate()
+            reachable = _tcp_reachable(host, port)
+            message = f"Host unreachable for {host}:{port}." if not reachable else f"Port reachable at {host}:{port}."
             ext = infra.external_server
             ext.is_verified = reachable
             ext.verification_error = "" if reachable else message

@@ -233,7 +233,7 @@ class InstallationDocsView(LoginRequiredMixin, TemplateView):
 
         ctx["env_vars"] = [
             # Ansible / playbook
-            {"name": "ANSIBLE_ODOO_SERVER_PLAYBOOK",  "required": True,  "default": "—",                 "desc": "Path to setup_odoo_server_bare.yml. The playbook picks the version-specific script from scripts/installscript/{ver}/odoo_install.sh."},
+            {"name": "ANSIBLE_ODOO_SERVER_PLAYBOOK",  "required": False, "default": "infra/ansible/setup_odoo_server_bare.yml", "desc": "Path to setup_odoo_server_bare.yml. If unset, DafeApp falls back to the repo-local playbook. The playbook picks the version-specific script from scripts/installscript/{ver}/odoo_install.sh."},
             {"name": "ANSIBLE_ODOO_INSTANCE_PLAYBOOK","required": False, "default": "—",                 "desc": "Path to the Ansible playbook for per-instance setup (nginx site, systemd service, SSL)."},
             {"name": "DEPLOY_STANDALONE",             "required": False, "default": "False",             "desc": "Set to True only if you want deploy_bare.sh to start a standalone Odoo service on the server."},
             {"name": "ODOO_ADMIN_EMAIL",              "required": False, "default": "odoo@example.com",  "desc": "E-mail passed to certbot. SSL is skipped when this is the placeholder value."},

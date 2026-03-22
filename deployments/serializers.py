@@ -82,17 +82,17 @@ class OdooServerSerializer(serializers.ModelSerializer):
         ext = self._pyos_ext(obj)
         if ext:
             if obj.status in (OdooServer.Status.PROVISIONING, OdooServer.Status.CONFIGURING) and ext.last_verified_at is None:
-                return "SSH connection is being verified..."
+                return "Reachability is being verified..."
             if ext.is_verified:
-                return "SSH connection successful."
+                return "Reachability successful."
             if ext.verification_error:
                 return ext.verification_error
-            return "SSH connection has not been verified yet."
+            return "Reachability has not been verified yet."
         if obj.status in (OdooServer.Status.PROVISIONING, OdooServer.Status.CONFIGURING) and obj.last_checked_at is None:
-            return "SSH connection is being verified..."
+            return "Reachability is being verified..."
         if obj.last_checked_at is None:
-            return "SSH connection has not been checked yet."
-        return "SSH connection successful." if obj.is_reachable else "SSH connection failed."
+            return "Reachability has not been checked yet."
+        return "Reachability successful." if obj.is_reachable else "Reachability failed."
 
     def get_ssh_last_checked_at(self, obj):
         ext = self._pyos_ext(obj)

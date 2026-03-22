@@ -113,7 +113,7 @@ def _create_pyos_infrastructure(
         auth_type=auth_type,
         ssh_key_path=ssh_key_path.strip(),
         is_verified=False,
-        verification_error="SSH connection has not been verified yet.",
+        verification_error="Reachability has not been verified yet.",
     )
     if auth_type == "PASSWORD":
         ext._raw_password = password.strip()
@@ -488,13 +488,13 @@ class PyosVpsCreateAPIView(LoginRequiredMixin, View):
 
 
 class OdooServerCheckConnectivityView(LoginRequiredMixin, View):
-    """POST /odoo/servers/<server_id>/check/ — probe SSH port and update is_reachable."""
+    """POST /odoo/servers/<server_id>/check/ — probe SSH reachability by IP/port."""
 
     def post(self, request, server_id):
         from django.utils import timezone
         import socket
 
-        from cloud.pyos import PyOSService
+        from deployments.tasks import _tcp_reachable
 
         org = getattr(request, "organization", None)
         if not org:
@@ -510,10 +510,10 @@ class OdooServerCheckConnectivityView(LoginRequiredMixin, View):
         infra = server.infrastructure
         if infra and infra.infra_type == Infrastructure.InfraType.PYOS and infra.external_server:
             ext = infra.external_server
-            service = PyOSService(ext)
-            reachable, message = service.validate()
             host = str(ext.host)
             port = ext.port or 22
+            reachable = _tcp_reachable(host, port)
+            message = f"Port reachable at {host}:{port}." if reachable else f"Host unreachable for {host}:{port}."
             ext.is_verified = reachable
             ext.verification_error = "" if reachable else message
             ext.last_verified_at = timezone.now()

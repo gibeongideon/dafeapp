@@ -83,15 +83,15 @@
             {% if s.infrastructure and s.infrastructure.infra_type == 'PYOS' and s.infrastructure.external_server %}
               {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
                 {% if s.infrastructure.external_server.last_verified_at %}
-                  {% if s.infrastructure.external_server.is_verified %}SSH: Connected{% else %}SSH: Disconnected{% endif %}
-                {% else %}SSH: Checking…{% endif %}
+                  {% if s.infrastructure.external_server.is_verified %}Reachability: Connected{% else %}Reachability: Disconnected{% endif %}
+                {% else %}Reachability: Checking…{% endif %}
               {% elif s.infrastructure.external_server.last_verified_at %}
-                {% if s.infrastructure.external_server.is_verified %}SSH: Connected{% else %}SSH: Disconnected{% endif %}
-              {% else %}SSH: Unknown{% endif %}
+                {% if s.infrastructure.external_server.is_verified %}Reachability: Connected{% else %}Reachability: Disconnected{% endif %}
+              {% else %}Reachability: Unknown{% endif %}
             {% else %}
               {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
-                {% if s.last_checked_at %}{% if s.is_reachable %}SSH: Connected{% else %}SSH: Disconnected{% endif %}{% else %}SSH: Checking…{% endif %}
-              {% elif s.last_checked_at %}{% if s.is_reachable %}SSH: Connected{% else %}SSH: Disconnected{% endif %}{% else %}SSH: Unknown{% endif %}
+                {% if s.last_checked_at %}{% if s.is_reachable %}Reachability: Connected{% else %}Reachability: Disconnected{% endif %}{% else %}Reachability: Checking…{% endif %}
+              {% elif s.last_checked_at %}{% if s.is_reachable %}Reachability: Connected{% else %}Reachability: Disconnected{% endif %}{% else %}Reachability: Unknown{% endif %}
             {% endif %}
           </span>
           <span id="server-conn-msg-{{ s.id }}" class="text-[10px] text-gray-400 max-w-[11rem] text-right leading-tight">
@@ -101,31 +101,31 @@
                   {% if s.infrastructure.external_server.verification_error %}
                   {{ s.infrastructure.external_server.verification_error }}
                   {% elif s.infrastructure.external_server.is_verified %}
-                  SSH connection successful.
+                  Reachability successful.
                   {% else %}
-                  SSH connection failed.
+                  Reachability failed.
                   {% endif %}
                 {% else %}
-                SSH connection is being verified...
+                Reachability is being verified...
                 {% endif %}
               {% elif s.infrastructure.external_server.verification_error %}
               {{ s.infrastructure.external_server.verification_error }}
               {% elif s.infrastructure.external_server.is_verified %}
-              SSH connection successful.
+              Reachability successful.
               {% else %}
-              SSH connection has not been verified yet.
+              Reachability has not been verified yet.
               {% endif %}
             {% elif s.last_checked_at %}
               {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
-                {% if s.is_reachable %}SSH connection successful.{% else %}SSH connection failed.{% endif %}
+                {% if s.is_reachable %}Reachability successful.{% else %}Reachability failed.{% endif %}
               {% else %}
-                {% if s.is_reachable %}SSH connection successful.{% else %}SSH connection failed.{% endif %}
+                {% if s.is_reachable %}Reachability successful.{% else %}Reachability failed.{% endif %}
               {% endif %}
             {% else %}
               {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
-              SSH connection is being verified...
+              Reachability is being verified...
               {% else %}
-              SSH connection has not been checked yet.
+              Reachability has not been checked yet.
               {% endif %}
             {% endif %}
           </span>
@@ -187,7 +187,7 @@
             <span id="server-instances-{{ s.id }}">{{ s.instances.count }}/{{ s.max_instances }}</span>
           </div>
           <div class="flex items-center justify-between gap-3">
-            <span class="text-gray-500">SSH Check</span>
+            <span class="text-gray-500">Reachability</span>
             <button type="button" class="check-connectivity-btn text-[10px] text-gray-400 hover:text-gray-600 underline"
                     data-server-id="{{ s.id }}">Check now</button>
           </div>
@@ -765,9 +765,9 @@
 
   function connBadgeLabel(server) {
     const status = (server.ssh_connection_status || "").toLowerCase();
-    if (status === "checking") return "SSH: Checking…";
-    if (!status || status === "unknown") return "SSH: Unknown";
-    return status === "connected" ? "SSH: Connected" : "SSH: Disconnected";
+    if (status === "checking") return "Reachability: Checking…";
+    if (!status || status === "unknown") return "Reachability: Unknown";
+    return status === "connected" ? "Reachability: Connected" : "Reachability: Disconnected";
   }
 
   function connMessageLabel(server) {
@@ -878,7 +878,7 @@
     const sshPending = pendingServerChecks.has(String(sid));
     if (connBadge) {
       if (sshPending) {
-        connBadge.textContent = "SSH: Checking…";
+        connBadge.textContent = "Reachability: Checking…";
         connBadge.className = "px-1.5 py-0.5 rounded text-[10px] font-medium bg-yellow-50 text-yellow-600";
         connBadge.title = "Checking connection…";
       } else {
@@ -889,7 +889,7 @@
     }
     if (connMsg) {
       if (sshPending) {
-        connMsg.textContent = "SSH connection is being verified...";
+        connMsg.textContent = "Reachability is being verified...";
         connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-yellow-600";
       } else {
         const msg = connMessageLabel(server);
@@ -1003,20 +1003,20 @@
       if (connBadge && data.step) {
         const step = String(data.step);
         if (step.toLowerCase().includes("validating ssh connection") || step.toLowerCase().includes("using pyos infrastructure connection")) {
-          connBadge.textContent = "SSH: Checking…";
+          connBadge.textContent = "Reachability: Checking…";
           connBadge.className = "px-1.5 py-0.5 rounded text-[10px] font-medium bg-yellow-50 text-yellow-600";
           connBadge.title = step;
-          if (connMsg) { connMsg.textContent = "SSH connection is being verified..."; connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-yellow-600"; }
+          if (connMsg) { connMsg.textContent = "Reachability is being verified..."; connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-yellow-600"; }
           setTimeout(refreshServerCards, 800);
         } else
         if (step.toLowerCase().includes("ssh connection confirmed") || step.toLowerCase().includes("ssh connection successful")) {
-          connBadge.textContent = "SSH: Connected";
+          connBadge.textContent = "Reachability: Connected";
           connBadge.className = "px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-50 text-green-600";
           connBadge.title = step;
           if (connMsg) { connMsg.textContent = step; connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-green-500"; }
           setTimeout(refreshServerCards, 800);
         } else if (step.toLowerCase().includes("failed:") || step.toLowerCase().includes("authentication failed") || step.toLowerCase().includes("host unreachable")) {
-          connBadge.textContent = "SSH: Disconnected";
+          connBadge.textContent = "Reachability: Disconnected";
           connBadge.className = "px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-50 text-red-600";
           connBadge.title = step;
           if (connMsg) { connMsg.textContent = step; connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-red-500"; }
@@ -1094,7 +1094,7 @@
       : `Odoo ${odooVersion} · ${server.region || "-"} · ${server.size || "-"}`;
     const connBadgeText = connBadgeLabel(server);
     const connBadgeCls = connBadgeClass(server);
-    const connMsgText = connMessageLabel(server) || (isPyos ? "SSH connection is being verified..." : "SSH connection has not been checked yet.");
+    const connMsgText = connMessageLabel(server) || (isPyos ? "Reachability is being verified..." : "Reachability has not been checked yet.");
     const exampleAccessText = server.deployment_mode === "DOCKER"
       ? (server.dns_domain ? `https://${server.dns_domain}` : "https://domain.example.com")
       : (server.ip_address ? `http://${server.ip_address}:${server.min_port || 8069}` : "pending");
@@ -1157,7 +1157,7 @@
             <span id="server-instances-${sid}">${typeof server.instance_count === "number" ? server.instance_count : 0}/${server.max_instances || "—"}</span>
           </div>
           <div class="flex items-center justify-between gap-3">
-            <span class="text-gray-500">SSH Check</span>
+            <span class="text-gray-500">Reachability</span>
             <button type="button" class="check-connectivity-btn text-[10px] text-gray-400 hover:text-gray-600 underline"
                     data-server-id="${sid}">Check now</button>
           </div>
@@ -1685,10 +1685,10 @@
     pendingServerChecks.add(String(sid));
     const connBadge = document.getElementById(`server-conn-badge-${sid}`);
     const connBadgeBase = "px-1.5 py-0.5 rounded text-[10px] font-medium";
-    if (connBadge) { connBadge.textContent = "SSH: Checking…"; connBadge.className = `${connBadgeBase} bg-yellow-50 text-yellow-600`; connBadge.title = "Checking connection…"; }
+    if (connBadge) { connBadge.textContent = "Reachability: Checking…"; connBadge.className = `${connBadgeBase} bg-yellow-50 text-yellow-600`; connBadge.title = "Checking connection…"; }
     const connMsg = document.getElementById(`server-conn-msg-${sid}`);
     if (connMsg) {
-      connMsg.textContent = "SSH connection is being verified...";
+      connMsg.textContent = "Reachability is being verified...";
       connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-yellow-600";
     }
     btn.disabled = true;
@@ -1697,9 +1697,9 @@
     btn.disabled = false;
 
     if (!resp.ok) {
-      const errorText = resp.data.message || resp.data.error || "SSH: Error";
-      if (connBadge) { connBadge.textContent = "SSH: Checking…"; connBadge.className = `${connBadgeBase} bg-yellow-50 text-yellow-600`; connBadge.title = errorText; }
-      if (connMsg) { connMsg.textContent = "SSH connection is being verified..."; connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-yellow-600"; connMsg.title = errorText; }
+      const errorText = resp.data.message || resp.data.error || "Reachability: Error";
+      if (connBadge) { connBadge.textContent = "Reachability: Checking…"; connBadge.className = `${connBadgeBase} bg-yellow-50 text-yellow-600`; connBadge.title = errorText; }
+      if (connMsg) { connMsg.textContent = "Reachability is being verified..."; connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-yellow-600"; connMsg.title = errorText; }
       const existingTimeout = pendingServerCheckTimeouts.get(String(sid));
       if (existingTimeout) clearTimeout(existingTimeout);
       pendingServerCheckTimeouts.set(String(sid), setTimeout(() => {
