@@ -54,6 +54,15 @@
 
   tasks:
     # ------------------------------------------------------------------
+    # 0. Ensure PostgreSQL is running before any database operations
+    # ------------------------------------------------------------------
+    - name: Ensure PostgreSQL service is enabled and running
+      systemd:
+        name: postgresql
+        enabled: true
+        state: started
+
+    # ------------------------------------------------------------------
     # 1. Create isolated per-instance directory tree
     # ------------------------------------------------------------------
     - name: Create instance base directory
@@ -143,8 +152,17 @@
         virtualenv: "{{ venv_dir }}"
 
     # ------------------------------------------------------------------
-    # 4. Create PostgreSQL database owned by the odoo user
+    # 4. Verify PostgreSQL is ready, then create the database
     # ------------------------------------------------------------------
+    - name: Wait for PostgreSQL to become ready
+      command: pg_isready -q
+      register: pg_ready
+      retries: 12
+      delay: 5
+      until: pg_ready.rc == 0
+      changed_when: false
+      failed_when: pg_ready.rc != 0
+
     - name: Create PostgreSQL database for instance
       become_user: postgres
       shell: |

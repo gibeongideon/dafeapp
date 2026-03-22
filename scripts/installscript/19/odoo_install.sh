@@ -136,6 +136,8 @@ else
     echo -e "\n---- Installing the default postgreSQL version based on Linux version ----"
     apt_noninteractive install postgresql postgresql-server-dev-all
 fi
+sudo systemctl enable postgresql >/dev/null 2>&1 || true
+sudo systemctl start postgresql >/dev/null 2>&1 || sudo service postgresql start
 
 
 echo -e "\n---- Creating the ODOO PostgreSQL User  ----"

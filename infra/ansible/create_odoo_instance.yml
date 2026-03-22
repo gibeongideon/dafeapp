@@ -17,6 +17,12 @@
     letsencrypt_email: "{{ letsencrypt_email | default('admin@localhost') }}"
 
   tasks:
+    - name: Ensure PostgreSQL service is enabled and running
+      systemd:
+        name: postgresql
+        enabled: true
+        state: started
+
     - name: Ensure instance directory exists
       file:
         path: "{{ odoo_home }}/instances/{{ db_name }}"
@@ -32,6 +38,15 @@
         owner: "{{ odoo_user }}"
         group: "{{ odoo_user }}"
         mode: "0755"
+
+    - name: Wait for PostgreSQL to become ready
+      command: pg_isready -q
+      register: pg_ready
+      retries: 12
+      delay: 5
+      until: pg_ready.rc == 0
+      changed_when: false
+      failed_when: pg_ready.rc != 0
 
     - name: Ensure PostgreSQL database exists
       become_user: postgres
