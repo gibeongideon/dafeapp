@@ -288,6 +288,8 @@ class OdooInstance(models.Model):
     last_health_check = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     provisioning_log = models.TextField(blank=True)
+    installation_summary = models.JSONField(default=dict, blank=True)
+    installation_summary_text = models.TextField(blank=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,

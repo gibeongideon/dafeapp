@@ -116,12 +116,11 @@
            :class="healthStatus ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'"
            x-text="healthMessage"></div>
 
-      {% if odoo_server.installation_summary_text %}
-      <div class="mt-4 border border-gray-200 rounded-lg p-4 bg-gray-50">
-        <p class="text-[10px] uppercase tracking-wide text-gray-400 mb-2">Installation Summary</p>
-        <pre class="text-[11px] font-mono text-gray-700 whitespace-pre-wrap overflow-x-auto">{{ odoo_server.installation_summary_text }}</pre>
+      <div id="instance-summary-wrap"
+           class="mt-4 border border-gray-200 rounded-lg p-4 bg-gray-50 {% if not odoo_instance.installation_summary_text %}hidden{% endif %}">
+        <p class="text-[10px] uppercase tracking-wide text-gray-400 mb-2">Instance Installation Summary</p>
+        <pre id="instance-summary-text" class="text-[11px] font-mono text-gray-700 whitespace-pre-wrap overflow-x-auto">{{ odoo_instance.installation_summary_text }}</pre>
       </div>
-      {% endif %}
     </div>
 
     <!-- ── Tab: Jobs ── -->
@@ -358,8 +357,21 @@ function instanceConsole(instanceId) {
           if (msg.status) {
             this.instanceStatus = msg.status;
           }
+          if (msg.summary && msg.summary.installation_summary_text) {
+            this.updateInstallationSummary(msg.summary.installation_summary_text);
+          }
         } catch (_) {}
       };
+    },
+
+    updateInstallationSummary(text) {
+      const wrap = document.getElementById('instance-summary-wrap');
+      const pre = document.getElementById('instance-summary-text');
+      if (!wrap || !pre) return;
+      if (text) {
+        pre.textContent = text;
+        wrap.classList.remove('hidden');
+      }
     },
 
     clearLogs() {

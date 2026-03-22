@@ -657,6 +657,17 @@ class OdooInstanceCreateAPIView(LoginRequiredMixin, View):
         if not ok:
             return JsonResponse({"error": capacity_msg}, status=400)
 
+        logger.info(
+            "Instance create requested by %s: server=%s name=%s db_name=%s mode=%s port=%s domain=%s",
+            request.user,
+            server.id,
+            name,
+            db_name,
+            server.deployment_mode,
+            port,
+            domain or "",
+        )
+
         inst = OdooInstance.objects.create(
             organization=org,
             server=server,

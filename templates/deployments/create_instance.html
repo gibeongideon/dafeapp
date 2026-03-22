@@ -316,7 +316,7 @@
             <span id="instance-badge-{{ oi.id }}" class="px-2 py-0.5 rounded text-[11px] font-medium
               {% if oi.status == 'RUNNING' %}bg-green-100 text-green-700
               {% elif oi.status == 'FAILED' %}bg-red-100 text-red-700
-              {% elif oi.status == 'CONFIGURING' %}bg-yellow-100 text-yellow-700
+              {% elif oi.status == 'CONFIGURING' %}bg-yellow-100 text-yellow-700 animate-pulse
               {% elif oi.status == 'DELETED' %}bg-gray-100 text-gray-400
               {% else %}bg-gray-100 text-gray-600{% endif %}">
               {{ oi.get_status_display }}
@@ -343,10 +343,17 @@
         <tr id="instance-progress-row-{{ oi.id }}" class="border-0">
           <td colspan="6" class="px-5 pb-3 pt-0 bg-gray-50/60">
             <p class="text-[10px] uppercase tracking-wide text-gray-400 mb-1">Live Progress</p>
+            <p id="instance-progress-note-{{ oi.id }}" class="text-[10px] text-amber-500 mb-1">This step may take 5–15 minutes.</p>
             <ul id="instance-progress-{{ oi.id }}" class="space-y-1"></ul>
           </td>
         </tr>
         {% endif %}
+        <tr id="instance-summary-row-{{ oi.id }}" class="border-0 {% if not oi.installation_summary_text %}hidden{% endif %}">
+          <td colspan="6" class="px-5 pb-3 pt-0 bg-gray-50/60">
+            <p class="text-[10px] uppercase tracking-wide text-gray-400 mb-1">Installation Summary</p>
+            <pre id="instance-summary-text-{{ oi.id }}" class="text-[11px] font-mono text-gray-700 bg-white border border-gray-100 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap">{{ oi.installation_summary_text }}</pre>
+          </td>
+        </tr>
         {% empty %}
         <tr id="instance-empty-row"><td colspan="6" class="px-5 py-6 text-sm text-gray-400 text-center">No Odoo instances yet. Create a server first, then add instances.</td></tr>
         {% endfor %}
@@ -837,6 +844,127 @@
     }
   }
 
+  function instanceBadgeClass(status) {
+    const value = (status || "").trim().toUpperCase();
+    if (value === "RUNNING") return "px-2 py-0.5 rounded text-[11px] font-medium bg-green-100 text-green-700";
+    if (value === "FAILED") return "px-2 py-0.5 rounded text-[11px] font-medium bg-red-100 text-red-700";
+    if (value === "CONFIGURING") return "px-2 py-0.5 rounded text-[11px] font-medium bg-yellow-100 text-yellow-700 animate-pulse";
+    if (value === "DELETED") return "px-2 py-0.5 rounded text-[11px] font-medium bg-gray-100 text-gray-400";
+    return "px-2 py-0.5 rounded text-[11px] font-medium bg-gray-100 text-gray-600";
+  }
+
+  function instanceBadgeLabel(status) {
+    const value = (status || "").trim().toUpperCase();
+    if (!value) return "Unknown";
+    return value.charAt(0) + value.slice(1).toLowerCase();
+  }
+
+  function updateInstanceSummaryFromApi(instance) {
+    const iid = instance.id;
+    const wrap = document.getElementById(`instance-summary-row-${iid}`);
+    const pre = document.getElementById(`instance-summary-text-${iid}`);
+    if (!wrap || !pre) return;
+    if (instance.installation_summary_text) {
+      pre.textContent = instance.installation_summary_text;
+      wrap.classList.remove("hidden");
+    } else {
+      wrap.classList.add("hidden");
+    }
+  }
+
+  function updateInstanceProgressFromApi(instance) {
+    const iid = instance.id;
+    updateInstanceSummaryFromApi(instance);
+    const row = document.getElementById(`instance-progress-row-${iid}`);
+    const ul = document.getElementById(`instance-progress-${iid}`);
+    const note = document.getElementById(`instance-progress-note-${iid}`);
+    const badge = document.getElementById(`instance-badge-${iid}`);
+
+    const status = (instance.status || "").toUpperCase();
+    const isLive = status === "CONFIGURING";
+    const lines = extractProgressLines(instance.provisioning_log, 4);
+    const logText = instance.provisioning_log || "";
+
+    if (badge) {
+      badge.textContent = instanceBadgeLabel(instance.status);
+      badge.className = instanceBadgeClass(instance.status);
+    }
+    if (note) {
+      if (isLive) note.classList.remove("hidden");
+      else note.classList.add("hidden");
+    }
+
+    if (!row || !ul) return;
+
+    if (!isLive && !lines.length) {
+      row.classList.add("hidden");
+      return;
+    }
+
+    row.classList.remove("hidden");
+    if (!isLive || ul.dataset.sourceLog !== logText || !ul.children.length) {
+      ul.dataset.sourceLog = logText;
+      ul.innerHTML = "";
+      lines.forEach((line) => addStepTo(ul, line, false));
+    }
+  }
+
+  function removeMissingInstanceRows(seenIds) {
+    document.querySelectorAll("#instance-tbody tr[id^='instance-row-']").forEach((row) => {
+      const iid = row.id.replace("instance-row-", "");
+      if (!seenIds.has(iid)) row.remove();
+    });
+    document.querySelectorAll("#instance-tbody tr[id^='instance-progress-row-']").forEach((row) => {
+      const iid = row.id.replace("instance-progress-row-", "");
+      if (!seenIds.has(iid)) row.remove();
+    });
+    document.querySelectorAll("#instance-tbody tr[id^='instance-summary-row-']").forEach((row) => {
+      const iid = row.id.replace("instance-summary-row-", "");
+      if (!seenIds.has(iid)) row.remove();
+    });
+    const remaining = document.querySelectorAll("#instance-tbody tr[id^='instance-row-']").length;
+    const empty = $("instance-empty-row");
+    if (remaining === 0 && !empty) {
+      const placeholder = document.createElement("tr");
+      placeholder.id = "instance-empty-row";
+      placeholder.innerHTML = '<td colspan="6" class="px-5 py-6 text-sm text-gray-400 text-center">No Odoo instances yet. Create a server first, then add instances.</td>';
+      $("instance-tbody").appendChild(placeholder);
+    }
+  }
+
+  let liveInstanceRefreshTimer = null;
+
+  function syncLiveInstancePolling(instances) {
+    const hasLiveInstances = (instances || []).some((instance) => {
+      const status = (instance.status || "").toUpperCase();
+      return status === "CONFIGURING";
+    });
+    if (hasLiveInstances && !liveInstanceRefreshTimer) {
+      liveInstanceRefreshTimer = setInterval(refreshInstanceRows, 5000);
+    } else if (!hasLiveInstances && liveInstanceRefreshTimer) {
+      clearInterval(liveInstanceRefreshTimer);
+      liveInstanceRefreshTimer = null;
+    }
+  }
+
+  async function refreshInstanceRows() {
+    try {
+      const resp = await fetch("/api/deployments/odoo/instances/");
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const instances = data.results || [];
+      const seenIds = new Set();
+      instances.forEach((instance) => {
+        seenIds.add(String(instance.id));
+        updateInstanceProgressFromApi(instance);
+      });
+      removeMissingInstanceRows(seenIds);
+      syncLiveInstancePolling(instances);
+    } catch (err) {
+      // Keep the websocket as the main live channel; the poll is just refresh safety.
+    }
+  }
+
   function removeMissingServerCards(seenIds) {
     document.querySelectorAll("#server-kanban article[id^='server-card-']").forEach((card) => {
       const sid = card.id.replace("server-card-", "");
@@ -1107,6 +1235,13 @@
           badge.textContent = isFailed ? "Failed" : "Running";
           badge.className = `px-2 py-0.5 rounded text-[11px] font-medium ${isFailed ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"}`;
         }
+        if (data.summary && data.summary.installation_summary_text) {
+          updateInstanceSummaryFromApi({
+            id: instanceId,
+            installation_summary_text: data.summary.installation_summary_text,
+          });
+        }
+        setTimeout(refreshInstanceRows, 800);
         addStepTo(ul, '<button onclick="location.reload()" class="text-blue-600 underline">Reload page</button>', false);
         ws.close();
       }
@@ -1304,6 +1439,7 @@
 
   refreshServerCards();
   setInterval(refreshServerCards, 120000);
+  refreshInstanceRows();
 
   // ─── state ───────────────────────────────────────────────────────────────
   let mode = null;          // "cloud" | "pyos"
@@ -1691,18 +1827,29 @@
       <td class="px-5 py-3 text-gray-700 text-xs">${$("instance-server-name").textContent}</td>
       <td class="px-5 py-3 text-xs">${portModeCell}</td>
       <td class="px-5 py-3">${accessCell}</td>
-      <td class="px-5 py-3"><span id="instance-badge-${iid}" class="px-2 py-0.5 rounded text-[11px] font-medium bg-yellow-100 text-yellow-700">Configuring</span></td>
+      <td class="px-5 py-3"><span id="instance-badge-${iid}" class="${instanceBadgeClass("CONFIGURING")}">Configuring</span></td>
       <td class="px-5 py-3 text-right"></td>`;
     const newProgressRow = document.createElement("tr");
     newProgressRow.id = `instance-progress-row-${iid}`;
     newProgressRow.innerHTML = `
       <td colspan="6" class="px-5 pb-3 pt-0 bg-gray-50/60">
         <p class="text-[10px] uppercase tracking-wide text-gray-400 mb-1">Live Progress</p>
+        <p id="instance-progress-note-${iid}" class="text-[10px] text-amber-500 mb-1">This step may take 5–15 minutes.</p>
         <ul id="instance-progress-${iid}" class="space-y-1"></ul>
       </td>`;
+    const newSummaryRow = document.createElement("tr");
+    newSummaryRow.id = `instance-summary-row-${iid}`;
+    newSummaryRow.className = "border-0 hidden";
+    newSummaryRow.innerHTML = `
+      <td colspan="6" class="px-5 pb-3 pt-0 bg-gray-50/60">
+        <p class="text-[10px] uppercase tracking-wide text-gray-400 mb-1">Instance Installation Summary</p>
+        <pre id="instance-summary-text-${iid}" class="text-[11px] font-mono text-gray-700 bg-white border border-gray-100 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap"></pre>
+      </td>`;
     tbody.prepend(newProgressRow);
+    tbody.prepend(newSummaryRow);
     tbody.prepend(newRow);
     connectInstanceProgress(iid, document.getElementById(`instance-progress-${iid}`));
+    setTimeout(refreshInstanceRows, 1200);
   });
 
   // ─── connectivity check ───────────────────────────────────────────────────

@@ -78,11 +78,20 @@ def _broadcast_server_snapshot(server: OdooServer):
         logger.warning("Server snapshot broadcast skipped for server %s", server.id, exc_info=True)
 
 
-def _broadcast_instance(instance_id: int, step: str, status: str, done: bool = False, log: str = ""):
+def _broadcast_instance(
+    instance_id: int,
+    step: str,
+    status: str,
+    done: bool = False,
+    log: str = "",
+    summary: dict | None = None,
+):
     channel_layer = get_channel_layer()
     if channel_layer is None:
         return
     payload = {"type": "done" if done else "step", "step": step, "status": status, "log": log[-2000:] if log else ""}
+    if summary is not None:
+        payload["summary"] = summary
     try:
         async_to_sync(channel_layer.group_send)(
             f"odoo.instance.{instance_id}",
@@ -174,6 +183,11 @@ def _append_text(current: str, msg: str) -> str:
     return f"{current}\n{msg}".strip() if current else msg
 
 
+def _record_instance_progress(instance: OdooInstance, message: str):
+    instance.provisioning_log = _append_text(instance.provisioning_log, message)
+    instance.save(update_fields=["provisioning_log", "updated_at"])
+
+
 def _extract_admin_password(log_blob: str) -> str:
     """Pull the generated admin password from ansible / shell summary output."""
     if not log_blob:
@@ -225,6 +239,73 @@ def _build_installation_summary_text(
     return "\n".join(lines)
 
 
+def _build_instance_installation_summary_text(
+    *,
+    instance: OdooInstance,
+    server: OdooServer,
+    playbook: str,
+    ssh_user: str,
+    use_direct: bool,
+) -> str:
+    """Format the per-instance install summary shown in the UI."""
+    playbook_name = Path(playbook).name
+    server_ip = str(server.ip_address or "")
+    access_url = instance.access_url or (
+        f"https://{instance.domain}" if instance.domain and server.deployment_mode == OdooServer.DeploymentMode.DOCKER else ""
+    )
+    service_name = instance.systemd_service or f"odoo-{instance.db_name}"
+
+    if use_direct:
+        instance_root = f"/odoo/instances/{instance.db_name}"
+        lines = [
+            "============================================================",
+            "  Odoo instance created (fully isolated)",
+            "============================================================",
+            f"  Instance     : {instance.name}",
+            f"  Database     : {instance.db_name}",
+            f"  Service      : {service_name}",
+            f"  Port         : {instance.http_port}",
+            f"  Server IP    : {server_ip or '(not available)'}",
+            f"  Playbook     : {playbook_name}",
+            "  Source code  : /odoo/odoo-server",
+            f"  Python venv  : {instance_root}/venv",
+            f"  Core addons  : {instance_root}/addons/core",
+            f"  Custom addons: {instance_root}/addons/custom",
+            f"  Data dir     : {instance_root}/data",
+            f"  Logs         : {instance_root}/logs/{instance.db_name}.log",
+            f"  Config       : /etc/odoo-{instance.db_name}.conf",
+            f"  SSH user     : {ssh_user or 'root'}",
+            f"  Access       : {access_url or 'pending'}",
+            "============================================================",
+        ]
+        return "\n".join(lines)
+
+    odoo_home = f"/opt/odoo{server.odoo_version}"
+    instance_root = f"{odoo_home}/instances/{instance.db_name}"
+    lines = [
+        "============================================================",
+        "  Odoo instance created",
+        "============================================================",
+        f"  Instance     : {instance.name}",
+        f"  Database     : {instance.db_name}",
+        f"  Service      : {service_name}",
+        f"  Port         : {instance.http_port}",
+        f"  Server IP    : {server_ip or '(not available)'}",
+        f"  Playbook     : {playbook_name}",
+        f"  Source code  : {odoo_home}/src/odoo",
+        f"  Addons path  : {odoo_home}/src/odoo/addons",
+        f"  Instance dir : {instance_root}",
+        f"  Logs         : {odoo_home}/logs/{instance.db_name}.log",
+        f"  Config       : {instance_root}/odoo.conf",
+        f"  Nginx site   : /etc/nginx/sites-available/odoo-{instance.db_name}.conf",
+        f"  SSH user     : {ssh_user or 'root'}",
+        f"  Domain       : {instance.domain or 'not set'}",
+        f"  Access       : {access_url or 'pending'}",
+        "============================================================",
+    ]
+    return "\n".join(lines)
+
+
 def _store_installation_summary(
     server: OdooServer,
     *,
@@ -249,6 +330,72 @@ def _store_installation_summary(
     server.installation_summary = summary
     server.installation_summary_text = summary_text
     server.save(update_fields=["installation_summary", "installation_summary_text", "updated_at"])
+    return summary, summary_text
+
+
+def _store_instance_installation_summary(
+    instance: OdooInstance,
+    *,
+    server: OdooServer,
+    playbook: str,
+    ssh_user: str,
+    use_direct: bool,
+) -> tuple[dict, str]:
+    summary = {
+        "summary_type": "instance",
+        "server_ip": str(server.ip_address or ""),
+        "odoo_version": server.odoo_version,
+        "mode": "direct" if use_direct else "domain",
+        "playbook": Path(playbook).name,
+        "playbook_path": playbook,
+        "instance_name": instance.name,
+        "database": instance.db_name,
+        "service_name": instance.systemd_service or f"odoo-{instance.db_name}",
+        "port": instance.http_port,
+        "domain": instance.domain or "",
+        "access_url": instance.access_url or (
+            f"https://{instance.domain}" if instance.domain and server.deployment_mode == OdooServer.DeploymentMode.DOCKER else ""
+        ),
+        "source_dir": "/odoo/odoo-server" if use_direct else f"/opt/odoo{server.odoo_version}/src/odoo",
+        "ssh_user": ssh_user,
+    }
+    if use_direct:
+        instance_root = f"/odoo/instances/{instance.db_name}"
+        summary.update(
+            {
+                "instance_dir": instance_root,
+                "venv_dir": f"{instance_root}/venv",
+                "core_addons_dir": f"{instance_root}/addons/core",
+                "custom_addons_dir": f"{instance_root}/addons/custom",
+                "data_dir": f"{instance_root}/data",
+                "log_dir": f"{instance_root}/logs",
+                "config_file": f"/etc/odoo-{instance.db_name}.conf",
+            }
+        )
+    else:
+        odoo_home = f"/opt/odoo{server.odoo_version}"
+        instance_root = f"{odoo_home}/instances/{instance.db_name}"
+        summary.update(
+            {
+                "instance_dir": instance_root,
+                "venv_dir": f"{odoo_home}/venv",
+                "addons_dir": f"{odoo_home}/src/odoo/addons",
+                "log_dir": f"{odoo_home}/logs/{instance.db_name}",
+                "config_file": f"{instance_root}/odoo.conf",
+                "nginx_site": f"/etc/nginx/sites-available/odoo-{instance.db_name}.conf",
+            }
+        )
+
+    summary_text = _build_instance_installation_summary_text(
+        instance=instance,
+        server=server,
+        playbook=playbook,
+        ssh_user=ssh_user,
+        use_direct=use_direct,
+    )
+    instance.installation_summary = summary
+    instance.installation_summary_text = summary_text
+    instance.save(update_fields=["installation_summary", "installation_summary_text", "updated_at"])
     return summary, summary_text
 
 
@@ -466,6 +613,21 @@ def _run_ansible_playbook(
 def _default_odoo_server_playbook() -> str:
     """Absolute path to the repo-local bare-metal server bootstrap playbook."""
     return str(Path(settings.BASE_DIR) / "infra" / "ansible" / "setup_odoo_server_bare.yml")
+
+
+def _default_odoo_instance_direct_playbook() -> str:
+    """Absolute path to the repo-local direct-IP instance playbook."""
+    return str(Path(settings.BASE_DIR) / "infra" / "ansible" / "create_odoo_instance_direct.yml")
+
+
+def _default_odoo_instance_playbook() -> str:
+    """Absolute path to the repo-local domain-based instance playbook."""
+    return str(Path(settings.BASE_DIR) / "infra" / "ansible" / "create_odoo_instance.yml")
+
+
+def _default_docker_instance_playbook() -> str:
+    """Absolute path to the repo-local Docker instance playbook."""
+    return str(Path(settings.BASE_DIR) / "infra" / "ansible" / "create_docker_odoo_instance.yml")
 
 
 def _pyos_ssh_creds(ext_server) -> tuple[str | None, str | None, str | None, str | None]:
@@ -1013,6 +1175,9 @@ def create_odoo_instance(self, instance_id: int, job_id: int | None = None):
         server.id,
         server.ip_address,
     )
+    instance.installation_summary = {}
+    instance.installation_summary_text = ""
+    instance.save(update_fields=["installation_summary", "installation_summary_text", "updated_at"])
 
     if server.status != OdooServer.Status.PROVISIONED or not server.ip_address:
         logger.error(
@@ -1028,30 +1193,28 @@ def create_odoo_instance(self, instance_id: int, job_id: int | None = None):
         return
 
     instance.status = OdooInstance.Status.CONFIGURING
-    instance.save(update_fields=["status", "updated_at"])
+    instance.installation_summary = {}
+    instance.installation_summary_text = ""
+    instance.save(update_fields=["status", "installation_summary", "installation_summary_text", "updated_at"])
+    _record_instance_progress(instance, "Starting instance configuration…")
     _broadcast_instance(instance.id, "Starting instance configuration…", instance.status)
 
     if server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
         _run_docker_instance_create(instance, server, job_id, self.request.id)
         return
 
-    direct_playbook = os.getenv("ANSIBLE_ODOO_INSTANCE_DIRECT_PLAYBOOK", "").strip()
-    domain_playbook = os.getenv("ANSIBLE_ODOO_INSTANCE_PLAYBOOK", "").strip()
-    use_direct = not instance.domain and bool(direct_playbook)
+    direct_playbook = os.getenv("ANSIBLE_ODOO_INSTANCE_DIRECT_PLAYBOOK", "").strip() or _default_odoo_instance_direct_playbook()
+    domain_playbook = os.getenv("ANSIBLE_ODOO_INSTANCE_PLAYBOOK", "").strip() or _default_odoo_instance_playbook()
+    use_direct = not instance.domain
     playbook = direct_playbook if use_direct else domain_playbook
 
-    if not playbook:
-        logger.info("Instance %s: no Ansible playbook configured; marking RUNNING.", instance.id)
-        instance.systemd_service = f"odoo-{instance.db_name}"
-        instance.nginx_site = ""
-        instance.ssl_enabled = False
-        instance.status = OdooInstance.Status.RUNNING
-        msg = "No Ansible playbook configured. Marked RUNNING with generated metadata."
-        instance.provisioning_log = msg
-        instance.save(
-            update_fields=["systemd_service", "nginx_site", "ssl_enabled", "status", "provisioning_log", "updated_at"]
-        )
-        _job_done(job_id, ok=True, log=msg)
+    if not Path(playbook).exists():
+        logger.error("Instance %s: instance playbook not found: %s", instance.id, playbook)
+        instance.status = OdooInstance.Status.FAILED
+        msg = f"Instance playbook not found: {playbook}"
+        instance.provisioning_log = _append_text(instance.provisioning_log, msg)
+        instance.save(update_fields=["status", "provisioning_log", "updated_at"])
+        _job_done(job_id, ok=False, log=msg)
         return
 
     extra_vars = {
@@ -1065,6 +1228,7 @@ def create_odoo_instance(self, instance_id: int, job_id: int | None = None):
         extra_vars["domain"] = instance.domain
 
     ws_group = f"odoo.instance.{instance.id}"
+    ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
     logger.info(
         "Instance %s: running Ansible playbook %s (direct=%s) against %s",
         instance.id,
@@ -1072,8 +1236,18 @@ def create_odoo_instance(self, instance_id: int, job_id: int | None = None):
         use_direct,
         server.ip_address,
     )
-    _broadcast_instance(instance.id, f"Running Ansible playbook ({playbook.split('/')[-1]})…", instance.status)
-    ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
+    logger.info(
+        "Instance %s: playbook target details: server_ip=%s http_port=%s db_name=%s domain=%s ssh_user=%s",
+        instance.id,
+        server.ip_address,
+        instance.http_port,
+        instance.db_name,
+        instance.domain or "",
+        ssh_user,
+    )
+    playbook_name = playbook.split("/")[-1]
+    _record_instance_progress(instance, f"Running {playbook_name} against {server.ip_address}:{instance.http_port}…")
+    _broadcast_instance(instance.id, f"Running {playbook_name} against {server.ip_address}:{instance.http_port}…", instance.status)
     try:
         ok, log_blob = _run_ansible_playbook(
             playbook,
@@ -1089,13 +1263,26 @@ def create_odoo_instance(self, instance_id: int, job_id: int | None = None):
             os.unlink(tmp_key)
 
     instance.provisioning_log = f"[ansible instance]\n{log_blob}".strip()
+    summary = {}
+    summary_text = ""
     if ok:
         instance.status = OdooInstance.Status.RUNNING
         instance.systemd_service = f"odoo-{instance.db_name}"
         instance.nginx_site = "" if use_direct else (instance.domain or f"{instance.name}.local")
         instance.ssl_enabled = False if use_direct else bool(instance.domain)
+        summary, summary_text = _store_instance_installation_summary(
+            instance,
+            server=server,
+            playbook=playbook,
+            ssh_user=ssh_user or "root",
+            use_direct=use_direct,
+        )
     else:
         instance.status = OdooInstance.Status.FAILED
+    instance.provisioning_log = _append_text(
+        instance.provisioning_log,
+        "Instance created successfully — ready." if ok else "Instance creation failed.",
+    )
     instance.save(
         update_fields=["status", "systemd_service", "nginx_site", "ssl_enabled", "provisioning_log", "updated_at"]
     )
@@ -1112,6 +1299,10 @@ def create_odoo_instance(self, instance_id: int, job_id: int | None = None):
         instance.status,
         done=True,
         log=log_blob,
+        summary={
+            "installation_summary": summary,
+            "installation_summary_text": summary_text,
+        } if ok else None,
     )
     _job_done(job_id, ok=ok, log=log_blob)
 
@@ -1308,13 +1499,13 @@ def rollback_odoo_instance(self, instance_id: int, history_id: int, job_id: int 
         _job_done(job_id, ok=False, log="Server has no IP; rollback aborted.")
         return
 
-    direct_playbook = os.getenv("ANSIBLE_ODOO_INSTANCE_DIRECT_PLAYBOOK", "").strip()
-    domain_playbook = os.getenv("ANSIBLE_ODOO_INSTANCE_PLAYBOOK", "").strip()
-    use_direct = not snap.domain and bool(direct_playbook)
+    direct_playbook = os.getenv("ANSIBLE_ODOO_INSTANCE_DIRECT_PLAYBOOK", "").strip() or _default_odoo_instance_direct_playbook()
+    domain_playbook = os.getenv("ANSIBLE_ODOO_INSTANCE_PLAYBOOK", "").strip() or _default_odoo_instance_playbook()
+    use_direct = not snap.domain
     playbook = direct_playbook if use_direct else domain_playbook
 
-    if not playbook:
-        _job_done(job_id, ok=False, log="No instance playbook configured; rollback aborted.")
+    if not Path(playbook).exists():
+        _job_done(job_id, ok=False, log=f"Instance playbook not found: {playbook}")
         return
 
     extra_vars = {
@@ -1385,17 +1576,19 @@ def _run_docker_instance_create(instance: OdooInstance, server: OdooServer, job_
     Called from create_odoo_instance when server.deployment_mode == DOCKER.
     """
     _job_start(job_id, celery_task_id)
+    instance.installation_summary = {}
+    instance.installation_summary_text = ""
+    instance.save(update_fields=["installation_summary", "installation_summary_text", "updated_at"])
+    _record_instance_progress(instance, "Starting Docker instance creation…")
 
-    playbook = os.getenv("ANSIBLE_DOCKER_INSTANCE_PLAYBOOK", "").strip()
-    if not playbook:
-        container = f"odoo-{instance.db_name}"
-        instance.container_name = container
-        instance.status = OdooInstance.Status.RUNNING
-        instance.ssl_enabled = True
-        msg = "ANSIBLE_DOCKER_INSTANCE_PLAYBOOK not set. Marked RUNNING with generated metadata."
-        instance.provisioning_log = msg
-        instance.save(update_fields=["container_name", "status", "ssl_enabled", "provisioning_log", "updated_at"])
-        _job_done(job_id, ok=True, log=msg)
+    playbook = os.getenv("ANSIBLE_DOCKER_INSTANCE_PLAYBOOK", "").strip() or _default_docker_instance_playbook()
+    if not Path(playbook).exists():
+        logger.error("Instance %s: Docker instance playbook not found: %s", instance.id, playbook)
+        instance.status = OdooInstance.Status.FAILED
+        msg = f"Docker instance playbook not found: {playbook}"
+        instance.provisioning_log = _append_text(instance.provisioning_log, msg)
+        instance.save(update_fields=["status", "provisioning_log", "updated_at"])
+        _job_done(job_id, ok=False, log=msg)
         return
 
     client_name = instance.db_name.replace("_", "-")
@@ -1411,8 +1604,18 @@ def _run_docker_instance_create(instance: OdooInstance, server: OdooServer, job_
     }
 
     ws_group = f"odoo.instance.{instance.id}"
-    _broadcast_instance(instance.id, "Running Docker instance creation playbook…", instance.status)
     ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
+    logger.info(
+        "Instance %s: Docker playbook target details: server_ip=%s domain=%s db_name=%s ssh_user=%s",
+        instance.id,
+        server.ip_address,
+        instance.domain or "",
+        instance.db_name,
+        ssh_user,
+    )
+    playbook_name = playbook.split("/")[-1]
+    _record_instance_progress(instance, f"Running {playbook_name} for {instance.domain or instance.db_name}…")
+    _broadcast_instance(instance.id, "Running Docker instance creation playbook…", instance.status)
     try:
         ok, log_blob = _run_ansible_playbook(
             playbook,
@@ -1428,12 +1631,25 @@ def _run_docker_instance_create(instance: OdooInstance, server: OdooServer, job_
             os.unlink(tmp_key)
 
     instance.provisioning_log = f"[docker create]\n{log_blob}".strip()
+    summary = {}
+    summary_text = ""
     if ok:
         instance.container_name = container_name
         instance.status = OdooInstance.Status.RUNNING
         instance.ssl_enabled = True
+        summary, summary_text = _store_instance_installation_summary(
+            instance,
+            server=server,
+            playbook=playbook,
+            ssh_user=ssh_user or "root",
+            use_direct=False,
+        )
     else:
         instance.status = OdooInstance.Status.FAILED
+    instance.provisioning_log = _append_text(
+        instance.provisioning_log,
+        "Docker instance created successfully — ready." if ok else "Docker instance creation failed.",
+    )
     instance.save(update_fields=["container_name", "status", "ssl_enabled", "provisioning_log", "updated_at"])
 
     access_url = f"https://{instance.domain}" if instance.domain else ""
@@ -1443,6 +1659,10 @@ def _run_docker_instance_create(instance: OdooInstance, server: OdooServer, job_
         instance.status,
         done=True,
         log=log_blob,
+        summary={
+            "installation_summary": summary,
+            "installation_summary_text": summary_text,
+        } if ok else None,
     )
     _job_done(job_id, ok=ok, log=log_blob)
 

@@ -163,6 +163,8 @@ class OdooInstanceSerializer(serializers.ModelSerializer):
             "ssl_enabled",
             "status",
             "provisioning_log",
+            "installation_summary",
+            "installation_summary_text",
             "server",
             "created_at",
             "updated_at",
