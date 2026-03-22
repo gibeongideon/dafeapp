@@ -142,9 +142,20 @@ class OdooServerSerializer(serializers.ModelSerializer):
 class OdooInstanceSerializer(serializers.ModelSerializer):
     server = OdooServerSerializer(read_only=True)
     access_url = serializers.SerializerMethodField()
+    owner_name = serializers.SerializerMethodField()
+    storage_path = serializers.SerializerMethodField()
 
     def get_access_url(self, obj):
         return obj.access_url
+
+    def get_owner_name(self, obj):
+        if not obj.created_by:
+            return ""
+        full_name = obj.created_by.get_full_name().strip()
+        return full_name or obj.created_by.get_username()
+
+    def get_storage_path(self, obj):
+        return obj.storage_path
 
     class Meta:
         model = OdooInstance
@@ -155,6 +166,8 @@ class OdooInstanceSerializer(serializers.ModelSerializer):
             "domain",
             "http_port",
             "access_url",
+            "owner_name",
+            "storage_path",
             "requested_cpu_cores",
             "requested_ram_mb",
             "container_name",

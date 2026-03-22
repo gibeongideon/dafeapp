@@ -316,6 +316,12 @@ class OdooInstance(models.Model):
             return f"http://{ip}:{self.http_port}"
         return ""
 
+    @property
+    def storage_path(self) -> str:
+        """Best-effort storage path for UI rendering."""
+        summary = self.installation_summary or {}
+        return summary.get("data_dir") or summary.get("instance_dir") or ""
+
     def __str__(self):
         return f"{self.name} ({self.db_name}) [{self.status}]"
 

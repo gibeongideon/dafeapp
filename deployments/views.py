@@ -179,6 +179,7 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         org = self.request.organization
+        server_id = (self.request.GET.get("server_id") or "").strip()
         accounts = CloudAccount.objects.filter(organization=org, is_verified=True)
         ctx["accounts"] = accounts
         from cloud.models import ExternalServer
@@ -200,6 +201,22 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
             .select_related("server")
             .order_by("-created_at")[:20]
         )
+        ctx["selected_server"] = None
+        ctx["selected_instances"] = OdooInstance.objects.none()
+        ctx["server_id"] = server_id
+        if server_id:
+            selected_server = get_object_or_404(
+                OdooServer.objects.select_related("infrastructure", "infrastructure__external_server", "cloud_account"),
+                pk=server_id,
+                organization=org,
+                is_active=True,
+            )
+            ctx["selected_server"] = selected_server
+            ctx["selected_instances"] = (
+                OdooInstance.objects.filter(organization=org, server=selected_server)
+                .select_related("server")
+                .order_by("-created_at")
+            )
         ctx["recent_runs"] = TerraformRun.objects.filter(
             instance__organization=org
         ).select_related("instance")[:15]
