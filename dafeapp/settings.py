@@ -141,6 +141,7 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = "UTC"
+CELERY_WORKER_HIJACK_ROOT_LOGGER = False
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 CELERY_BEAT_SCHEDULE = {
     "check-server-connectivity": {
@@ -284,6 +285,26 @@ LOGGING = {
         },
     },
     "loggers": {
+        "deployments.tasks": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "deployments.views": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "cloud.tasks": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "cloud.pyos": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
         "deployments": {
             "handlers": ["console"],
             "level": "INFO",

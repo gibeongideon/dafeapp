@@ -58,14 +58,22 @@
           {% else %}
           <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-500">Bare-metal</span>
           {% endif %}
-          <span id="server-badge-{{ s.id }}" class="px-2 py-1 rounded-md text-[11px] font-medium
-          {% if s.status == 'PROVISIONED' %}bg-green-100 text-green-700
-          {% elif s.status == 'FAILED' %}bg-red-100 text-red-700
-          {% elif s.status in 'CONFIGURING PROVISIONING' %}bg-yellow-100 text-yellow-700
-          {% elif s.status == 'ARCHIVED' %}bg-gray-100 text-gray-500
-          {% else %}bg-gray-100 text-gray-700{% endif %}">
-          {{ s.get_status_display }}
-        </span>
+          <div class="flex items-center gap-1">
+            <span id="server-badge-{{ s.id }}" class="px-2 py-1 rounded-md text-[11px] font-medium
+            {% if s.status == 'PROVISIONED' %}bg-green-100 text-green-700
+            {% elif s.status == 'FAILED' %}bg-red-100 text-red-700
+            {% elif s.status == 'CONFIGURING' or s.status == 'PROVISIONING' %}bg-yellow-100 text-yellow-700 animate-pulse
+            {% elif s.status == 'ARCHIVED' %}bg-gray-100 text-gray-500
+            {% else %}bg-gray-100 text-gray-700{% endif %}">
+            {{ s.get_status_display }}
+          </span>
+            <span id="server-busy-{{ s.id }}"
+                  class="inline-flex items-center justify-center w-4 h-4 {% if s.status == 'CONFIGURING' or s.status == 'PROVISIONING' %}text-yellow-500{% else %}hidden{% endif %}"
+                  aria-hidden="true"
+                  title="{% if s.status == 'CONFIGURING' or s.status == 'PROVISIONING' %}Provisioning in progress{% endif %}">
+              <span class="block w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin"></span>
+            </span>
+          </div>
           <span id="server-conn-badge-{{ s.id }}" class="px-1.5 py-0.5 rounded text-[10px] font-medium
             {% if s.infrastructure and s.infrastructure.infra_type == 'PYOS' and s.infrastructure.external_server %}
               {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
@@ -208,6 +216,10 @@
         <div id="server-progress-wrap-{{ s.id }}"
              class="{% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' or s.provisioning_log %}{% else %}hidden{% endif %}">
           <p class="text-[10px] uppercase tracking-wide text-gray-400 mb-1.5">Live Progress</p>
+          <p id="server-progress-note-{{ s.id }}"
+             class="text-[10px] text-amber-500 mb-1.5 {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}{% else %}hidden{% endif %}">
+            This step may take 5–15 minutes.
+          </p>
           <ul id="server-progress-{{ s.id }}" class="space-y-1.5 max-h-36 overflow-y-auto"></ul>
         </div>
 
@@ -743,7 +755,7 @@
     const value = (status || "").trim().toUpperCase();
     if (value === "PROVISIONED") return "px-2 py-1 rounded-md text-[11px] font-medium bg-green-100 text-green-700";
     if (value === "FAILED") return "px-2 py-1 rounded-md text-[11px] font-medium bg-red-100 text-red-700";
-    if (value === "CONFIGURING" || value === "PROVISIONING") return "px-2 py-1 rounded-md text-[11px] font-medium bg-yellow-100 text-yellow-700";
+    if (value === "CONFIGURING" || value === "PROVISIONING") return "px-2 py-1 rounded-md text-[11px] font-medium bg-yellow-100 text-yellow-700 animate-pulse";
     if (value === "ARCHIVED") return "px-2 py-1 rounded-md text-[11px] font-medium bg-gray-100 text-gray-500";
     return "px-2 py-1 rounded-md text-[11px] font-medium bg-gray-100 text-gray-700";
   }
@@ -752,6 +764,11 @@
     const value = (status || "").trim().toUpperCase();
     if (!value) return "Unknown";
     return value.charAt(0) + value.slice(1).toLowerCase();
+  }
+
+  function isBusyStatus(status) {
+    const value = (status || "").trim().toUpperCase();
+    return value === "CONFIGURING" || value === "PROVISIONING";
   }
 
   function connBadgeClass(server) {
@@ -857,6 +874,7 @@
       return;
     }
     const statusBadge = document.getElementById(`server-badge-${sid}`);
+    const busyIcon = document.getElementById(`server-busy-${sid}`);
     const connBadge = document.getElementById(`server-conn-badge-${sid}`);
     const connMsg = document.getElementById(`server-conn-msg-${sid}`);
     const topIp = document.getElementById(`server-top-ip-${sid}`);
@@ -870,10 +888,21 @@
     const exampleAccessEl = document.getElementById(`server-example-access-${sid}`);
     const summaryWrap = document.getElementById(`server-summary-wrap-${sid}`);
     const summaryText = document.getElementById(`server-summary-text-${sid}`);
+    const progressNote = document.getElementById(`server-progress-note-${sid}`);
     const instanceBtn = document.querySelector(`.open-instance-modal[data-server-id="${sid}"]`);
+    const isBusy = isBusyStatus(server.status);
     if (statusBadge) {
       statusBadge.textContent = serverBadgeLabel(server.status);
       statusBadge.className = serverBadgeClass(server.status);
+    }
+    if (busyIcon) {
+      if (isBusy) {
+        busyIcon.className = "inline-flex items-center justify-center w-4 h-4 text-yellow-500";
+        busyIcon.title = "Provisioning in progress";
+      } else {
+        busyIcon.className = "inline-flex items-center justify-center w-4 h-4 hidden";
+        busyIcon.title = "";
+      }
     }
     const sshPending = pendingServerChecks.has(String(sid));
     if (connBadge) {
@@ -938,6 +967,13 @@
     if (summaryWrap && summaryText && server.installation_summary_text) {
       summaryText.textContent = server.installation_summary_text;
       summaryWrap.classList.remove("hidden");
+    }
+    if (progressNote) {
+      if (isBusy) {
+        progressNote.classList.remove("hidden");
+      } else {
+        progressNote.classList.add("hidden");
+      }
     }
     if (toggleBtn) {
       toggleBtn.textContent = detailsWrap && detailsWrap.classList.contains("hidden") ? "More" : "Hide";
@@ -1095,6 +1131,7 @@
     const connBadgeText = connBadgeLabel(server);
     const connBadgeCls = connBadgeClass(server);
     const connMsgText = connMessageLabel(server) || (isPyos ? "Reachability is being verified..." : "Reachability has not been checked yet.");
+    const isBusy = isBusyStatus(server.status);
     const exampleAccessText = server.deployment_mode === "DOCKER"
       ? (server.dns_domain ? `https://${server.dns_domain}` : "https://domain.example.com")
       : (server.ip_address ? `http://${server.ip_address}:${server.min_port || 8069}` : "pending");
@@ -1123,7 +1160,13 @@
         </div>
         <div class="flex flex-col items-end gap-1">
           ${modeBadgeHtml}
-          <span id="server-badge-${sid}" class="px-2 py-1 rounded-md text-[11px] font-medium bg-yellow-100 text-yellow-700">${serverBadgeLabel(server.status || "PROVISIONING")}</span>
+          <span id="server-badge-${sid}" class="${serverBadgeClass(server.status || "PROVISIONING")}">${serverBadgeLabel(server.status || "PROVISIONING")}</span>
+          <span id="server-busy-${sid}"
+                class="inline-flex items-center justify-center w-4 h-4 ${isBusyStatus(server.status) ? "text-yellow-500" : "hidden"}"
+                aria-hidden="true"
+                title="${isBusyStatus(server.status) ? "Provisioning in progress" : ""}">
+            <span class="block w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin"></span>
+          </span>
           <span id="server-conn-badge-${sid}" class="${connBadgeCls}">${connBadgeText}</span>
           <span id="server-conn-msg-${sid}" class="text-[10px] max-w-[11rem] text-right leading-tight ${((server.ssh_connection_status || "").toLowerCase() === "connected") ? "text-green-500" : ((server.ssh_connection_status || "").toLowerCase() === "disconnected" ? "text-red-500" : ((server.ssh_connection_status || "").toLowerCase() === "checking" ? "text-yellow-600" : "text-gray-400"))}">${connMsgText}</span>
         </div>
@@ -1168,6 +1211,9 @@
         </div>
         <div id="server-progress-wrap-${sid}" class="hidden">
           <p class="text-[10px] uppercase tracking-wide text-gray-400 mb-1.5">Live Progress</p>
+          <p id="server-progress-note-${sid}" class="text-[10px] text-amber-500 mb-1.5 ${isBusy ? "" : "hidden"}">
+            This step may take 5–15 minutes.
+          </p>
           <ul id="server-progress-${sid}" class="space-y-1.5 max-h-36 overflow-y-auto"></ul>
         </div>
         <div id="server-summary-wrap-${sid}" class="hidden">
@@ -1518,7 +1564,7 @@
     const msgEl = $("details-modal-msg");
     const name = $("server-name").value.trim();
     if (!name) { setMsg(msgEl, "Server name is required.", true); return; }
-    setMsg(msgEl, "Provisioning server…");
+    setMsg(msgEl, "Provisioning server… This may take 5–15 minutes.");
 
     const deployModeEl = document.querySelector("input[name='server-deploy-mode']:checked");
     const deployMode = deployModeEl ? deployModeEl.value : "BARE_METAL";

@@ -31,21 +31,21 @@
 
   vars:
     # --- DafeApp-supplied vars (tasks.py passes these) -------------------
-    odoo_version:   "{{ odoo_version   | default('19') }}"
-    dns_domain:     "{{ dns_domain     | default('') }}"
-    bootstrap_standalone: "{{ bootstrap_standalone | default('False') }}"
+    odoo_version_value:   "{{ odoo_version   | default('19') }}"
+    dns_domain_value:     "{{ dns_domain     | default('') }}"
+    bootstrap_standalone_value: "{{ bootstrap_standalone | default('False') }}"
 
     # --- Derived nginx / SSL flags ----------------------------------------
     # Nginx/SSL only matter when standalone mode is explicitly enabled.
-    install_nginx:  "{{ 'True' if dns_domain | length > 0 else 'False' }}"
+    install_nginx:  "{{ 'True' if dns_domain_value | length > 0 else 'False' }}"
     # SSL is enabled when a domain AND a real admin email are supplied.
-    enable_ssl:     "{{ 'True' if (dns_domain | length > 0 and admin_email is defined and admin_email != 'odoo@example.com') else 'False' }}"
-    website_name:   "{{ dns_domain if dns_domain | length > 0 else '_' }}"
+    enable_ssl:     "{{ 'True' if (dns_domain_value | length > 0 and admin_email_value is defined and admin_email_value != 'odoo@example.com') else 'False' }}"
+    website_name:   "{{ dns_domain_value if dns_domain_value | length > 0 else '_' }}"
 
     # --- Configurable overrides ------------------------------------------
-    odoo_port:      "{{ odoo_port      | default('8069') }}"
-    admin_email:    "{{ admin_email    | default('odoo@example.com') }}"
-    is_enterprise:  "{{ is_enterprise  | default('False') }}"
+    odoo_port_value:      "{{ odoo_port      | default('8069') }}"
+    admin_email_value:    "{{ admin_email    | default('odoo@example.com') }}"
+    is_enterprise_value:  "{{ is_enterprise  | default('False') }}"
 
     # --- Script paths -------------------------------------------------------
     # Each Odoo version has its own installer under scripts/installscript/{ver}/
@@ -56,7 +56,7 @@
     install_script_name: "odoo_install.sh"
     install_script_src: >-
       {{
-        playbook_dir ~ '/../../scripts/installscript/' ~ odoo_version ~ '/odoo_install.sh'
+        playbook_dir ~ '/../../scripts/installscript/' ~ odoo_version_value ~ '/odoo_install.sh'
       }}
 
   tasks:
@@ -101,13 +101,13 @@
       replace:
         path: "{{ remote_script_dir }}/{{ install_script_name }}"
         regexp: '^OE_VERSION="[^"]*"'
-        replace: 'OE_VERSION="{{ odoo_version }}.0"'
+        replace: 'OE_VERSION="{{ odoo_version_value }}.0"'
 
     - name: Set OE_PORT
       replace:
         path: "{{ remote_script_dir }}/{{ install_script_name }}"
         regexp: '^OE_PORT="[^"]*"'
-        replace: 'OE_PORT="{{ odoo_port }}"'
+        replace: 'OE_PORT="{{ odoo_port_value }}"'
 
     - name: Set INSTALL_NGINX
       replace:
@@ -125,7 +125,7 @@
       replace:
         path: "{{ remote_script_dir }}/{{ install_script_name }}"
         regexp: '^ADMIN_EMAIL="[^"]*"'
-        replace: 'ADMIN_EMAIL="{{ admin_email }}"'
+        replace: 'ADMIN_EMAIL="{{ admin_email_value }}"'
 
     - name: Set WEBSITE_NAME
       replace:
@@ -137,13 +137,13 @@
       replace:
         path: "{{ remote_script_dir }}/{{ install_script_name }}"
         regexp: '^IS_ENTERPRISE="[^"]*"'
-        replace: 'IS_ENTERPRISE="{{ is_enterprise }}"'
+        replace: 'IS_ENTERPRISE="{{ is_enterprise_value }}"'
 
     - name: Set BOOTSTRAP_STANDALONE
       replace:
         path: "{{ remote_script_dir }}/{{ install_script_name }}"
         regexp: '^BOOTSTRAP_STANDALONE="[^"]*"'
-        replace: 'BOOTSTRAP_STANDALONE="{{ bootstrap_standalone }}"'
+        replace: 'BOOTSTRAP_STANDALONE="{{ bootstrap_standalone_value }}"'
 
     # ------------------------------------------------------------------
     # 5. Run the installer
@@ -170,7 +170,7 @@
         src: "/etc/odoo-server.conf"
       register: odoo_conf_raw
       ignore_errors: true
-      when: bootstrap_standalone == 'True'
+      when: bootstrap_standalone_value == 'True'
 
     - name: Extract admin_passwd from config
       set_fact:
@@ -179,7 +179,7 @@
              | regex_search('admin_passwd = (.+)', '\\1')
              | first | default('(could not read)') }}
       when:
-        - bootstrap_standalone == 'True'
+        - bootstrap_standalone_value == 'True'
         - odoo_conf_raw is succeeded
 
     # ------------------------------------------------------------------
@@ -189,10 +189,10 @@
     - name: Allow Odoo port in UFW
       ufw:
         rule: allow
-        port: "{{ odoo_port }}"
+        port: "{{ odoo_port_value }}"
         proto: tcp
       ignore_errors: true
-      when: bootstrap_standalone == 'True'
+      when: bootstrap_standalone_value == 'True'
 
     # ------------------------------------------------------------------
     # 8. Summary
@@ -201,8 +201,8 @@
       debug:
         msg:
           - "=========================================="
-          - "Odoo {{ odoo_version }} installed (bare-metal)"
-          - "Port          : {{ odoo_port }}"
+          - "Odoo {{ odoo_version_value }} installed (bare-metal)"
+          - "Port          : {{ odoo_port_value }}"
           - "Nginx         : {{ install_nginx }}"
           - "SSL           : {{ enable_ssl }}"
           - "Domain        : {{ website_name }}"
@@ -211,17 +211,17 @@
           - "Log file      : /var/log/odoo/odoo-server.log"
           - "Admin password: {{ odoo_admin_passwd | default('check /etc/odoo-server.conf') }}"
           - "=========================================="
-      when: bootstrap_standalone == 'True'
+      when: bootstrap_standalone_value == 'True'
 
     - name: Installation summary (environment only)
       debug:
         msg:
           - "=========================================="
-          - "Odoo {{ odoo_version }} environment ready (bare-metal)"
+          - "Odoo {{ odoo_version_value }} environment ready (bare-metal)"
           - "Server prepared for instance creation only"
           - "Source code   : /odoo/odoo-server"
           - "Python venv   : /odoo/venv"
           - "Log directory : /var/log/odoo"
           - "Next step     : create an Odoo instance with Ansible"
           - "=========================================="
-      when: bootstrap_standalone != 'True'
+      when: bootstrap_standalone_value != 'True'
