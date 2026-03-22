@@ -298,15 +298,19 @@ if [[ "${LOCAL_MODE}" != "True" ]]; then
   if ! wait_for_ssh 12 10; then
     echo "[warn] SSH is still unavailable on ${IP}; skipping post-install summary."
     echo "       The installer may still have completed successfully."
-    exit 0
   fi
 fi
 if [[ "${LOCAL_MODE}" == "True" ]]; then
   ADMIN_PASS=$(sudo grep 'admin_passwd' /etc/odoo-server.conf 2>/dev/null || echo '(not found)')
   SERVICE_STATUS=$(sudo service odoo-server status 2>/dev/null | head -5 || echo '(status unavailable)')
 else
-  ADMIN_PASS=$(ssh_cmd "sudo grep 'admin_passwd' /etc/odoo-server.conf 2>/dev/null || echo '(not found)'")
-  SERVICE_STATUS=$(ssh_cmd "sudo service odoo-server status 2>/dev/null | head -5 || echo '(status unavailable)'")
+  if ssh_cmd "echo ssh-ready" >/dev/null 2>&1; then
+    ADMIN_PASS=$(ssh_cmd "sudo grep 'admin_passwd' /etc/odoo-server.conf 2>/dev/null || echo '(not found)'")
+    SERVICE_STATUS=$(ssh_cmd "sudo service odoo-server status 2>/dev/null | head -5 || echo '(status unavailable)'")
+  else
+    ADMIN_PASS="(not found)"
+    SERVICE_STATUS="(status unavailable)"
+  fi
 fi
 
 echo ""

@@ -12,7 +12,7 @@
 #   - Separate config:             /etc/odoo-{db_name}.conf
 #   - Separate systemd service:    odoo-{db_name}.service
 #   - db_filter locked to this instance only
-#   - Access via:                  http://SERVER_IP:{http_port}
+#   - Access via:                  http://<server-ip>:{http_port}
 #
 # Extra vars passed by DafeApp tasks.py:
 #   odoo_version   - major version: "17", "18", or "19"
@@ -45,6 +45,7 @@
     custom_addons_dir: "/odoo/instances/{{ db_name }}/addons/custom"
     data_dir:        "/odoo/instances/{{ db_name }}/data"
     log_dir:         "/odoo/instances/{{ db_name }}/logs"
+    access_host:     "{{ ansible_host | default(ansible_default_ipv4.address | default('127.0.0.1')) }}"
 
     config_file:  "/etc/odoo-{{ db_name }}.conf"
     service_name: "odoo-{{ db_name }}"
@@ -234,5 +235,5 @@
           - "Data dir     : {{ data_dir }}"
           - "Logs         : {{ log_dir }}/{{ db_name }}.log"
           - "Config       : {{ config_file }}"
-          - "Access       : http://SERVER_IP:{{ http_port }}"
+          - "Access       : http://{{ access_host }}:{{ http_port }}"
           - "================================================"

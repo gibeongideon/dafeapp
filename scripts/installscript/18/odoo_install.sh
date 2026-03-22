@@ -64,6 +64,8 @@ OE_HOME_EXT="/$OE_USER/${OE_USER}-server"
 INSTALL_WKHTMLTOPDF="True"
 # Set the default Odoo port (you still have to use -c /etc/odoo-server.conf for example to use this.)
 OE_PORT="8069"
+# Set to True only if you explicitly want a full package upgrade before install.
+RUN_FULL_UPGRADE="False"
 # Choose the Odoo version which you want to install. For example: 16.0, 15.0, 14.0 or saas-22. When using 'master' the master version will be installed.
 # IMPORTANT! This script contains extra libraries that are specifically needed for Odoo 17.0
 OE_VERSION="17.0"
@@ -113,7 +115,11 @@ echo -e "\n---- Update Server ----"
 # libpng12-0 dependency for wkhtmltopdf for older Ubuntu versions
 # sudo add-apt-repository "deb http://mirrors.kernel.org/ubuntu/ xenial main"
 sudo apt-get update
-sudo apt-get upgrade -y
+if [ "$RUN_FULL_UPGRADE" = "True" ]; then
+    sudo apt-get upgrade -y
+else
+    echo "Skipping full apt upgrade to avoid restarting SSH during provisioning."
+fi
 apt_noninteractive install libpq-dev
 
 #--------------------------------------------------
@@ -143,7 +149,7 @@ apt_noninteractive install python3 python3-pip
 apt_noninteractive install git python3-cffi build-essential wget python3-dev python3-venv python3-wheel libxslt-dev libzip-dev libldap2-dev libsasl2-dev python3-setuptools node-less libpng-dev libjpeg-dev gdebi
 
 echo -e "\n---- Install python packages/requirements ----"
-sudo -H pip3 install -r https://github.com/odoo/odoo/raw/${OE_VERSION}/requirements.txt
+sudo python3 -m pip install --break-system-packages -r https://github.com/odoo/odoo/raw/${OE_VERSION}/requirements.txt
 
 echo -e "\n---- Installing nodeJS NPM and rtlcss for LTR support ----"
 apt_noninteractive install nodejs npm
