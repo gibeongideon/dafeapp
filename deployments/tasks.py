@@ -445,6 +445,9 @@ def _run_ansible_playbook(
         )
         lines: list[str] = []
         for line in proc.stdout:
+            clean = line.rstrip()
+            if clean:
+                logger.info("[ansible] %s", clean)
             lines.append(line)
             try:
                 on_chunk(line)
@@ -669,10 +672,18 @@ def provision_odoo_server(self, server_id: int):
     server.installation_summary_text = ""
     server.provisioning_log = ""
     server.save(update_fields=["status", "installation_summary", "installation_summary_text", "provisioning_log", "updated_at"])
-    _broadcast_server(server.id, "Starting provisioning…", server.status)
-
     infra = server.infrastructure
+    logger.info(
+        "Server provisioning started: id=%s name=%s version=%s mode=%s infra=%s",
+        server.id,
+        server.name,
+        server.odoo_version,
+        server.deployment_mode,
+        getattr(infra, "infra_type", "unknown"),
+    )
+    _broadcast_server(server.id, "Starting provisioning…", server.status)
     if not infra:
+        logger.error("Server %s provisioning aborted: missing infrastructure record.", server.id)
         server.status = OdooServer.Status.FAILED
         server.provisioning_log = _append_text(server.provisioning_log, "Server is missing infrastructure.")
         server.save(update_fields=["status", "provisioning_log", "updated_at"])
@@ -689,6 +700,12 @@ def provision_odoo_server(self, server_id: int):
         from cloud.pyos import PyOSService
         from django.utils import timezone
 
+        logger.info(
+            "Server %s: validating PYOS reachability for %s:%s",
+            server.id,
+            ext.host,
+            ext.port or 22,
+        )
         ext.last_verified_at = None
         ext.verification_error = "Reachability is being verified..."
         ext.save(update_fields=["last_verified_at", "verification_error"])
@@ -717,30 +734,45 @@ def provision_odoo_server(self, server_id: int):
             ]
         )
         if not reachable:
+            logger.warning("Server %s: PYOS reachability failed: %s", server.id, err)
             server.status = OdooServer.Status.FAILED
             server.save(update_fields=["status", "provisioning_log", "updated_at"])
             _broadcast_server(server.id, f"Failed: {err}", server.status, done=True)
             return
 
+        logger.info(
+            "Server %s: PYOS reachability confirmed for %s:%s",
+            server.id,
+            ext.host,
+            ext.port or 22,
+        )
         server.status = OdooServer.Status.CONFIGURING
         server.save(
             update_fields=["status", "updated_at"]
         )
         _broadcast_server(server.id, f"Reachability confirmed ({ext.host}) — starting Odoo configuration…", server.status)
+        logger.info(
+            "Server %s: starting %s configuration",
+            server.id,
+            "Docker" if server.deployment_mode == OdooServer.DeploymentMode.DOCKER else "Ansible Odoo",
+        )
         if server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
             _queue_or_run(configure_docker_host, server.id)
         else:
             _queue_or_run(configure_odoo_server, server.id)
         return
 
+    logger.info("Server %s: validating managed infrastructure connection target", server.id)
     _broadcast_server(server.id, "Validating infrastructure connection…", server.status)
     ok, err = infra.validate_connection_target()
     if not ok:
+        logger.warning("Server %s: infrastructure validation failed: %s", server.id, err)
         server.status = OdooServer.Status.FAILED
         server.provisioning_log = _append_text(server.provisioning_log, err)
         server.save(update_fields=["status", "provisioning_log", "updated_at"])
         _broadcast_server(server.id, f"Failed: {err}", server.status, done=True)
         return
+    logger.info("Server %s: managed infrastructure connection confirmed", server.id)
 
     state_root = Path(settings.BASE_DIR) / ".terraform_state" / f"org_{org.id}" / f"odoo_server_{server.id}"
     state_root.mkdir(parents=True, exist_ok=True)
@@ -856,8 +888,15 @@ def configure_odoo_server(self, server_id: int, job_id: int | None = None):
     server.installation_summary = {}
     server.installation_summary_text = ""
     server.save(update_fields=["installation_summary", "installation_summary_text", "updated_at"])
+    logger.info(
+        "Server %s: configuration task started (name=%s ip=%s)",
+        server.id,
+        server.name,
+        server.ip_address,
+    )
 
     if not server.ip_address:
+        logger.error("Server %s: no IP available for configuration.", server.id)
         server.status = OdooServer.Status.FAILED
         server.provisioning_log = _append_text(server.provisioning_log, "No server IP available for configuration.")
         server.save(update_fields=["status", "installation_summary", "installation_summary_text", "provisioning_log", "updated_at"])
@@ -866,12 +905,14 @@ def configure_odoo_server(self, server_id: int, job_id: int | None = None):
 
     playbook = os.getenv("ANSIBLE_ODOO_SERVER_PLAYBOOK", "").strip() or _default_odoo_server_playbook()
     if not Path(playbook).exists():
+        logger.error("Server %s: bootstrap playbook not found: %s", server.id, playbook)
         server.status = OdooServer.Status.FAILED
         msg = f"Server bootstrap playbook not found: {playbook}"
         server.provisioning_log = _append_text(server.provisioning_log, msg)
         server.save(update_fields=["status", "installation_summary", "installation_summary_text", "provisioning_log", "updated_at"])
         _job_done(job_id, ok=False, log=msg)
         return
+    logger.info("Server %s: running Ansible playbook %s", server.id, playbook)
 
     admin_email = os.getenv("ODOO_ADMIN_EMAIL", "odoo@example.com").strip()
     extra_vars = {
@@ -901,6 +942,11 @@ def configure_odoo_server(self, server_id: int, job_id: int | None = None):
 
     server.provisioning_log = _append_text(server.provisioning_log, f"[ansible server]\n{log_blob}".strip())
     server.status = OdooServer.Status.PROVISIONED if ok else OdooServer.Status.FAILED
+    logger.info(
+        "Server %s: configuration %s",
+        server.id,
+        "succeeded" if ok else "failed",
+    )
     final_msg = "Server provisioned successfully — ready for instances." if ok else "Server configuration failed."
     server.provisioning_log = _append_text(server.provisioning_log, final_msg)
     summary = {}
@@ -960,8 +1006,21 @@ def create_odoo_instance(self, instance_id: int, job_id: int | None = None):
     server = instance.server
 
     _job_start(job_id, self.request.id)
+    logger.info(
+        "Instance %s: creation started (db=%s server=%s ip=%s)",
+        instance.id,
+        instance.db_name,
+        server.id,
+        server.ip_address,
+    )
 
     if server.status != OdooServer.Status.PROVISIONED or not server.ip_address:
+        logger.error(
+            "Instance %s: server not ready for instance creation (status=%s ip=%s)",
+            instance.id,
+            server.status,
+            server.ip_address,
+        )
         instance.status = OdooInstance.Status.FAILED
         instance.provisioning_log = "Server is not ready for instance creation."
         instance.save(update_fields=["status", "provisioning_log", "updated_at"])
@@ -982,6 +1041,7 @@ def create_odoo_instance(self, instance_id: int, job_id: int | None = None):
     playbook = direct_playbook if use_direct else domain_playbook
 
     if not playbook:
+        logger.info("Instance %s: no Ansible playbook configured; marking RUNNING.", instance.id)
         instance.systemd_service = f"odoo-{instance.db_name}"
         instance.nginx_site = ""
         instance.ssl_enabled = False
@@ -1005,6 +1065,13 @@ def create_odoo_instance(self, instance_id: int, job_id: int | None = None):
         extra_vars["domain"] = instance.domain
 
     ws_group = f"odoo.instance.{instance.id}"
+    logger.info(
+        "Instance %s: running Ansible playbook %s (direct=%s) against %s",
+        instance.id,
+        playbook,
+        use_direct,
+        server.ip_address,
+    )
     _broadcast_instance(instance.id, f"Running Ansible playbook ({playbook.split('/')[-1]})…", instance.status)
     ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
     try:
@@ -1033,6 +1100,12 @@ def create_odoo_instance(self, instance_id: int, job_id: int | None = None):
         update_fields=["status", "systemd_service", "nginx_site", "ssl_enabled", "provisioning_log", "updated_at"]
     )
     access_url = f"http://{server.ip_address}:{instance.http_port}" if server.ip_address else ""
+    logger.info(
+        "Instance %s: creation %s (access=%s)",
+        instance.id,
+        "succeeded" if ok else "failed",
+        access_url or "n/a",
+    )
     _broadcast_instance(
         instance.id,
         f"Instance is running — {access_url}" if ok else "Instance creation failed.",
@@ -1137,6 +1210,7 @@ def check_server_connectivity():
     from django.utils import timezone
 
     now = timezone.now()
+    logger.info("Periodic reachability sweep started.")
 
     # --- OdooServer: probe the saved SSH target (PYOS host or direct IP) ---
     servers = OdooServer.objects.select_related(
@@ -1167,6 +1241,13 @@ def check_server_connectivity():
             update_fields.append("ip_address")
         server.save(update_fields=update_fields)
         _broadcast_server_snapshot(server)
+        logger.info(
+            "Reachability check: server %s (%s:%s) is %s",
+            server.id,
+            host,
+            port,
+            "connected" if reachable else "disconnected",
+        )
 
     # --- ExternalServer: probe the configured SSH port ---
     ext_servers = ExternalServer.objects.filter(host__isnull=False)
@@ -1176,6 +1257,7 @@ def check_server_connectivity():
         ext.is_reachable = reachable
         ext.last_checked_at = now
         ext.save(update_fields=["is_reachable", "last_checked_at"])
+    logger.info("Periodic reachability sweep finished.")
 
 
 @shared_task

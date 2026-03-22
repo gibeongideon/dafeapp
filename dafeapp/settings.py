@@ -267,6 +267,46 @@ DEFAULT_FROM_EMAIL = "noreply@dafeapp.com"
 SITE_URL = env("SITE_URL", default="http://localhost:8000")
 
 # ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "verbose": {
+            "format": "%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "verbose",
+        },
+    },
+    "loggers": {
+        "deployments": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "cloud": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "core": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": "WARNING",
+    },
+}
+
+# ---------------------------------------------------------------------------
 # Field-level encryption (Fernet) — cloud credentials + VCS tokens
 # ---------------------------------------------------------------------------
 FIELD_ENCRYPTION_KEY = env("FIELD_ENCRYPTION_KEY", default="")

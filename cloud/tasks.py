@@ -24,6 +24,7 @@ def validate_external_server(self, server_id: int):
         logger.error("ExternalServer %s not found", server_id)
         return
 
+    logger.info("ExternalServer %s: validation started for %s:%s", server.pk, server.host, server.port or 22)
     service = PyOSService(server)
     success, message = service.validate()
 
@@ -31,6 +32,11 @@ def validate_external_server(self, server_id: int):
     server.verification_error = "" if success else message
     server.last_verified_at = timezone.now()
     server.save(update_fields=["is_verified", "verification_error", "last_verified_at"])
+    logger.info(
+        "ExternalServer %s: validation %s",
+        server.pk,
+        "succeeded" if success else "failed",
+    )
 
     action = AuditLog.Action.SERVER_VERIFY
     log_audit(None, action, None, f"Server '{server.name}': {message}", organization=server.organization)
@@ -53,6 +59,7 @@ def prepare_external_server(self, server_id: int):
     from cloud.models import ExternalServer as ES
     server.preparation_status = ES.PreparationStatus.IN_PROGRESS
     server.save(update_fields=["preparation_status"])
+    logger.info("ExternalServer %s: preparation started for %s:%s", server.pk, server.host, server.port or 22)
 
     service = PyOSService(server)
     success, log_output = service.prepare_server()
@@ -63,6 +70,11 @@ def prepare_external_server(self, server_id: int):
     )
     server.is_prepared = success
     server.save(update_fields=["preparation_log", "preparation_status", "is_prepared"])
+    logger.info(
+        "ExternalServer %s: preparation %s",
+        server.pk,
+        "succeeded" if success else "failed",
+    )
 
     result = "Preparation complete." if success else f"Preparation failed: {log_output[-200:]}"
     log_audit(None, AuditLog.Action.SERVER_PREPARE, None, f"Server '{server.name}': {result}", organization=server.organization)

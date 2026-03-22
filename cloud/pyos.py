@@ -107,14 +107,19 @@ class PyOSService:
         auth_label = self.server.auth_type or "UNKNOWN"
         client = None
         try:
+            logger.info("SSH validation started for %s using %s", target, auth_label)
             client = self._get_client()
             stdout, stderr = self._run(client, "echo OK")
             if stdout.strip() == "OK":
+                logger.info("SSH validation succeeded for %s", target)
                 return True, "SSH connection successful."
+            logger.warning("SSH validation unexpected output for %s: %r", target, stdout.strip())
             return False, f"Unexpected output: {stdout!r}"
         except paramiko.AuthenticationException as exc:
+            logger.warning("SSH validation authentication failed for %s: %s", target, exc)
             return False, f"Authentication failed for {target} using {auth_label}: {exc}"
         except (socket.timeout, paramiko.ssh_exception.NoValidConnectionsError) as exc:
+            logger.warning("SSH validation host unreachable for %s: %s", target, exc)
             return False, f"Host unreachable for {target}: {exc}"
         except Exception as exc:
             logger.exception("SSH validate error for server %s", self.server.pk)
@@ -130,19 +135,24 @@ class PyOSService:
         """
         client = None
         log_lines = []
+        target = f"{self.server.username}@{self.server.host}:{self.server.port}"
         try:
+            logger.info("SSH preparation started for %s (%d commands)", target, len(PREPARE_COMMANDS))
             client = self._get_client()
-            for cmd in PREPARE_COMMANDS:
+            for idx, cmd in enumerate(PREPARE_COMMANDS, start=1):
+                logger.info("SSH preparation step %d/%d for %s: %s", idx, len(PREPARE_COMMANDS), target, cmd)
                 log_lines.append(f"$ {cmd}")
                 stdout, stderr = self._run(client, cmd)
                 if stdout:
                     log_lines.append(stdout.rstrip())
                 if stderr:
                     log_lines.append(f"[stderr] {stderr.rstrip()}")
+            logger.info("SSH preparation finished for %s", target)
             return True, "\n".join(log_lines)
         except paramiko.AuthenticationException:
             msg = "Authentication failed during preparation."
             log_lines.append(msg)
+            logger.warning("SSH preparation authentication failed for %s", target)
             return False, "\n".join(log_lines)
         except Exception as exc:
             msg = f"Preparation error: {exc}"

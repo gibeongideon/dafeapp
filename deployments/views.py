@@ -309,6 +309,15 @@ class OdooServerCreateAPIView(LoginRequiredMixin, View):
             auth_type = (request.POST.get("auth_type") or "DAFEAPP_KEY").strip()
             password = request.POST.get("password") or ""
             ssh_key_path = (request.POST.get("ssh_key_path") or "").strip()
+            logger.info(
+                "Inline PYOS server create requested by %s: name=%s host=%s port=%s user=%s auth=%s",
+                request.user,
+                name,
+                host,
+                port_raw,
+                username,
+                auth_type,
+            )
             if not name:
                 return JsonResponse({"error": "name is required."}, status=400)
             if auth_type not in ("DAFEAPP_KEY", "PASSWORD"):
@@ -355,6 +364,13 @@ class OdooServerCreateAPIView(LoginRequiredMixin, View):
                 dns_domain=dns_domain,
                 deployment_mode=deployment_mode,
                 created_by=request.user,
+            )
+            logger.info(
+                "Inline PYOS server record created: id=%s infra=%s host=%s version=%s",
+                server.id,
+                infrastructure.id,
+                host,
+                odoo_version,
             )
             _dispatch(provision_odoo_server, server.id)
             return JsonResponse(OdooServerSerializer(server).data, status=201)
@@ -403,6 +419,17 @@ class OdooServerCreateAPIView(LoginRequiredMixin, View):
             dns_domain=dns_domain,
             deployment_mode=deployment_mode,
             created_by=request.user,
+        )
+        logger.info(
+            "Server create requested by %s: id=%s name=%s version=%s mode=%s infra=%s region=%s size=%s",
+            request.user,
+            server.id,
+            name,
+            odoo_version,
+            deployment_mode,
+            getattr(infrastructure, "id", None),
+            region,
+            size,
         )
         _dispatch(provision_odoo_server, server.id)
         return JsonResponse(OdooServerSerializer(server).data, status=201)
@@ -473,6 +500,16 @@ class PyosVpsCreateAPIView(LoginRequiredMixin, View):
         except (ValueError, TypeError):
             return JsonResponse({"error": "Port must be a number between 1 and 65535."}, status=400)
 
+        logger.info(
+            "PYOS infrastructure create requested by %s: name=%s host=%s port=%s user=%s auth=%s",
+            request.user,
+            name,
+            host,
+            port,
+            username,
+            auth_type,
+        )
+
         infra, ext = _create_pyos_infrastructure(
             org,
             name=name,
@@ -488,7 +525,7 @@ class PyosVpsCreateAPIView(LoginRequiredMixin, View):
 
 
 class OdooServerCheckConnectivityView(LoginRequiredMixin, View):
-    """POST /odoo/servers/<server_id>/check/ — probe SSH reachability by IP/port."""
+    """POST /odoo/servers/<server_id>/check/ — probe reachability by IP/port."""
 
     def post(self, request, server_id):
         from django.utils import timezone
@@ -506,6 +543,7 @@ class OdooServerCheckConnectivityView(LoginRequiredMixin, View):
             organization=org,
             is_active=True,
         )
+        logger.info("Manual reachability check requested by %s for server %s", request.user, server.id)
 
         infra = server.infrastructure
         if infra and infra.infra_type == Infrastructure.InfraType.PYOS and infra.external_server:
@@ -556,6 +594,13 @@ class OdooServerCheckConnectivityView(LoginRequiredMixin, View):
         }
         if message:
             payload["message"] = message
+        logger.info(
+            "Manual reachability check finished for server %s: %s (%s:%s)",
+            server.id,
+            "connected" if reachable else "disconnected",
+            host,
+            port,
+        )
         return JsonResponse(payload)
 
 
