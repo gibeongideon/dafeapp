@@ -4,7 +4,7 @@ from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.urls import reverse
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from cloud.models import CloudAccount
 from deployments.models import Infrastructure, Instance, OdooInstance, OdooServer, TerraformRun
@@ -252,6 +252,14 @@ class OdooVersionedFlowTests(TestCase):
             status=OdooServer.Status.PROVISIONED,
             is_active=True,
         )
+        instance = OdooInstance.objects.create(
+            organization=self.org,
+            server=server,
+            name="archive-check",
+            db_name="archive_check_db",
+            status=OdooInstance.Status.RUNNING,
+            created_by=self.user,
+        )
 
         archive_resp = self.client.post(
             reverse("deployments:odoo-server-archive", kwargs={"server_id": server.id}),
@@ -261,6 +269,7 @@ class OdooVersionedFlowTests(TestCase):
         server.refresh_from_db()
         self.assertFalse(server.is_active)
         self.assertEqual(server.status, OdooServer.Status.ARCHIVED)
+        self.assertTrue(OdooInstance.objects.filter(pk=instance.pk).exists())
 
         list_resp = self.client.get(reverse("deployments:odoo-server-list"))
         self.assertNotContains(list_resp, "odoo19-archive")
@@ -271,3 +280,28 @@ class OdooVersionedFlowTests(TestCase):
         )
         self.assertEqual(delete_resp.status_code, 200)
         self.assertFalse(OdooServer.objects.filter(pk=server.pk).exists())
+        self.assertFalse(OdooInstance.objects.filter(pk=instance.pk).exists())
+
+    @patch("deployments.signals.get_channel_layer")
+    def test_server_delete_posts_removed_event(self, mock_get_channel_layer):
+        mock_channel_layer = mock_get_channel_layer.return_value
+        mock_channel_layer.group_send = AsyncMock()
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-signal-delete",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            status=OdooServer.Status.PROVISIONED,
+            is_active=True,
+        )
+
+        server_id = server.id
+        server.delete()
+
+        mock_channel_layer.group_send.assert_awaited_once_with(
+            f"odoo.server.{server_id}",
+            {"type": "server.update", "payload": {"type": "removed", "server_id": server_id, "reason": "deleted"}},
+        )

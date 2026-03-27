@@ -832,7 +832,7 @@ class OdooServerArchiveAPIView(LoginRequiredMixin, View):
         org = getattr(request, "organization", None)
         if not org:
             return JsonResponse({"error": "No active organization."}, status=400)
-        if request.org_role not in ("SUPER_ADMIN", "ADMIN"):
+        if request.org_role not in ("SUPER_ADMIN", "ADMIN", "MANAGER"):
             return JsonResponse({"error": "Permission denied."}, status=403)
 
         server = get_object_or_404(
@@ -844,6 +844,8 @@ class OdooServerArchiveAPIView(LoginRequiredMixin, View):
             pk=server_id,
             organization=org,
         )
+        if not server.is_active:
+            return JsonResponse({"ok": True, "message": "Server already archived."})
 
         try:
             server.is_active = False
@@ -863,7 +865,7 @@ class OdooServerDeleteAPIView(LoginRequiredMixin, View):
         org = getattr(request, "organization", None)
         if not org:
             return JsonResponse({"error": "No active organization."}, status=400)
-        if request.org_role not in ("SUPER_ADMIN", "ADMIN"):
+        if request.org_role not in ("SUPER_ADMIN", "ADMIN", "MANAGER"):
             return JsonResponse({"error": "Permission denied."}, status=403)
 
         server = get_object_or_404(
@@ -877,13 +879,7 @@ class OdooServerDeleteAPIView(LoginRequiredMixin, View):
         )
         try:
             with transaction.atomic():
-                # Clear the child rows first so hard-delete stays predictable.
-                server.instances.all().delete()
-                server.history.all().delete()
-                server.jobs.all().delete()
-                server.ssh_keys.all().delete()
                 server.delete()
-            _broadcast_server_event(server_id, {"type": "removed", "server_id": server_id, "reason": "deleted"})
             return JsonResponse({"ok": True, "message": "Server deleted from the database."})
         except Exception as exc:
             logger.exception("Unexpected error deleting OdooServer %s", server_id)

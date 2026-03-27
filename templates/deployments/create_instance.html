@@ -1758,6 +1758,19 @@
           Create Instance
         </button>
         <button type="button"
+                class="open-ssh-keys-modal px-3 py-2 text-xs font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                data-server-id="${sid}"
+                data-server-name="${name}"
+                title="Manage SSH keys for this server">
+          SSH Keys
+        </button>
+        <button type="button"
+                class="archive-server-btn px-3 py-2 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                data-server-id="${sid}"
+                data-server-name="${name}">
+          Archive
+        </button>
+        <button type="button"
                 class="toggle-server-details px-3 py-2 text-xs font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
                 data-server-id="${sid}"
                 aria-expanded="false">
