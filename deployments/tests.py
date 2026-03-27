@@ -1,3 +1,4 @@
+import json
 from django.test import TestCase
 from django.utils import timezone
 from datetime import timedelta
@@ -7,10 +8,20 @@ from django.urls import reverse
 from unittest.mock import AsyncMock, patch
 
 from cloud.models import CloudAccount
-from deployments.models import Infrastructure, Instance, OdooInstance, OdooInstanceGitRepo, OdooServer, TerraformRun
+from deployments.models import (
+    DeploymentJob,
+    GitRepositoryCredential,
+    Infrastructure,
+    Instance,
+    OdooInstance,
+    OdooInstanceGitRepo,
+    OdooServer,
+    TerraformRun,
+)
 from organizations.models import Organization, OrganizationMembership
 from subscriptions.models import Plan, Subscription
 from deployments.tasks import delete_odoo_instance
+from users.models import VCSAccount
 
 User = get_user_model()
 
@@ -281,6 +292,183 @@ class OdooVersionedFlowTests(TestCase):
         self.assertEqual(payload["results"][0]["id"], repo.id)
         self.assertEqual(payload["results"][0]["repo_name"], "stock-custom")
         self.assertEqual(payload["results"][0]["branch"], "18.0")
+
+    @patch("deployments.views._dispatch")
+    def test_instance_repo_create_api_creates_repo_and_clone_job(self, mock_dispatch):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-repo-create",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            status=OdooServer.Status.PROVISIONED,
+            ip_address="203.0.113.21",
+            created_by=self.user,
+        )
+        instance = OdooInstance.objects.create(
+            organization=self.org,
+            server=server,
+            name="inventory",
+            db_name="inventory_db",
+            status=OdooInstance.Status.RUNNING,
+            addons_root_path="/odoo/instances/inventory_db/addons/custom",
+            created_by=self.user,
+        )
+
+        resp = self.client.post(
+            reverse("deployments:odoo-instance-repo-list", kwargs={"instance_id": instance.id}),
+            data=json.dumps({
+                "repo_name": "sales-tools",
+                "git_url": "https://github.com/acme/sales-tools.git",
+                "branch": "18.0",
+                "auth_type": "TOKEN",
+                "credential_name": "sales-pat",
+                "git_username": "oauth2",
+                "access_token": "ghp_secret_123",
+                "auto_update": "true",
+            }),
+            content_type="application/json",
+        )
+
+        self.assertEqual(resp.status_code, 201)
+        repo = OdooInstanceGitRepo.objects.get(instance=instance, repo_name="sales-tools")
+        self.assertEqual(repo.auth_type, OdooInstanceGitRepo.AuthType.TOKEN)
+        self.assertTrue(repo.auto_update)
+        self.assertTrue(repo.local_path.endswith("/sales-tools"))
+        self.assertTrue(repo.credential_id)
+        self.assertEqual(repo.credential.name, "sales-pat")
+        self.assertNotEqual(repo.credential.encrypted_access_token, "ghp_secret_123")
+        job = DeploymentJob.objects.get(odoo_instance=instance, job_type=DeploymentJob.JobType.CLONE_INSTANCE_REPO)
+        mock_dispatch.assert_called_once()
+        self.assertEqual(job.status, DeploymentJob.Status.QUEUED)
+
+    @patch("deployments.views._dispatch")
+    def test_instance_repo_update_branch_queues_branch_job(self, mock_dispatch):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-repo-branch",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            status=OdooServer.Status.PROVISIONED,
+            ip_address="203.0.113.22",
+            created_by=self.user,
+        )
+        instance = OdooInstance.objects.create(
+            organization=self.org,
+            server=server,
+            name="inventory",
+            db_name="inventory_db",
+            status=OdooInstance.Status.RUNNING,
+            created_by=self.user,
+        )
+        repo = OdooInstanceGitRepo.objects.create(
+            instance=instance,
+            repo_name="stock-tools",
+            git_url="https://github.com/acme/stock-tools.git",
+            branch="18.0",
+            auth_type=OdooInstanceGitRepo.AuthType.PUBLIC,
+            local_path="/odoo/instances/inventory_db/addons/stock-tools",
+            status=OdooInstanceGitRepo.Status.CONNECTED,
+            created_by=self.user,
+        )
+
+        resp = self.client.post(
+            reverse("deployments:odoo-instance-repo-detail", kwargs={"instance_id": instance.id, "repo_id": repo.id}),
+            data=json.dumps({"branch": "19.0"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        repo.refresh_from_db()
+        self.assertEqual(repo.branch, "19.0")
+        job = DeploymentJob.objects.get(
+            odoo_instance=instance,
+            job_type=DeploymentJob.JobType.CHECKOUT_INSTANCE_REPO_BRANCH,
+        )
+        self.assertEqual(job.status, DeploymentJob.Status.QUEUED)
+        mock_dispatch.assert_called_once()
+
+    @patch("deployments.views._dispatch")
+    def test_github_oauth_repo_create_uses_vcs_account_as_token_source(self, mock_dispatch):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-repo-github",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            status=OdooServer.Status.PROVISIONED,
+            ip_address="203.0.113.23",
+            created_by=self.user,
+        )
+        instance = OdooInstance.objects.create(
+            organization=self.org,
+            server=server,
+            name="inventory",
+            db_name="inventory_db",
+            status=OdooInstance.Status.RUNNING,
+            created_by=self.user,
+        )
+        vcs = VCSAccount.objects.create(
+            user=self.user,
+            provider=VCSAccount.Provider.GITHUB,
+            username="octocat",
+            encrypted_access_token="encrypted-token",
+            is_active=True,
+        )
+
+        resp = self.client.post(
+            reverse("deployments:odoo-instance-repo-list", kwargs={"instance_id": instance.id}),
+            data=json.dumps({
+                "repo_name": "octo-tools",
+                "git_url": "https://github.com/octocat/octo-tools.git",
+                "branch": "main",
+                "auth_type": "GITHUB_OAUTH",
+                "credential_name": "octocat-github",
+                "github_account_id": vcs.id,
+            }),
+            content_type="application/json",
+        )
+
+        self.assertEqual(resp.status_code, 201)
+        repo = OdooInstanceGitRepo.objects.get(instance=instance, repo_name="octo-tools")
+        self.assertEqual(repo.auth_type, OdooInstanceGitRepo.AuthType.GITHUB_OAUTH)
+        self.assertTrue(repo.credential_id)
+        self.assertEqual(repo.credential.github_account_id, vcs.id)
+        self.assertEqual(repo.credential.git_username, "octocat")
+        self.assertEqual(repo.credential.encrypted_access_token, "")
+        self.assertEqual(repo.credential.access_token, vcs.access_token)
+        mock_dispatch.assert_called_once()
+
+    def test_git_credentials_endpoint_lists_github_accounts(self):
+        VCSAccount.objects.create(
+            user=self.user,
+            provider=VCSAccount.Provider.GITHUB,
+            username="octocat",
+            encrypted_access_token="encrypted-token",
+            is_active=True,
+        )
+        GitRepositoryCredential.objects.create(
+            organization=self.org,
+            name="public-readonly",
+            auth_type=GitRepositoryCredential.AuthType.PUBLIC,
+            created_by=self.user,
+        )
+
+        resp = self.client.get(reverse("deployments:git-credential-list"))
+
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.json()
+        self.assertEqual(len(payload["results"]), 1)
+        self.assertEqual(payload["results"][0]["name"], "public-readonly")
+        self.assertEqual(len(payload["github_accounts"]), 1)
+        self.assertEqual(payload["github_accounts"][0]["username"], "octocat")
 
     def test_infrastructure_delete_requires_force_if_servers_exist(self):
         server = OdooServer.objects.create(

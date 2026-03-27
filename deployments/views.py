@@ -1,10 +1,14 @@
 import logging
+import json
+from urllib.parse import urlparse
 
+import requests
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect
+from django.utils import timezone
 from django.views import View
 from django.views.generic import TemplateView
 from asgiref.sync import async_to_sync
@@ -15,6 +19,7 @@ from cloud.providers import get_provider
 from cloud.pyos import looks_like_public_key_text
 from deployments.models import (
     DeploymentJob,
+    GitRepositoryCredential,
     Infrastructure,
     Instance,
     OdooInstance,
@@ -27,6 +32,7 @@ from deployments.models import (
 )
 from deployments.serializers import (
     DeploymentJobSerializer,
+    GitRepositoryCredentialSerializer,
     InfrastructureSerializer,
     InstanceSerializer,
     OdooInstanceGitRepoSerializer,
@@ -37,15 +43,22 @@ from deployments.serializers import (
     TerraformRunSerializer,
 )
 from deployments.tasks import (
+    checkout_instance_repo_branch,
+    clone_instance_repo,
     create_odoo_instance,
     delete_odoo_instance,
     deploy_server_ssh_key,
     provision_odoo_server,
+    refresh_instance_addons,
+    remove_instance_repo,
     rollback_odoo_instance,
+    rollback_instance_repo,
     terraform_apply_instance,
+    update_instance_repo,
 )
 from subscriptions.exceptions import SubscriptionError, SubscriptionLimitError
 from subscriptions.services import SubscriptionEnforcer
+from users.models import VCSAccount
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +70,125 @@ def _dispatch(task, *args):
     except Exception:
         logger.warning("Celery broker unavailable; running task synchronously.", exc_info=True)
         task(*args)
+
+
+def _request_data(request):
+    if request.content_type and "application/json" in request.content_type:
+        try:
+            return json.loads(request.body or "{}")
+        except json.JSONDecodeError:
+            return {}
+    return request.POST
+
+
+def _repo_permission_denied(request):
+    return request.org_role not in ("SUPER_ADMIN", "ADMIN", "MANAGER")
+
+
+def _repo_job(org, *, job_type: str, instance: OdooInstance, user):
+    return DeploymentJob.objects.create(
+        organization=org,
+        job_type=job_type,
+        odoo_instance=instance,
+        created_by=user,
+    )
+
+
+def _derive_repo_name(repo_name: str, git_url: str) -> str:
+    repo_name = (repo_name or "").strip()
+    if repo_name:
+        return repo_name
+    parsed = urlparse(git_url)
+    tail = parsed.path.rsplit("/", 1)[-1] if parsed.path else git_url.rsplit("/", 1)[-1]
+    tail = tail.removesuffix(".git")
+    return tail or "repo"
+
+
+def _build_repo_local_path(instance: OdooInstance, repo_name: str) -> str:
+    base = instance.addons_root_path or f"/odoo/instances/{instance.db_name}/addons"
+    slug = "".join(ch.lower() if ch.isalnum() or ch in ("-", "_", ".") else "-" for ch in repo_name).strip("-._")
+    slug = slug or f"repo-{instance.id}"
+    return f"{base.rstrip('/')}/{slug}"
+
+
+def _resolve_git_credential(*, org, user, payload, auth_type: str):
+    auth_type = (auth_type or OdooInstanceGitRepo.AuthType.PUBLIC).strip()
+    if auth_type == OdooInstanceGitRepo.AuthType.PUBLIC:
+        return None
+
+    credential_id = payload.get("credential_id")
+    if credential_id:
+        credential = get_object_or_404(GitRepositoryCredential, pk=credential_id, organization=org)
+        if credential.auth_type == GitRepositoryCredential.AuthType.GITHUB_OAUTH:
+            if not credential.github_account_id or not credential.github_account.is_active:
+                raise ValueError("The selected GitHub credential is not linked to an active VCSAccount.")
+        return credential
+
+    credential_name = (payload.get("credential_name") or "").strip()
+    if not credential_name:
+        credential_name = f"{auth_type.lower()}-{timezone.now().strftime('%Y%m%d%H%M%S')}"
+
+    if auth_type == OdooInstanceGitRepo.AuthType.GITHUB_OAUTH:
+        account_id = payload.get("github_account_id")
+        if not account_id:
+            raise ValueError("github_account_id is required for GitHub OAuth auth.")
+        account = get_object_or_404(
+            VCSAccount.objects.filter(user=user, provider=VCSAccount.Provider.GITHUB, is_active=True),
+            pk=account_id,
+        )
+        credential, _ = GitRepositoryCredential.objects.get_or_create(
+            organization=org,
+            name=credential_name,
+            defaults={
+                "auth_type": GitRepositoryCredential.AuthType.GITHUB_OAUTH,
+                "github_account": account,
+                "created_by": user,
+            },
+        )
+        if credential.github_account_id != account.id or credential.auth_type != GitRepositoryCredential.AuthType.GITHUB_OAUTH:
+            credential.github_account = account
+            credential.auth_type = GitRepositoryCredential.AuthType.GITHUB_OAUTH
+            credential.git_username = account.username or credential.git_username
+            credential.save(update_fields=["github_account", "auth_type", "git_username", "updated_at"])
+        return credential
+
+    if auth_type == OdooInstanceGitRepo.AuthType.TOKEN:
+        access_token = (payload.get("access_token") or "").strip()
+        if not access_token:
+            raise ValueError("access_token is required for token auth.")
+        if GitRepositoryCredential.objects.filter(organization=org, name=credential_name).exists():
+            raise ValueError("A credential with that name already exists.")
+        credential = GitRepositoryCredential(
+            organization=org,
+            name=credential_name,
+            auth_type=GitRepositoryCredential.AuthType.TOKEN,
+            git_username=(payload.get("git_username") or "").strip(),
+            created_by=user,
+        )
+        credential._raw_access_token = access_token
+        credential.save()
+        return credential
+
+    if auth_type == OdooInstanceGitRepo.AuthType.SSH_KEY:
+        private_key = (payload.get("ssh_private_key") or "").strip()
+        if not private_key:
+            raise ValueError("ssh_private_key is required for SSH auth.")
+        if GitRepositoryCredential.objects.filter(organization=org, name=credential_name).exists():
+            raise ValueError("A credential with that name already exists.")
+        credential = GitRepositoryCredential(
+            organization=org,
+            name=credential_name,
+            auth_type=GitRepositoryCredential.AuthType.SSH_KEY,
+            git_username=(payload.get("git_username") or "git").strip(),
+            ssh_public_key=(payload.get("ssh_public_key") or "").strip(),
+            created_by=user,
+        )
+        credential._raw_ssh_private_key = private_key
+        credential._raw_ssh_key_passphrase = (payload.get("ssh_key_passphrase") or "").strip()
+        credential.save()
+        return credential
+
+    raise ValueError("Unsupported auth_type.")
 
 
 def _broadcast_server_event(server_id: int, payload: dict):
@@ -741,9 +873,377 @@ class OdooInstanceGitRepoListAPIView(LoginRequiredMixin, View):
             pk=instance_id,
             organization=org,
         )
-        repos = instance.git_repos.all()
+        repos = instance.git_repos.select_related("credential").all()
         data = OdooInstanceGitRepoSerializer(repos, many=True).data
         return JsonResponse({"results": data})
+
+    def post(self, request, instance_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if _repo_permission_denied(request):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        instance = get_object_or_404(
+            OdooInstance.objects.select_related("server"),
+            pk=instance_id,
+            organization=org,
+        )
+        payload = _request_data(request)
+        repo_name = _derive_repo_name(payload.get("repo_name"), payload.get("git_url", ""))
+        git_url = (payload.get("git_url") or "").strip()
+        branch = (payload.get("branch") or "main").strip()
+        auth_type = (payload.get("auth_type") or OdooInstanceGitRepo.AuthType.PUBLIC).strip()
+        if not git_url:
+            return JsonResponse({"error": "git_url is required."}, status=400)
+        if auth_type not in OdooInstanceGitRepo.AuthType.values:
+            return JsonResponse({"error": "Unsupported auth_type."}, status=400)
+        if instance.git_repos.filter(repo_name=repo_name).exists():
+            return JsonResponse({"error": "A repo with that name already exists on this instance."}, status=400)
+
+        try:
+            credential = _resolve_git_credential(
+                org=org,
+                user=request.user,
+                payload=payload,
+                auth_type=auth_type,
+            )
+        except ValueError as exc:
+            return JsonResponse({"error": str(exc)}, status=400)
+
+        display_order = payload.get("display_order")
+        if display_order in ("", None):
+            display_order = instance.git_repos.count()
+
+        repo = OdooInstanceGitRepo.objects.create(
+            instance=instance,
+            credential=credential,
+            repo_name=repo_name,
+            git_url=git_url,
+            branch=branch,
+            auth_type=auth_type,
+            local_path=_build_repo_local_path(instance, repo_name),
+            auto_update=str(payload.get("auto_update", "")).lower() in ("1", "true", "yes", "on"),
+            is_enabled=str(payload.get("is_enabled", "true")).lower() not in ("0", "false", "no", "off"),
+            display_order=int(display_order or 0),
+            default_branch=branch,
+            created_by=request.user,
+        )
+        job = _repo_job(
+            org,
+            job_type=DeploymentJob.JobType.CLONE_INSTANCE_REPO,
+            instance=instance,
+            user=request.user,
+        )
+        _dispatch(clone_instance_repo, repo.id, job.id)
+        data = OdooInstanceGitRepoSerializer(repo).data
+        data["job_id"] = job.id
+        return JsonResponse(data, status=201)
+
+
+class OdooInstanceGitRepoDetailAPIView(LoginRequiredMixin, View):
+    def post(self, request, instance_id, repo_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if _repo_permission_denied(request):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        repo = get_object_or_404(
+            OdooInstanceGitRepo.objects.select_related("instance", "instance__server", "credential"),
+            pk=repo_id,
+            instance_id=instance_id,
+            instance__organization=org,
+        )
+        payload = _request_data(request)
+
+        branch_changed = False
+        refresh_needed = False
+
+        if "repo_name" in payload:
+            repo.repo_name = _derive_repo_name(payload.get("repo_name"), repo.git_url)
+            refresh_needed = True
+        if "git_url" in payload and payload.get("git_url"):
+            repo.git_url = payload.get("git_url").strip()
+        if "branch" in payload and payload.get("branch") and payload.get("branch").strip() != repo.branch:
+            repo.branch = payload.get("branch").strip()
+            branch_changed = True
+        if "auto_update" in payload:
+            repo.auto_update = str(payload.get("auto_update")).lower() in ("1", "true", "yes", "on")
+        if "is_enabled" in payload:
+            new_enabled = str(payload.get("is_enabled")).lower() in ("1", "true", "yes", "on")
+            if new_enabled != repo.is_enabled:
+                repo.is_enabled = new_enabled
+                refresh_needed = True
+        if "display_order" in payload and payload.get("display_order") not in ("", None):
+            repo.display_order = int(payload.get("display_order"))
+            refresh_needed = True
+        if "pinned_commit" in payload:
+            repo.pinned_commit = (payload.get("pinned_commit") or "").strip()
+        if "auth_type" in payload:
+            auth_type = payload.get("auth_type").strip()
+            if auth_type not in OdooInstanceGitRepo.AuthType.values:
+                return JsonResponse({"error": "Unsupported auth_type."}, status=400)
+            repo.auth_type = auth_type
+            try:
+                repo.credential = _resolve_git_credential(
+                    org=org,
+                    user=request.user,
+                    payload=payload,
+                    auth_type=auth_type,
+                )
+            except ValueError as exc:
+                return JsonResponse({"error": str(exc)}, status=400)
+
+        repo.local_path = _build_repo_local_path(repo.instance, repo.repo_name)
+        repo.save()
+
+        job = None
+        if branch_changed:
+            job = _repo_job(
+                org,
+                job_type=DeploymentJob.JobType.CHECKOUT_INSTANCE_REPO_BRANCH,
+                instance=repo.instance,
+                user=request.user,
+            )
+            _dispatch(checkout_instance_repo_branch, repo.id, repo.branch, job.id)
+        elif refresh_needed:
+            job = _repo_job(
+                org,
+                job_type=DeploymentJob.JobType.REFRESH_INSTANCE_ADDONS,
+                instance=repo.instance,
+                user=request.user,
+            )
+            _dispatch(refresh_instance_addons, repo.instance_id, job.id)
+
+        data = OdooInstanceGitRepoSerializer(repo).data
+        if job:
+            data["job_id"] = job.id
+        return JsonResponse(data)
+
+
+class OdooInstanceGitRepoSyncAPIView(LoginRequiredMixin, View):
+    def post(self, request, instance_id, repo_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if _repo_permission_denied(request):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        repo = get_object_or_404(
+            OdooInstanceGitRepo,
+            pk=repo_id,
+            instance_id=instance_id,
+            instance__organization=org,
+        )
+        job = _repo_job(
+            org,
+            job_type=DeploymentJob.JobType.UPDATE_INSTANCE_REPO,
+            instance=repo.instance,
+            user=request.user,
+        )
+        _dispatch(update_instance_repo, repo.id, job.id)
+        return JsonResponse({"ok": True, "job_id": job.id})
+
+
+class OdooInstanceGitRepoRollbackAPIView(LoginRequiredMixin, View):
+    def post(self, request, instance_id, repo_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if _repo_permission_denied(request):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        repo = get_object_or_404(
+            OdooInstanceGitRepo,
+            pk=repo_id,
+            instance_id=instance_id,
+            instance__organization=org,
+        )
+        payload = _request_data(request)
+        target_commit = (payload.get("target_commit") or repo.previous_commit or "").strip()
+        if not target_commit:
+            return JsonResponse({"error": "No rollback target is available."}, status=400)
+        job = _repo_job(
+            org,
+            job_type=DeploymentJob.JobType.ROLLBACK_INSTANCE_REPO,
+            instance=repo.instance,
+            user=request.user,
+        )
+        _dispatch(rollback_instance_repo, repo.id, target_commit, job.id)
+        return JsonResponse({"ok": True, "job_id": job.id, "target_commit": target_commit})
+
+
+class OdooInstanceGitRepoDeleteAPIView(LoginRequiredMixin, View):
+    def post(self, request, instance_id, repo_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if _repo_permission_denied(request):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        repo = get_object_or_404(
+            OdooInstanceGitRepo,
+            pk=repo_id,
+            instance_id=instance_id,
+            instance__organization=org,
+        )
+        job = _repo_job(
+            org,
+            job_type=DeploymentJob.JobType.REMOVE_INSTANCE_REPO,
+            instance=repo.instance,
+            user=request.user,
+        )
+        _dispatch(remove_instance_repo, repo.id, job.id)
+        return JsonResponse({"ok": True, "job_id": job.id})
+
+
+class GitRepositoryCredentialListCreateAPIView(LoginRequiredMixin, View):
+    def get(self, request):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+
+        credentials = GitRepositoryCredential.objects.filter(organization=org)
+        github_accounts = VCSAccount.objects.filter(
+            user=request.user,
+            provider=VCSAccount.Provider.GITHUB,
+            is_active=True,
+        ).values("id", "username", "provider", "connected_at")
+        return JsonResponse(
+            {
+                "results": GitRepositoryCredentialSerializer(credentials, many=True).data,
+                "github_accounts": list(github_accounts),
+            }
+        )
+
+    def post(self, request):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if _repo_permission_denied(request):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        payload = _request_data(request)
+        auth_type = (payload.get("auth_type") or "").strip()
+        try:
+            credential = _resolve_git_credential(
+                org=org,
+                user=request.user,
+                payload=payload,
+                auth_type=auth_type,
+            )
+        except ValueError as exc:
+            return JsonResponse({"error": str(exc)}, status=400)
+        return JsonResponse(GitRepositoryCredentialSerializer(credential).data, status=201)
+
+
+class GitHubRepositoryListAPIView(LoginRequiredMixin, View):
+    def get(self, request):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+
+        account_id = request.GET.get("github_account_id")
+        credential_id = request.GET.get("credential_id")
+        token = ""
+        if credential_id:
+            credential = get_object_or_404(
+                GitRepositoryCredential,
+                pk=credential_id,
+                organization=org,
+            )
+            token = credential.access_token
+        elif account_id:
+            account = get_object_or_404(
+                VCSAccount.objects.filter(user=request.user, provider=VCSAccount.Provider.GITHUB, is_active=True),
+                pk=account_id,
+            )
+            token = account.access_token
+        else:
+            return JsonResponse({"error": "github_account_id or credential_id is required."}, status=400)
+
+        try:
+            response = requests.get(
+                "https://api.github.com/user/repos",
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {token}",
+                },
+                params={"per_page": 100, "sort": "updated"},
+                timeout=15,
+            )
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            return JsonResponse({"error": f"GitHub request failed: {exc}"}, status=502)
+
+        repos = [
+            {
+                "id": item.get("id"),
+                "full_name": item.get("full_name"),
+                "name": item.get("name"),
+                "default_branch": item.get("default_branch"),
+                "private": item.get("private", False),
+                "clone_url": item.get("clone_url"),
+                "ssh_url": item.get("ssh_url"),
+            }
+            for item in response.json()
+        ]
+        return JsonResponse({"results": repos})
+
+
+class GitHubBranchListAPIView(LoginRequiredMixin, View):
+    def get(self, request):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+
+        full_name = (request.GET.get("full_name") or "").strip()
+        account_id = request.GET.get("github_account_id")
+        credential_id = request.GET.get("credential_id")
+        if not full_name:
+            return JsonResponse({"error": "full_name is required."}, status=400)
+
+        token = ""
+        if credential_id:
+            credential = get_object_or_404(
+                GitRepositoryCredential,
+                pk=credential_id,
+                organization=org,
+            )
+            token = credential.access_token
+        elif account_id:
+            account = get_object_or_404(
+                VCSAccount.objects.filter(user=request.user, provider=VCSAccount.Provider.GITHUB, is_active=True),
+                pk=account_id,
+            )
+            token = account.access_token
+        else:
+            return JsonResponse({"error": "github_account_id or credential_id is required."}, status=400)
+
+        try:
+            response = requests.get(
+                f"https://api.github.com/repos/{full_name}/branches",
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {token}",
+                },
+                params={"per_page": 100},
+                timeout=15,
+            )
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            return JsonResponse({"error": f"GitHub request failed: {exc}"}, status=502)
+
+        branches = [
+            {
+                "name": item.get("name"),
+                "protected": item.get("protected", False),
+                "commit": (item.get("commit") or {}).get("sha", ""),
+            }
+            for item in response.json()
+        ]
+        return JsonResponse({"results": branches})
 
 
 class OdooInstanceConsoleView(LoginRequiredMixin, TemplateView):

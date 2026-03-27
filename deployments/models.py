@@ -1,6 +1,8 @@
 from django.conf import settings
 from django.db import models
 
+from cloud.encryption import FieldEncryptor
+
 
 class Infrastructure(models.Model):
     """Connection layer for compute resources (no app deployment logic)."""
@@ -340,6 +342,109 @@ class OdooInstance(models.Model):
         return f"{self.name} ({self.db_name}) [{self.status}]"
 
 
+class GitRepositoryCredential(models.Model):
+    class AuthType(models.TextChoices):
+        PUBLIC = "PUBLIC", "Public"
+        GITHUB_OAUTH = "GITHUB_OAUTH", "GitHub OAuth"
+        TOKEN = "TOKEN", "Personal access token"
+        SSH_KEY = "SSH_KEY", "SSH key"
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.CASCADE,
+        related_name="git_repo_credentials",
+    )
+    name = models.CharField(max_length=120)
+    auth_type = models.CharField(
+        max_length=20,
+        choices=AuthType.choices,
+        default=AuthType.PUBLIC,
+    )
+    github_account = models.ForeignKey(
+        "users.VCSAccount",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="deployment_git_credentials",
+    )
+    git_username = models.CharField(max_length=255, blank=True, default="")
+    encrypted_access_token = models.TextField(blank=True, default="")
+    encrypted_ssh_private_key = models.TextField(blank=True, default="")
+    encrypted_ssh_key_passphrase = models.TextField(blank=True, default="")
+    ssh_public_key = models.TextField(blank=True, default="")
+    notes = models.CharField(max_length=255, blank=True, default="")
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="created_git_repo_credentials",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["name", "id"]
+        unique_together = (("organization", "name"),)
+        indexes = [
+            models.Index(fields=["organization", "auth_type"], name="dep_git_cred_org_type_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.get_auth_type_display()})"
+
+    @property
+    def access_token(self) -> str:
+        if self.auth_type == self.AuthType.GITHUB_OAUTH and self.github_account_id:
+            return self.github_account.access_token
+        return FieldEncryptor.decrypt(self.encrypted_access_token)
+
+    @access_token.setter
+    def access_token(self, value: str):
+        self.encrypted_access_token = FieldEncryptor.encrypt(value or "")
+
+    @property
+    def ssh_private_key(self) -> str:
+        return FieldEncryptor.decrypt(self.encrypted_ssh_private_key)
+
+    @ssh_private_key.setter
+    def ssh_private_key(self, value: str):
+        self.encrypted_ssh_private_key = FieldEncryptor.encrypt(value or "")
+
+    @property
+    def ssh_key_passphrase(self) -> str:
+        return FieldEncryptor.decrypt(self.encrypted_ssh_key_passphrase)
+
+    @ssh_key_passphrase.setter
+    def ssh_key_passphrase(self, value: str):
+        self.encrypted_ssh_key_passphrase = FieldEncryptor.encrypt(value or "")
+
+    def save(self, *args, **kwargs):
+        # For GitHub OAuth, the token source of truth lives on users.VCSAccount.
+        # Keep deployment credentials as metadata/reference rows only.
+        if self.auth_type == self.AuthType.GITHUB_OAUTH:
+            self.encrypted_access_token = ""
+            if self.github_account_id and not self.git_username:
+                self.git_username = self.github_account.username or self.git_username
+
+        raw_token = getattr(self, "_raw_access_token", None)
+        if raw_token is not None:
+            self.access_token = raw_token
+            self._raw_access_token = None
+
+        raw_ssh_private_key = getattr(self, "_raw_ssh_private_key", None)
+        if raw_ssh_private_key is not None:
+            self.ssh_private_key = raw_ssh_private_key
+            self._raw_ssh_private_key = None
+
+        raw_passphrase = getattr(self, "_raw_ssh_key_passphrase", None)
+        if raw_passphrase is not None:
+            self.ssh_key_passphrase = raw_passphrase
+            self._raw_ssh_key_passphrase = None
+        super().save(*args, **kwargs)
+
+
 class OdooInstanceGitRepo(models.Model):
     class AuthType(models.TextChoices):
         PUBLIC = "PUBLIC", "Public"
@@ -359,6 +464,13 @@ class OdooInstanceGitRepo(models.Model):
         on_delete=models.CASCADE,
         related_name="git_repos",
     )
+    credential = models.ForeignKey(
+        GitRepositoryCredential,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="git_repos",
+    )
     repo_name = models.CharField(max_length=255)
     git_url = models.CharField(max_length=500)
     branch = models.CharField(max_length=120, default="main")
@@ -371,8 +483,16 @@ class OdooInstanceGitRepo(models.Model):
     auto_update = models.BooleanField(default=False)
     is_enabled = models.BooleanField(default=True)
     display_order = models.PositiveIntegerField(default=0)
+    default_branch = models.CharField(max_length=120, blank=True, default="")
+    pinned_commit = models.CharField(max_length=64, blank=True, default="")
+    previous_commit = models.CharField(max_length=64, blank=True, default="")
+    last_remote_commit = models.CharField(max_length=64, blank=True, default="")
     last_pulled_commit = models.CharField(max_length=64, blank=True, default="")
     last_pulled_at = models.DateTimeField(null=True, blank=True)
+    last_sync_started_at = models.DateTimeField(null=True, blank=True)
+    last_sync_finished_at = models.DateTimeField(null=True, blank=True)
+    last_sync_log = models.TextField(blank=True, default="")
+    last_detected_modules = models.JSONField(default=list, blank=True)
     status = models.CharField(
         max_length=20,
         choices=Status.choices,
@@ -414,6 +534,13 @@ class DeploymentJob(models.Model):
         CREATE_INSTANCE = "CREATE_INSTANCE", "Create Instance"
         DELETE_INSTANCE = "DELETE_INSTANCE", "Delete Instance"
         ROLLBACK_INSTANCE = "ROLLBACK_INSTANCE", "Rollback Instance"
+        CLONE_INSTANCE_REPO = "CLONE_INSTANCE_REPO", "Clone Instance Repo"
+        UPDATE_INSTANCE_REPO = "UPDATE_INSTANCE_REPO", "Update Instance Repo"
+        CHECKOUT_INSTANCE_REPO_BRANCH = "CHECKOUT_INSTANCE_REPO_BRANCH", "Checkout Instance Repo Branch"
+        REMOVE_INSTANCE_REPO = "REMOVE_INSTANCE_REPO", "Remove Instance Repo"
+        REFRESH_INSTANCE_ADDONS = "REFRESH_INSTANCE_ADDONS", "Refresh Instance Addons"
+        ROLLBACK_INSTANCE_REPO = "ROLLBACK_INSTANCE_REPO", "Rollback Instance Repo"
+        AUTO_SYNC_INSTANCE_REPOS = "AUTO_SYNC_INSTANCE_REPOS", "Auto Sync Instance Repos"
 
     class Status(models.TextChoices):
         QUEUED = "QUEUED", "Queued"

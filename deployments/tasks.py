@@ -2,18 +2,21 @@ import json
 import logging
 import os
 import re
+import shlex
 import socket
 import subprocess
 import tempfile
 import time
 from contextlib import suppress
 from pathlib import Path
+from urllib.parse import quote, urlparse, urlunparse
 
 import paramiko
 from asgiref.sync import async_to_sync
 from celery import shared_task
 from channels.layers import get_channel_layer
 from django.conf import settings
+from django.core.cache import cache
 from django.utils import timezone
 
 from audit.models import AuditLog
@@ -21,9 +24,11 @@ from cloud.providers import get_provider
 from core.utils import log_audit
 from deployments.models import (
     DeploymentJob,
+    GitRepositoryCredential,
     Infrastructure,
     Instance,
     OdooInstance,
+    OdooInstanceGitRepo,
     OdooInstanceHistory,
     OdooServer,
     OdooServerHistory,
@@ -120,6 +125,19 @@ def _broadcast_instance_removed(instance_id: int, server_id: int):
         logger.warning("Instance removal broadcast skipped for instance %s", instance_id, exc_info=True)
 
 
+def _broadcast_repo_event(instance_id: int, payload: dict):
+    channel_layer = get_channel_layer()
+    if channel_layer is None:
+        return
+    try:
+        async_to_sync(channel_layer.group_send)(
+            f"odoo.instance.{instance_id}",
+            {"type": "instance.update", "payload": payload},
+        )
+    except Exception:
+        logger.warning("Repo broadcast skipped for instance %s", instance_id, exc_info=True)
+
+
 def _broadcast_run(run: TerraformRun):
     channel_layer = get_channel_layer()
     if channel_layer is None:
@@ -172,6 +190,484 @@ def _job_done(job_id: int | None, ok: bool, log: str = ""):
         log=log[-8000:],
         finished_at=timezone.now(),
     )
+
+
+def _repo_lock_key(instance_id: int) -> str:
+    return f"deployments:instance:{instance_id}:repo-lock"
+
+
+def _acquire_repo_lock(instance_id: int, ttl: int = 1800) -> str:
+    token = f"{instance_id}:{time.time()}"
+    if not cache.add(_repo_lock_key(instance_id), token, ttl):
+        raise RuntimeError("Another addon sync is already running for this instance.")
+    return token
+
+
+def _release_repo_lock(instance_id: int, token: str):
+    key = _repo_lock_key(instance_id)
+    if cache.get(key) == token:
+        cache.delete(key)
+
+
+def _truncate_text(value: str, limit: int = 12000) -> str:
+    value = value or ""
+    return value[-limit:] if len(value) > limit else value
+
+
+def _append_repo_log(repo: OdooInstanceGitRepo, message: str, *, reset: bool = False):
+    repo.last_sync_log = message.strip() if reset else _append_text(repo.last_sync_log, message)
+    repo.last_sync_log = _truncate_text(repo.last_sync_log, limit=16000)
+
+
+def _set_repo_status(
+    repo: OdooInstanceGitRepo,
+    *,
+    status: str | None = None,
+    last_error: str | None = None,
+    append_log: str | None = None,
+    reset_log: bool = False,
+    started: bool = False,
+    finished: bool = False,
+    save: bool = True,
+):
+    update_fields = ["updated_at"]
+    if status is not None:
+        repo.status = status
+        update_fields.append("status")
+    if last_error is not None:
+        repo.last_error = last_error
+        update_fields.append("last_error")
+    if append_log:
+        _append_repo_log(repo, append_log, reset=reset_log)
+        update_fields.append("last_sync_log")
+    if started:
+        repo.last_sync_started_at = timezone.now()
+        update_fields.append("last_sync_started_at")
+    if finished:
+        repo.last_sync_finished_at = timezone.now()
+        update_fields.append("last_sync_finished_at")
+    if save:
+        repo.save(update_fields=list(dict.fromkeys(update_fields)))
+    _broadcast_repo_event(
+        repo.instance_id,
+        {
+            "type": "repo.update",
+            "repo_id": repo.id,
+            "status": repo.status,
+            "last_error": repo.last_error,
+            "last_sync_finished_at": repo.last_sync_finished_at.isoformat() if repo.last_sync_finished_at else "",
+        },
+    )
+
+
+def _repo_slug(value: str) -> str:
+    slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", (value or "").strip().lower()).strip("-._")
+    return slug or f"repo-{int(time.time())}"
+
+
+def _instance_runtime_context(instance: OdooInstance) -> dict:
+    summary = instance.installation_summary or {}
+    server = instance.server
+    db_name = instance.db_name
+    if server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
+        client_name = db_name.replace("_", "-")
+        addons_root = instance.addons_root_path or f"/data/odoo/{client_name}/addons"
+        return {
+            "mode": "docker",
+            "addons_root_path": addons_root,
+            "config_file": summary.get("config_file") or f"/opt/odoo-docker/instances/{client_name}.conf",
+            "core_addons_path": "/usr/lib/python3/dist-packages/odoo/addons",
+            "container_addons_root": "/var/lib/odoo/addons",
+            "restart_command": f"docker restart {shlex.quote(instance.container_name or f'odoo-{client_name}')}",
+            "container_name": instance.container_name or f"odoo-{client_name}",
+        }
+
+    if summary.get("core_addons_dir"):
+        addons_root = instance.addons_root_path or summary.get("custom_addons_dir") or f"/odoo/instances/{db_name}/addons/custom"
+        return {
+            "mode": "bare_direct",
+            "addons_root_path": addons_root,
+            "manual_addons_root": summary.get("custom_addons_dir") or addons_root,
+            "config_file": summary.get("config_file") or f"/etc/odoo-{db_name}.conf",
+            "core_addons_path": summary.get("core_addons_dir") or f"/odoo/instances/{db_name}/addons/core",
+            "odoo_bin": f"{summary.get('venv_dir') or f'/odoo/instances/{db_name}/venv'}/bin/python {summary.get('source_dir') or '/odoo/odoo-server'}/odoo-bin",
+            "restart_command": f"systemctl restart {shlex.quote(instance.systemd_service or f'odoo-{db_name}')}",
+        }
+
+    instance_dir = summary.get("instance_dir") or f"/opt/odoo{server.odoo_version}/instances/{db_name}"
+    odoo_home = f"/opt/odoo{server.odoo_version}"
+    addons_root = instance.addons_root_path or f"{instance_dir}/addons"
+    return {
+        "mode": "bare_domain",
+        "addons_root_path": addons_root,
+        "manual_addons_root": "",
+        "config_file": summary.get("config_file") or f"{instance_dir}/odoo.conf",
+        "core_addons_path": summary.get("addons_dir") or f"{odoo_home}/src/odoo/addons",
+        "odoo_bin": f"{summary.get('venv_dir') or f'{odoo_home}/venv'}/bin/python {summary.get('source_dir') or f'{odoo_home}/src/odoo'}/odoo-bin",
+        "restart_command": f"systemctl restart {shlex.quote(instance.systemd_service or f'odoo-{db_name}')}",
+    }
+
+
+def _repo_host_local_path(instance: OdooInstance, repo: OdooInstanceGitRepo) -> str:
+    runtime = _instance_runtime_context(instance)
+    if repo.local_path:
+        return repo.local_path
+    return f"{runtime['addons_root_path'].rstrip('/')}/{_repo_slug(repo.repo_name)}"
+
+
+def _repo_config_path(instance: OdooInstance, repo: OdooInstanceGitRepo) -> str:
+    runtime = _instance_runtime_context(instance)
+    host_path = _repo_host_local_path(instance, repo)
+    if runtime["mode"] == "docker":
+        prefix = runtime["addons_root_path"].rstrip("/")
+        suffix = host_path[len(prefix):].lstrip("/") if host_path.startswith(prefix) else _repo_slug(repo.repo_name)
+        return f"{runtime['container_addons_root'].rstrip('/')}/{suffix}"
+    return host_path
+
+
+def _compute_addons_path(instance: OdooInstance) -> tuple[str, str]:
+    runtime = _instance_runtime_context(instance)
+    repos = list(instance.git_repos.filter(is_enabled=True).order_by("display_order", "repo_name", "id"))
+    repo_paths = [_repo_config_path(instance, repo) for repo in repos]
+
+    if repo_paths:
+        parts = [runtime["core_addons_path"], *repo_paths]
+    elif runtime["mode"] == "docker":
+        parts = [runtime["container_addons_root"], runtime["core_addons_path"]]
+    elif runtime.get("manual_addons_root"):
+        parts = [runtime["core_addons_path"], runtime["manual_addons_root"]]
+    else:
+        parts = [runtime["core_addons_path"]]
+    return runtime["addons_root_path"], ",".join(parts)
+
+
+def _repo_clone_url(repo: OdooInstanceGitRepo) -> str:
+    if repo.auth_type == OdooInstanceGitRepo.AuthType.PUBLIC or not repo.credential_id:
+        return repo.git_url
+
+    credential = repo.credential
+    if repo.auth_type in (
+        OdooInstanceGitRepo.AuthType.GITHUB_OAUTH,
+        OdooInstanceGitRepo.AuthType.TOKEN,
+    ):
+        token = credential.access_token.strip()
+        if not token:
+            raise ValueError("The selected Git credential has no access token.")
+        parsed = urlparse(repo.git_url)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError("Token-based auth currently requires an HTTPS Git URL.")
+        username = credential.git_username.strip() or "oauth2"
+        netloc = f"{quote(username, safe='')}:{quote(token, safe='')}@{parsed.netloc}"
+        return urlunparse(parsed._replace(netloc=netloc))
+
+    return repo.git_url
+
+
+def _update_repo_paths(instance: OdooInstance, repo: OdooInstanceGitRepo):
+    addons_root, addons_path = _compute_addons_path(instance)
+    repo.local_path = _repo_host_local_path(instance, repo)
+    repo.save(update_fields=["local_path", "updated_at"])
+    instance.addons_root_path = addons_root
+    instance.addons_path_cache = addons_path
+    instance.save(update_fields=["addons_root_path", "addons_path_cache", "updated_at"])
+
+
+def _connect_ssh_client(server: OdooServer):
+    host, port = _odoo_server_ssh_target(server)
+    if not host:
+        raise RuntimeError("Server has no reachable SSH target.")
+
+    ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    kwargs = {
+        "hostname": host,
+        "port": port,
+        "username": ssh_user or "root",
+        "timeout": 20,
+        "banner_timeout": 20,
+    }
+    if ssh_key:
+        kwargs["key_filename"] = ssh_key
+    elif ssh_password:
+        kwargs["password"] = ssh_password
+    else:
+        raise RuntimeError("No SSH credentials available for this server.")
+    client.connect(**kwargs)
+    return client, tmp_key
+
+
+def _ssh_run(
+    server: OdooServer,
+    command: str,
+    *,
+    timeout: int = 1800,
+    on_line=None,
+) -> tuple[int, str]:
+    client = None
+    tmp_key = None
+    try:
+        client, tmp_key = _connect_ssh_client(server)
+        transport = client.get_transport()
+        if transport is None:
+            raise RuntimeError("SSH transport is unavailable.")
+        channel = transport.open_session()
+        channel.get_pty()
+        channel.settimeout(timeout)
+        channel.exec_command(f"bash -lc {shlex.quote(command)}")
+
+        output_chunks: list[str] = []
+        while True:
+            made_progress = False
+            if channel.recv_ready():
+                chunk = channel.recv(4096).decode(errors="replace")
+                output_chunks.append(chunk)
+                for line in chunk.splitlines():
+                    if on_line and line.strip():
+                        on_line(line)
+                made_progress = True
+            if channel.recv_stderr_ready():
+                chunk = channel.recv_stderr(4096).decode(errors="replace")
+                output_chunks.append(chunk)
+                for line in chunk.splitlines():
+                    if on_line and line.strip():
+                        on_line(line)
+                made_progress = True
+            if channel.exit_status_ready() and not channel.recv_ready() and not channel.recv_stderr_ready():
+                break
+            if not made_progress:
+                time.sleep(0.1)
+
+        return channel.recv_exit_status(), "".join(output_chunks).strip()
+    finally:
+        if client is not None:
+            client.close()
+        if tmp_key:
+            with suppress(OSError):
+                os.unlink(tmp_key)
+
+
+def _write_remote_config_addons_path(server: OdooServer, config_file: str, addons_path: str, *, on_line=None) -> str:
+    script = f"""
+python3 - <<'PY'
+from pathlib import Path
+config = Path({config_file!r})
+if not config.exists():
+    raise SystemExit(f"Config file not found: {{config}}")
+line = "addons_path = {addons_path}"
+lines = config.read_text().splitlines()
+updated = []
+replaced = False
+for existing in lines:
+    if existing.strip().startswith("addons_path"):
+        updated.append(line)
+        replaced = True
+    else:
+        updated.append(existing)
+if not replaced:
+    updated.append(line)
+config.write_text("\\n".join(updated) + "\\n")
+print(line)
+PY
+"""
+    code, output = _ssh_run(server, script, on_line=on_line)
+    if code != 0:
+        raise RuntimeError(output or "Failed to rewrite the instance config addons_path.")
+    return output
+
+
+def _instance_refresh_module_command(instance: OdooInstance, modules: list[str] | None = None) -> str:
+    runtime = _instance_runtime_context(instance)
+    modules = [m for m in (modules or []) if m]
+    if runtime["mode"] == "docker":
+        container = shlex.quote(runtime["container_name"])
+        if modules:
+            return (
+                f"docker exec {container} odoo -c /etc/odoo/odoo.conf -d {shlex.quote(instance.db_name)} "
+                f"-u {shlex.quote(','.join(modules))} --stop-after-init"
+            )
+        shell_payload = "env['ir.module.module'].update_list(); env.cr.commit(); print('module list refreshed')"
+        return (
+            f"printf '%s\n' {shlex.quote(shell_payload)} | "
+            f"docker exec -i {container} odoo shell -c /etc/odoo/odoo.conf -d {shlex.quote(instance.db_name)}"
+        )
+
+    odoo_bin = runtime["odoo_bin"]
+    config_file = runtime["config_file"]
+    if modules:
+        return (
+            f"{odoo_bin} -c {shlex.quote(config_file)} -d {shlex.quote(instance.db_name)} "
+            f"-u {shlex.quote(','.join(modules))} --stop-after-init"
+        )
+    shell_payload = "env['ir.module.module'].update_list(); env.cr.commit(); print('module list refreshed')"
+    return (
+        f"printf '%s\n' {shlex.quote(shell_payload)} | "
+        f"{odoo_bin} shell -c {shlex.quote(config_file)} -d {shlex.quote(instance.db_name)}"
+    )
+
+
+def _detect_repo_modules(server: OdooServer, repo_path: str) -> list[str]:
+    script = f"""
+python3 - <<'PY'
+import json
+from pathlib import Path
+repo = Path({repo_path!r})
+mods = set()
+for manifest in repo.glob("*/__manifest__.py"):
+    mods.add(manifest.parent.name)
+for manifest in repo.glob("*/*/__manifest__.py"):
+    mods.add(manifest.parent.name)
+for manifest in repo.glob("*/__openerp__.py"):
+    mods.add(manifest.parent.name)
+for manifest in repo.glob("*/*/__openerp__.py"):
+    mods.add(manifest.parent.name)
+print(json.dumps(sorted(mods)))
+PY
+"""
+    code, output = _ssh_run(server, script)
+    if code != 0:
+        return []
+    try:
+        return json.loads(output or "[]")
+    except json.JSONDecodeError:
+        return []
+
+
+def _detect_changed_modules(server: OdooServer, repo_path: str, previous_commit: str, current_commit: str) -> list[str]:
+    if not previous_commit or not current_commit or previous_commit == current_commit:
+        return []
+    script = f"""
+python3 - <<'PY'
+import json
+import subprocess
+from pathlib import Path
+repo = Path({repo_path!r})
+previous = {previous_commit!r}
+current = {current_commit!r}
+changed = subprocess.check_output(
+    ["git", "-C", str(repo), "diff", "--name-only", previous, current],
+    text=True,
+).splitlines()
+mods = set()
+for rel in changed:
+    parts = Path(rel).parts
+    for depth in (1, 2):
+        if len(parts) < depth:
+            continue
+        candidate = repo.joinpath(*parts[:depth])
+        if (candidate / "__manifest__.py").exists() or (candidate / "__openerp__.py").exists():
+            mods.add(candidate.name)
+            break
+print(json.dumps(sorted(mods)))
+PY
+"""
+    code, output = _ssh_run(server, script)
+    if code != 0:
+        return []
+    try:
+        return json.loads(output or "[]")
+    except json.JSONDecodeError:
+        return []
+
+
+def _restart_and_refresh_instance_addons(
+    instance: OdooInstance,
+    *,
+    modules: list[str] | None = None,
+    on_line=None,
+) -> str:
+    server = instance.server
+    runtime = _instance_runtime_context(instance)
+    commands = [
+        runtime["restart_command"],
+        _instance_refresh_module_command(instance, modules=None),
+    ]
+    if modules:
+        commands.append(_instance_refresh_module_command(instance, modules=modules))
+    code, output = _ssh_run(server, " && ".join(commands), on_line=on_line)
+    if code != 0:
+        raise RuntimeError(output or "Failed to restart Odoo and refresh its module registry.")
+    return output
+
+
+def _prepare_remote_git_key(server: OdooServer, repo: OdooInstanceGitRepo) -> tuple[str, str]:
+    credential = repo.credential
+    if not credential:
+        raise ValueError("This repository does not have an SSH credential attached.")
+    private_key = credential.ssh_private_key.strip()
+    if not private_key:
+        raise ValueError("The selected SSH credential has no private key.")
+
+    remote_path = f"/tmp/dafeapp_repo_key_{repo.id}_{int(time.time())}"
+    client = None
+    tmp_key = None
+    try:
+        client, tmp_key = _connect_ssh_client(server)
+        sftp = client.open_sftp()
+        try:
+            with sftp.open(remote_path, "w") as remote_file:
+                remote_file.write(private_key)
+            sftp.chmod(remote_path, 0o600)
+        finally:
+            sftp.close()
+    finally:
+        if client is not None:
+            client.close()
+        if tmp_key:
+            with suppress(OSError):
+                os.unlink(tmp_key)
+
+    command = (
+        "export GIT_SSH_COMMAND="
+        + shlex.quote(f"ssh -i {remote_path} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null")
+    )
+    return remote_path, command
+
+
+def _sync_instance_addons_config(instance: OdooInstance, *, on_line=None) -> str:
+    addons_root, addons_path = _compute_addons_path(instance)
+    runtime = _instance_runtime_context(instance)
+    mkdir_cmd = f"mkdir -p {shlex.quote(addons_root)}"
+    code, output = _ssh_run(instance.server, mkdir_cmd, on_line=on_line)
+    if code != 0:
+        raise RuntimeError(output or "Failed to prepare the addons root directory.")
+    rewrite_output = _write_remote_config_addons_path(
+        instance.server,
+        runtime["config_file"],
+        addons_path,
+        on_line=on_line,
+    )
+    instance.addons_root_path = addons_root
+    instance.addons_path_cache = addons_path
+    instance.addons_sync_status = OdooInstance.AddonsSyncStatus.READY
+    instance.addons_last_sync_at = timezone.now()
+    instance.save(
+        update_fields=[
+            "addons_root_path",
+            "addons_path_cache",
+            "addons_sync_status",
+            "addons_last_sync_at",
+            "updated_at",
+        ]
+    )
+    _broadcast_repo_event(
+        instance.id,
+        {
+            "type": "instance.addons_synced",
+            "addons_root_path": instance.addons_root_path,
+            "addons_path_cache": instance.addons_path_cache,
+            "addons_last_sync_at": instance.addons_last_sync_at.isoformat() if instance.addons_last_sync_at else "",
+        },
+    )
+    return _append_text(output, rewrite_output)
+
+
+def _initialize_instance_addons_metadata(instance: OdooInstance):
+    addons_root, addons_path = _compute_addons_path(instance)
+    instance.addons_root_path = addons_root
+    instance.addons_path_cache = addons_path
+    instance.addons_sync_status = OdooInstance.AddonsSyncStatus.READY
+    instance.addons_last_sync_at = timezone.now()
 
 
 def _run_cmd(args: list[str], cwd: Path, extra_env: dict | None = None) -> tuple[int, str, str]:
@@ -1296,6 +1792,7 @@ def create_odoo_instance(self, instance_id: int, job_id: int | None = None):
             ssh_user=ssh_user or "root",
             use_direct=use_direct,
         )
+        _initialize_instance_addons_metadata(instance)
     else:
         instance.status = OdooInstance.Status.FAILED
     instance.provisioning_log = _append_text(
@@ -1303,7 +1800,18 @@ def create_odoo_instance(self, instance_id: int, job_id: int | None = None):
         "Instance created successfully — ready." if ok else "Instance creation failed.",
     )
     instance.save(
-        update_fields=["status", "systemd_service", "nginx_site", "ssl_enabled", "provisioning_log", "updated_at"]
+        update_fields=[
+            "status",
+            "systemd_service",
+            "nginx_site",
+            "ssl_enabled",
+            "provisioning_log",
+            "addons_root_path",
+            "addons_path_cache",
+            "addons_sync_status",
+            "addons_last_sync_at",
+            "updated_at",
+        ]
     )
     access_url = f"http://{server.ip_address}:{instance.http_port}" if server.ip_address else ""
     logger.info(
@@ -1562,7 +2070,19 @@ def rollback_odoo_instance(self, instance_id: int, history_id: int, job_id: int 
 
     instance.provisioning_log = _append_text(instance.provisioning_log, f"[rollback to #{snap.pk}]\n{log_blob}")
     instance.status = OdooInstance.Status.RUNNING if ok else OdooInstance.Status.FAILED
-    instance.save(update_fields=["status", "provisioning_log", "updated_at"])
+    if ok:
+        _initialize_instance_addons_metadata(instance)
+    instance.save(
+        update_fields=[
+            "status",
+            "provisioning_log",
+            "addons_root_path",
+            "addons_path_cache",
+            "addons_sync_status",
+            "addons_last_sync_at",
+            "updated_at",
+        ]
+    )
     _broadcast_instance(
         instance.id,
         f"Rollback to #{snap.pk} succeeded." if ok else f"Rollback to #{snap.pk} failed.",
@@ -1586,6 +2106,592 @@ def rollback_odoo_instance(self, instance_id: int, history_id: int, job_id: int 
             note=f"Rolled back from snapshot #{snap.pk}.",
             deployed_by=instance.created_by,
         )
+
+
+# ---------------------------------------------------------------------------
+# Git addon manager tasks
+# ---------------------------------------------------------------------------
+
+def _repo_task_context(repo_id: int) -> OdooInstanceGitRepo:
+    return OdooInstanceGitRepo.objects.select_related(
+        "instance",
+        "instance__organization",
+        "instance__server",
+        "instance__server__infrastructure",
+        "instance__server__infrastructure__external_server",
+        "credential",
+        "credential__github_account",
+    ).get(pk=repo_id)
+
+
+def _repo_follow_up_success(
+    repo: OdooInstanceGitRepo,
+    *,
+    log_blob: str,
+    modules: list[str] | None = None,
+    on_line=None,
+):
+    _append_repo_log(repo, log_blob, reset=False)
+    sync_log = _sync_instance_addons_config(repo.instance, on_line=on_line)
+    refresh_log = _restart_and_refresh_instance_addons(repo.instance, modules=modules, on_line=on_line)
+    _append_repo_log(repo, sync_log)
+    _append_repo_log(repo, refresh_log)
+    repo.last_error = ""
+    repo.status = OdooInstanceGitRepo.Status.CONNECTED
+    repo.last_sync_finished_at = timezone.now()
+    repo.save(
+        update_fields=[
+            "last_sync_log",
+            "last_error",
+            "status",
+            "last_sync_finished_at",
+            "updated_at",
+        ]
+    )
+    _broadcast_repo_event(
+        repo.instance_id,
+        {
+            "type": "repo.synced",
+            "repo_id": repo.id,
+            "status": repo.status,
+            "modules": modules or [],
+        },
+    )
+    log_audit(
+        repo.created_by,
+        AuditLog.Action.OTHER,
+        None,
+        f"Repo '{repo.repo_name}' synced for instance '{repo.instance.name}'.",
+        metadata={
+            "instance_id": repo.instance_id,
+            "repo_id": repo.id,
+            "modules": modules or [],
+        },
+        organization=repo.instance.organization,
+    )
+    return _append_text(log_blob, _append_text(sync_log, refresh_log))
+
+
+def _repo_mark_error(repo: OdooInstanceGitRepo, message: str, job_id: int | None = None):
+    repo.instance.addons_sync_status = OdooInstance.AddonsSyncStatus.ERROR
+    repo.instance.addons_last_sync_at = timezone.now()
+    repo.instance.save(update_fields=["addons_sync_status", "addons_last_sync_at", "updated_at"])
+    _set_repo_status(
+        repo,
+        status=OdooInstanceGitRepo.Status.ERROR,
+        last_error=message,
+        append_log=message,
+        finished=True,
+    )
+    _job_done(job_id, ok=False, log=message)
+
+
+@shared_task(bind=True, max_retries=0)
+def refresh_instance_addons(self, instance_id: int, job_id: int | None = None):
+    instance = OdooInstance.objects.select_related(
+        "organization",
+        "server",
+        "server__infrastructure",
+        "server__infrastructure__external_server",
+    ).get(pk=instance_id)
+
+    _job_start(job_id, self.request.id)
+    lock_token = _acquire_repo_lock(instance.id)
+    try:
+        instance.addons_sync_status = OdooInstance.AddonsSyncStatus.PENDING
+        instance.save(update_fields=["addons_sync_status", "updated_at"])
+        log_blob = _sync_instance_addons_config(instance)
+        log_blob = _append_text(log_blob, _restart_and_refresh_instance_addons(instance))
+        instance.addons_sync_status = OdooInstance.AddonsSyncStatus.READY
+        instance.addons_last_sync_at = timezone.now()
+        instance.save(update_fields=["addons_sync_status", "addons_last_sync_at", "updated_at"])
+        _job_done(job_id, ok=True, log=log_blob)
+    except Exception as exc:
+        logger.exception("Instance %s addon refresh failed", instance.id)
+        instance.addons_sync_status = OdooInstance.AddonsSyncStatus.ERROR
+        instance.addons_last_sync_at = timezone.now()
+        instance.save(update_fields=["addons_sync_status", "addons_last_sync_at", "updated_at"])
+        _job_done(job_id, ok=False, log=str(exc))
+        raise
+    finally:
+        _release_repo_lock(instance.id, lock_token)
+
+
+@shared_task(bind=True, max_retries=0)
+def clone_instance_repo(self, repo_id: int, job_id: int | None = None):
+    repo = _repo_task_context(repo_id)
+    instance = repo.instance
+    server = instance.server
+    _job_start(job_id, self.request.id)
+
+    try:
+        lock_token = _acquire_repo_lock(instance.id)
+    except RuntimeError as exc:
+        _repo_mark_error(repo, str(exc), job_id=job_id)
+        return
+
+    ws_group = f"odoo.instance.{instance.id}"
+    try:
+        _update_repo_paths(instance, repo)
+        repo.instance.addons_sync_status = OdooInstance.AddonsSyncStatus.PENDING
+        repo.instance.save(update_fields=["addons_sync_status", "updated_at"])
+        _set_repo_status(
+            repo,
+            status=OdooInstanceGitRepo.Status.CLONING,
+            last_error="",
+            append_log=f"Preparing clone for {repo.repo_name} ({repo.branch})…",
+            reset_log=True,
+            started=True,
+        )
+
+        clone_url = _repo_clone_url(repo)
+        git_setup = ""
+        remote_key_path = ""
+        if repo.auth_type == OdooInstanceGitRepo.AuthType.SSH_KEY:
+            remote_key_path, git_setup = _prepare_remote_git_key(server, repo)
+
+        clone_cmd = (
+            f"mkdir -p {shlex.quote(instance.addons_root_path or _instance_runtime_context(instance)['addons_root_path'])} "
+            f"&& rm -rf {shlex.quote(repo.local_path)} "
+            f"&& {git_setup + ' && ' if git_setup else ''}"
+            f"git clone --branch {shlex.quote(repo.branch)} --single-branch "
+            f"{shlex.quote(clone_url)} {shlex.quote(repo.local_path)}"
+        )
+        if remote_key_path:
+            clone_cmd = f"{clone_cmd} ; rm -f {shlex.quote(remote_key_path)}"
+
+        code, log_blob = _ssh_run(server, clone_cmd, on_line=lambda line: _broadcast_log_line(ws_group, line))
+        if code != 0:
+            raise RuntimeError(log_blob or "Clone failed.")
+
+        head_code, head_output = _ssh_run(server, f"git -C {shlex.quote(repo.local_path)} rev-parse HEAD")
+        if head_code != 0:
+            raise RuntimeError(head_output or "Could not read the cloned commit SHA.")
+        repo.last_pulled_commit = head_output.strip()
+        repo.previous_commit = ""
+        repo.last_remote_commit = repo.last_pulled_commit
+        repo.default_branch = repo.default_branch or repo.branch
+        repo.last_pulled_at = timezone.now()
+        repo.last_detected_modules = _detect_repo_modules(server, repo.local_path)
+        if repo.credential_id:
+            repo.credential.last_used_at = timezone.now()
+            repo.credential.save(update_fields=["last_used_at", "updated_at"])
+        repo.save(
+            update_fields=[
+                "last_pulled_commit",
+                "previous_commit",
+                "last_remote_commit",
+                "default_branch",
+                "last_pulled_at",
+                "last_detected_modules",
+                "updated_at",
+            ]
+        )
+
+        full_log = _repo_follow_up_success(repo, log_blob=log_blob, modules=None, on_line=lambda line: _broadcast_log_line(ws_group, line))
+        _job_done(job_id, ok=True, log=full_log)
+    except Exception as exc:
+        logger.exception("Repo clone failed for repo %s", repo.id)
+        _repo_mark_error(repo, str(exc), job_id=job_id)
+    finally:
+        _release_repo_lock(instance.id, lock_token)
+
+
+@shared_task(bind=True, max_retries=0)
+def update_instance_repo(self, repo_id: int, job_id: int | None = None, *, force_modules: bool = False):
+    repo = _repo_task_context(repo_id)
+    instance = repo.instance
+    server = instance.server
+    _job_start(job_id, self.request.id)
+
+    try:
+        lock_token = _acquire_repo_lock(instance.id)
+    except RuntimeError as exc:
+        _repo_mark_error(repo, str(exc), job_id=job_id)
+        return
+
+    ws_group = f"odoo.instance.{instance.id}"
+    try:
+        if repo.pinned_commit and not force_modules:
+            raise RuntimeError("This repo is pinned to a specific commit. Clear the pin before updating.")
+
+        _update_repo_paths(instance, repo)
+        _set_repo_status(
+            repo,
+            status=OdooInstanceGitRepo.Status.UPDATING,
+            last_error="",
+            append_log=f"Checking remote changes for {repo.repo_name}:{repo.branch}…",
+            reset_log=True,
+            started=True,
+        )
+        repo.instance.addons_sync_status = OdooInstance.AddonsSyncStatus.PENDING
+        repo.instance.save(update_fields=["addons_sync_status", "updated_at"])
+
+        git_setup = ""
+        remote_key_path = ""
+        if repo.auth_type == OdooInstanceGitRepo.AuthType.SSH_KEY:
+            remote_key_path, git_setup = _prepare_remote_git_key(server, repo)
+
+        remote_cmd = (
+            f"cd {shlex.quote(repo.local_path)}"
+            f" && {git_setup + ' && ' if git_setup else ''}"
+            f"git fetch origin {shlex.quote(repo.branch)}"
+            f" && printf 'LOCAL=%s\n' \"$(git rev-parse HEAD)\""
+            f" && printf 'REMOTE=%s\n' \"$(git rev-parse FETCH_HEAD)\""
+        )
+        if remote_key_path:
+            remote_cmd = f"{remote_cmd} ; rm -f {shlex.quote(remote_key_path)}"
+
+        code, log_blob = _ssh_run(server, remote_cmd, on_line=lambda line: _broadcast_log_line(ws_group, line))
+        if code != 0:
+            raise RuntimeError(log_blob or "Fetch failed.")
+
+        local_match = re.search(r"LOCAL=([0-9a-fA-F]{7,64})", log_blob)
+        remote_match = re.search(r"REMOTE=([0-9a-fA-F]{7,64})", log_blob)
+        local_commit = local_match.group(1) if local_match else ""
+        remote_commit = remote_match.group(1) if remote_match else ""
+        repo.last_remote_commit = remote_commit
+        if not remote_commit:
+            raise RuntimeError("Could not determine the remote commit for this branch.")
+        if local_commit == remote_commit:
+            repo.status = OdooInstanceGitRepo.Status.CONNECTED
+            repo.last_sync_finished_at = timezone.now()
+            repo.last_error = ""
+            _append_repo_log(repo, _append_text(log_blob, "Already up to date."), reset=True)
+            repo.save(
+                update_fields=[
+                    "status",
+                    "last_remote_commit",
+                    "last_sync_finished_at",
+                    "last_error",
+                    "last_sync_log",
+                    "updated_at",
+                ]
+            )
+            repo.instance.addons_sync_status = OdooInstance.AddonsSyncStatus.READY
+            repo.instance.addons_last_sync_at = timezone.now()
+            repo.instance.save(update_fields=["addons_sync_status", "addons_last_sync_at", "updated_at"])
+            _job_done(job_id, ok=True, log=repo.last_sync_log)
+            return
+
+        pull_cmd = (
+            f"cd {shlex.quote(repo.local_path)}"
+            f" && git checkout {shlex.quote(repo.branch)}"
+            f" && git pull --ff-only origin {shlex.quote(repo.branch)}"
+            f" && git rev-parse HEAD"
+        )
+        code, pull_output = _ssh_run(server, pull_cmd, on_line=lambda line: _broadcast_log_line(ws_group, line))
+        if code != 0:
+            raise RuntimeError(pull_output or "Pull failed.")
+
+        new_commit = pull_output.splitlines()[-1].strip()
+        changed_modules = _detect_changed_modules(server, repo.local_path, local_commit, new_commit)
+        repo.previous_commit = local_commit
+        repo.last_pulled_commit = new_commit
+        repo.last_pulled_at = timezone.now()
+        repo.last_detected_modules = changed_modules or _detect_repo_modules(server, repo.local_path)
+        repo.save(
+            update_fields=[
+                "previous_commit",
+                "last_remote_commit",
+                "last_pulled_commit",
+                "last_pulled_at",
+                "last_detected_modules",
+                "updated_at",
+            ]
+        )
+        full_log = _repo_follow_up_success(
+            repo,
+            log_blob=_append_text(log_blob, pull_output),
+            modules=changed_modules,
+            on_line=lambda line: _broadcast_log_line(ws_group, line),
+        )
+        _job_done(job_id, ok=True, log=full_log)
+    except Exception as exc:
+        logger.exception("Repo update failed for repo %s", repo.id)
+        _repo_mark_error(repo, str(exc), job_id=job_id)
+    finally:
+        _release_repo_lock(instance.id, lock_token)
+
+
+@shared_task(bind=True, max_retries=0)
+def checkout_instance_repo_branch(self, repo_id: int, branch: str, job_id: int | None = None):
+    repo = _repo_task_context(repo_id)
+    instance = repo.instance
+    server = instance.server
+    _job_start(job_id, self.request.id)
+
+    try:
+        lock_token = _acquire_repo_lock(instance.id)
+    except RuntimeError as exc:
+        _repo_mark_error(repo, str(exc), job_id=job_id)
+        return
+
+    ws_group = f"odoo.instance.{instance.id}"
+    try:
+        branch = (branch or "").strip()
+        if not branch:
+            raise RuntimeError("A target branch is required.")
+
+        _set_repo_status(
+            repo,
+            status=OdooInstanceGitRepo.Status.UPDATING,
+            last_error="",
+            append_log=f"Switching {repo.repo_name} to branch '{branch}'…",
+            reset_log=True,
+            started=True,
+        )
+        repo.instance.addons_sync_status = OdooInstance.AddonsSyncStatus.PENDING
+        repo.instance.save(update_fields=["addons_sync_status", "updated_at"])
+
+        git_setup = ""
+        remote_key_path = ""
+        if repo.auth_type == OdooInstanceGitRepo.AuthType.SSH_KEY:
+            remote_key_path, git_setup = _prepare_remote_git_key(server, repo)
+
+        previous_commit = repo.last_pulled_commit or ""
+        branch_cmd = (
+            f"cd {shlex.quote(repo.local_path)}"
+            f" && {git_setup + ' && ' if git_setup else ''}"
+            f"git fetch origin {shlex.quote(branch)}"
+            f" && git checkout {shlex.quote(branch)}"
+            f" && git pull --ff-only origin {shlex.quote(branch)}"
+            f" && git rev-parse HEAD"
+        )
+        if remote_key_path:
+            branch_cmd = f"{branch_cmd} ; rm -f {shlex.quote(remote_key_path)}"
+
+        code, output = _ssh_run(server, branch_cmd, on_line=lambda line: _broadcast_log_line(ws_group, line))
+        if code != 0:
+            raise RuntimeError(output or "Branch checkout failed.")
+
+        new_commit = output.splitlines()[-1].strip()
+        changed_modules = _detect_changed_modules(server, repo.local_path, previous_commit, new_commit)
+        repo.branch = branch
+        repo.previous_commit = previous_commit
+        repo.last_pulled_commit = new_commit
+        repo.last_remote_commit = new_commit
+        repo.last_pulled_at = timezone.now()
+        repo.last_detected_modules = changed_modules or _detect_repo_modules(server, repo.local_path)
+        repo.save(
+            update_fields=[
+                "branch",
+                "previous_commit",
+                "last_pulled_commit",
+                "last_remote_commit",
+                "last_pulled_at",
+                "last_detected_modules",
+                "updated_at",
+            ]
+        )
+        full_log = _repo_follow_up_success(
+            repo,
+            log_blob=output,
+            modules=changed_modules,
+            on_line=lambda line: _broadcast_log_line(ws_group, line),
+        )
+        _job_done(job_id, ok=True, log=full_log)
+    except Exception as exc:
+        logger.exception("Repo branch switch failed for repo %s", repo.id)
+        _repo_mark_error(repo, str(exc), job_id=job_id)
+    finally:
+        _release_repo_lock(instance.id, lock_token)
+
+
+@shared_task(bind=True, max_retries=0)
+def rollback_instance_repo(self, repo_id: int, target_commit: str, job_id: int | None = None):
+    repo = _repo_task_context(repo_id)
+    instance = repo.instance
+    server = instance.server
+    _job_start(job_id, self.request.id)
+
+    try:
+        lock_token = _acquire_repo_lock(instance.id)
+    except RuntimeError as exc:
+        _repo_mark_error(repo, str(exc), job_id=job_id)
+        return
+
+    ws_group = f"odoo.instance.{instance.id}"
+    try:
+        target_commit = (target_commit or repo.previous_commit or "").strip()
+        if not target_commit:
+            raise RuntimeError("No previous commit is available for rollback.")
+
+        _set_repo_status(
+            repo,
+            status=OdooInstanceGitRepo.Status.UPDATING,
+            last_error="",
+            append_log=f"Rolling {repo.repo_name} back to {target_commit}…",
+            reset_log=True,
+            started=True,
+        )
+        repo.instance.addons_sync_status = OdooInstance.AddonsSyncStatus.PENDING
+        repo.instance.save(update_fields=["addons_sync_status", "updated_at"])
+
+        code, output = _ssh_run(
+            server,
+            (
+                f"cd {shlex.quote(repo.local_path)}"
+                f" && git fetch --all --tags"
+                f" && git checkout {shlex.quote(target_commit)}"
+                f" && git rev-parse HEAD"
+            ),
+            on_line=lambda line: _broadcast_log_line(ws_group, line),
+        )
+        if code != 0:
+            raise RuntimeError(output or "Repo rollback failed.")
+
+        new_commit = output.splitlines()[-1].strip()
+        previous_commit = repo.last_pulled_commit
+        changed_modules = _detect_changed_modules(server, repo.local_path, previous_commit, new_commit)
+        repo.previous_commit = previous_commit
+        repo.last_pulled_commit = new_commit
+        repo.last_remote_commit = new_commit
+        repo.pinned_commit = new_commit
+        repo.last_pulled_at = timezone.now()
+        repo.last_detected_modules = changed_modules or _detect_repo_modules(server, repo.local_path)
+        repo.save(
+            update_fields=[
+                "previous_commit",
+                "last_pulled_commit",
+                "last_remote_commit",
+                "pinned_commit",
+                "last_pulled_at",
+                "last_detected_modules",
+                "updated_at",
+            ]
+        )
+        full_log = _repo_follow_up_success(
+            repo,
+            log_blob=output,
+            modules=changed_modules,
+            on_line=lambda line: _broadcast_log_line(ws_group, line),
+        )
+        _job_done(job_id, ok=True, log=full_log)
+    except Exception as exc:
+        logger.exception("Repo rollback failed for repo %s", repo.id)
+        _repo_mark_error(repo, str(exc), job_id=job_id)
+    finally:
+        _release_repo_lock(instance.id, lock_token)
+
+
+@shared_task(bind=True, max_retries=0)
+def remove_instance_repo(self, repo_id: int, job_id: int | None = None):
+    repo = _repo_task_context(repo_id)
+    instance = repo.instance
+    server = instance.server
+    repo_label = repo.repo_name
+    _job_start(job_id, self.request.id)
+
+    try:
+        lock_token = _acquire_repo_lock(instance.id)
+    except RuntimeError as exc:
+        _repo_mark_error(repo, str(exc), job_id=job_id)
+        return
+
+    ws_group = f"odoo.instance.{instance.id}"
+    try:
+        _set_repo_status(
+            repo,
+            status=OdooInstanceGitRepo.Status.UPDATING,
+            last_error="",
+            append_log=f"Removing repo {repo.repo_name}…",
+            reset_log=True,
+            started=True,
+        )
+        repo.instance.addons_sync_status = OdooInstance.AddonsSyncStatus.PENDING
+        repo.instance.save(update_fields=["addons_sync_status", "updated_at"])
+
+        code, output = _ssh_run(
+            server,
+            f"rm -rf {shlex.quote(repo.local_path)}",
+            on_line=lambda line: _broadcast_log_line(ws_group, line),
+        )
+        if code != 0:
+            raise RuntimeError(output or "Remote repo removal failed.")
+
+        instance_id = instance.id
+        repo.delete()
+        sync_log = _sync_instance_addons_config(instance, on_line=lambda line: _broadcast_log_line(ws_group, line))
+        refresh_log = _restart_and_refresh_instance_addons(instance, on_line=lambda line: _broadcast_log_line(ws_group, line))
+        full_log = _append_text(output, _append_text(sync_log, refresh_log))
+        _broadcast_repo_event(
+            instance_id,
+            {
+                "type": "repo.removed",
+                "repo_name": repo_label,
+                "status": "removed",
+            },
+        )
+        log_audit(
+            instance.created_by,
+            AuditLog.Action.OTHER,
+            None,
+            f"Repo '{repo_label}' removed from instance '{instance.name}'.",
+            metadata={"instance_id": instance.id, "repo_name": repo_label},
+            organization=instance.organization,
+        )
+        _job_done(job_id, ok=True, log=full_log)
+    except Exception as exc:
+        logger.exception("Repo remove failed for repo %s", repo.id)
+        _repo_mark_error(repo, str(exc), job_id=job_id)
+    finally:
+        _release_repo_lock(instance.id, lock_token)
+
+
+@shared_task
+def sync_instance_repo_status(repo_id: int):
+    repo = _repo_task_context(repo_id)
+    server = repo.instance.server
+    if not repo.local_path:
+        return
+    code, output = _ssh_run(
+        server,
+        (
+            f"cd {shlex.quote(repo.local_path)}"
+            f" && git fetch origin {shlex.quote(repo.branch)}"
+            f" && printf 'LOCAL=%s\n' \"$(git rev-parse HEAD)\""
+            f" && printf 'REMOTE=%s\n' \"$(git rev-parse FETCH_HEAD)\""
+        ),
+    )
+    if code != 0:
+        repo.status = OdooInstanceGitRepo.Status.ERROR
+        repo.last_error = output or "Status sync failed."
+    else:
+        local_match = re.search(r"LOCAL=([0-9a-fA-F]{7,64})", output)
+        remote_match = re.search(r"REMOTE=([0-9a-fA-F]{7,64})", output)
+        repo.last_remote_commit = remote_match.group(1) if remote_match else ""
+        repo.last_error = ""
+        repo.status = (
+            OdooInstanceGitRepo.Status.CONNECTED
+            if local_match and remote_match and local_match.group(1) == remote_match.group(1)
+            else OdooInstanceGitRepo.Status.DISCONNECTED
+        )
+    repo.save(update_fields=["last_remote_commit", "last_error", "status", "updated_at"])
+
+
+@shared_task
+def auto_sync_instance_repos():
+    repos = (
+        OdooInstanceGitRepo.objects.select_related(
+            "instance",
+            "instance__server",
+        )
+        .filter(
+            auto_update=True,
+            is_enabled=True,
+            instance__status=OdooInstance.Status.RUNNING,
+        )
+        .exclude(status=OdooInstanceGitRepo.Status.CLONING)
+    )
+
+    for repo in repos:
+        if repo.pinned_commit:
+            continue
+        try:
+            update_instance_repo.delay(repo.id, None)
+        except Exception:
+            update_instance_repo(repo.id, None)
 
 
 # ---------------------------------------------------------------------------
@@ -1666,13 +2772,26 @@ def _run_docker_instance_create(instance: OdooInstance, server: OdooServer, job_
             ssh_user=ssh_user or "root",
             use_direct=False,
         )
+        _initialize_instance_addons_metadata(instance)
     else:
         instance.status = OdooInstance.Status.FAILED
     instance.provisioning_log = _append_text(
         instance.provisioning_log,
         "Docker instance created successfully — ready." if ok else "Docker instance creation failed.",
     )
-    instance.save(update_fields=["container_name", "status", "ssl_enabled", "provisioning_log", "updated_at"])
+    instance.save(
+        update_fields=[
+            "container_name",
+            "status",
+            "ssl_enabled",
+            "provisioning_log",
+            "addons_root_path",
+            "addons_path_cache",
+            "addons_sync_status",
+            "addons_last_sync_at",
+            "updated_at",
+        ]
+    )
 
     access_url = f"https://{instance.domain}" if instance.domain else ""
     _broadcast_instance(

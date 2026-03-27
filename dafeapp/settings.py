@@ -152,6 +152,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "deployments.tasks.check_instance_health",
         "schedule": 300.0,  # every 5 minutes
     },
+    "auto-sync-instance-repos": {
+        "task": "deployments.tasks.auto_sync_instance_repos",
+        "schedule": 600.0,  # every 10 minutes
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -189,7 +193,7 @@ SOCIALACCOUNT_PROVIDERS = {
             "secret": env("GITHUB_SECRET", default=""),
             "key": "",
         },
-        "SCOPE": ["user:email", "read:user"],
+        "SCOPE": ["user:email", "read:user", "repo"],
     },
     "gitlab": {
         "APP": {

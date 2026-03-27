@@ -1,6 +1,14 @@
 from django.contrib import admin
 
-from deployments.models import Infrastructure, Instance, OdooInstance, OdooInstanceGitRepo, OdooServer, TerraformRun
+from deployments.models import (
+    GitRepositoryCredential,
+    Infrastructure,
+    Instance,
+    OdooInstance,
+    OdooInstanceGitRepo,
+    OdooServer,
+    TerraformRun,
+)
 
 
 @admin.register(Instance)
@@ -64,6 +72,7 @@ class OdooInstanceGitRepoAdmin(admin.ModelAdmin):
     list_display = [
         "repo_name",
         "instance",
+        "credential",
         "branch",
         "auth_type",
         "auto_update",
@@ -73,6 +82,21 @@ class OdooInstanceGitRepoAdmin(admin.ModelAdmin):
     ]
     list_filter = ["auth_type", "auto_update", "status", "is_enabled"]
     search_fields = ["repo_name", "git_url", "instance__name", "instance__organization__name"]
+
+
+@admin.register(GitRepositoryCredential)
+class GitRepositoryCredentialAdmin(admin.ModelAdmin):
+    list_display = [
+        "name",
+        "organization",
+        "auth_type",
+        "github_account",
+        "git_username",
+        "last_used_at",
+        "created_at",
+    ]
+    list_filter = ["auth_type"]
+    search_fields = ["name", "organization__name", "git_username", "github_account__username"]
 
 
 @admin.register(Infrastructure)

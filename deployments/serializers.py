@@ -2,6 +2,7 @@ from rest_framework import serializers
 
 from deployments.models import (
     DeploymentJob,
+    GitRepositoryCredential,
     Infrastructure,
     Instance,
     OdooInstance,
@@ -187,9 +188,13 @@ class OdooInstanceSerializer(serializers.ModelSerializer):
 
 class OdooInstanceGitRepoSerializer(serializers.ModelSerializer):
     instance_name = serializers.SerializerMethodField()
+    credential_name = serializers.SerializerMethodField()
 
     def get_instance_name(self, obj):
         return obj.instance.name if obj.instance_id else ""
+
+    def get_credential_name(self, obj):
+        return obj.credential.name if obj.credential_id else ""
 
     class Meta:
         model = OdooInstanceGitRepo
@@ -197,6 +202,8 @@ class OdooInstanceGitRepoSerializer(serializers.ModelSerializer):
             "id",
             "instance",
             "instance_name",
+            "credential",
+            "credential_name",
             "repo_name",
             "git_url",
             "branch",
@@ -205,10 +212,41 @@ class OdooInstanceGitRepoSerializer(serializers.ModelSerializer):
             "auto_update",
             "is_enabled",
             "display_order",
+            "default_branch",
+            "pinned_commit",
+            "previous_commit",
+            "last_remote_commit",
             "last_pulled_commit",
             "last_pulled_at",
+            "last_sync_started_at",
+            "last_sync_finished_at",
+            "last_sync_log",
+            "last_detected_modules",
             "status",
             "last_error",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class GitRepositoryCredentialSerializer(serializers.ModelSerializer):
+    github_account_username = serializers.SerializerMethodField()
+
+    def get_github_account_username(self, obj):
+        return obj.github_account.username if obj.github_account_id else ""
+
+    class Meta:
+        model = GitRepositoryCredential
+        fields = [
+            "id",
+            "name",
+            "auth_type",
+            "github_account",
+            "github_account_username",
+            "git_username",
+            "ssh_public_key",
+            "notes",
+            "last_used_at",
             "created_at",
             "updated_at",
         ]
