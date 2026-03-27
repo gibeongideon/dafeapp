@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from deployments.models import Infrastructure, Instance, OdooInstance, OdooServer, TerraformRun
+from deployments.models import Infrastructure, Instance, OdooInstance, OdooInstanceGitRepo, OdooServer, TerraformRun
 
 
 @admin.register(Instance)
@@ -57,6 +57,22 @@ class OdooInstanceAdmin(admin.ModelAdmin):
     ]
     list_filter = ["status", "ssl_enabled"]
     search_fields = ["name", "db_name", "domain", "organization__name", "server__name"]
+
+
+@admin.register(OdooInstanceGitRepo)
+class OdooInstanceGitRepoAdmin(admin.ModelAdmin):
+    list_display = [
+        "repo_name",
+        "instance",
+        "branch",
+        "auth_type",
+        "auto_update",
+        "status",
+        "last_pulled_at",
+        "created_at",
+    ]
+    list_filter = ["auth_type", "auto_update", "status", "is_enabled"]
+    search_fields = ["repo_name", "git_url", "instance__name", "instance__organization__name"]
 
 
 @admin.register(Infrastructure)

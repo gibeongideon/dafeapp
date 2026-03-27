@@ -90,6 +90,18 @@ Track of what has been built, what is in progress, and what is planned.
 - [x] Ansible playbook: `delete_odoo_instance_direct.yml` (stop, drop DB, close port)
 - [x] Instance console/detail view
 
+### Git Addon Manager
+
+- [x] Phase 1 started: addon-path fields added to `OdooInstance`
+- [x] Phase 1 started: `OdooInstanceGitRepo` model added
+- [x] Phase 1 started: read-only repo list endpoint added
+- [x] Phase 1 started: read-only `Addons` tab added to instance console
+- [ ] Phase 1: repo create/edit/remove flows
+- [ ] Phase 2: clone / pull / remove worker jobs
+- [ ] Phase 3: branch switching and auto-sync
+- [ ] Phase 4: GitHub OAuth / PAT / SSH auth flows
+- [ ] Phase 5: smart module updates, rollback, notifications
+
 ### Docker Deployment Mode
 
 - [x] `OdooServer.deployment_mode` field (`BARE_METAL` | `DOCKER`)
@@ -198,7 +210,7 @@ Track of what has been built, what is in progress, and what is planned.
 
 ## Last Updated
 
-2026-03-17 (SSH key fix + extra SSH keys + Docker UI)
+2026-03-28 (Git Addon Manager roadmap + phase 1 foundation)
 
 ---
 
@@ -258,6 +270,72 @@ Track of what has been built, what is in progress, and what is planned.
 - [x] Ansible: `create_odoo_instance_direct.yml` (IP:PORT, no nginx)
 - [x] Ansible: `create_odoo_instance.yml` (domain + nginx + SSL)
 - [x] Ansible: `delete_odoo_instance_direct.yml` (stop, drop DB, close port)
+
+---
+
+### Git Addon Manager — Phase 1 (In Progress)
+
+> Goal: establish the data model and a visible addon-management surface inside each Odoo instance.
+> Test: open an instance console, see the `Addons` tab, and list linked repositories from the API and UI.
+
+- [x] Planning document: `docs/git-addon-manager-plan.md`
+- [x] `OdooInstance` addon-path fields (`addons_root_path`, `addons_path_cache`, sync status, last sync)
+- [x] `OdooInstanceGitRepo` model
+- [x] Migration for repo model + instance addon-path fields
+- [x] Admin registration for git repos
+- [x] Serializer for instance git repos
+- [x] Read-only API endpoint: list repos for one instance
+- [x] Instance console `Addons` tab (read-only visibility)
+- [ ] Create repository flow
+- [ ] Edit repository metadata flow
+- [ ] Remove repository flow
+
+### Git Addon Manager — Phase 2
+
+> Goal: make repositories operational on the target host.
+> Test: add a repo, clone it into the instance addon directory, rebuild `addons_path`, and restart Odoo.
+
+- [ ] Celery task: clone repo into per-instance addon folder
+- [ ] Celery task: remove repo from disk and config
+- [ ] Repo local-path generator and folder conventions
+- [ ] Addons-path rebuild service
+- [ ] Odoo restart hook after repo changes
+- [ ] Repo action logs and error capture
+
+### Git Addon Manager — Phase 3
+
+> Goal: support update workflows and branch control.
+> Test: manually update a repo or switch branches and verify Odoo reloads with the new code.
+
+- [ ] Manual `Update Repo` action
+- [ ] Branch switch action
+- [ ] Celery task: fetch / compare / pull latest
+- [ ] Persist last pulled commit and pulled-at timestamps
+- [ ] Repo status transitions (`CONNECTED`, `UPDATING`, `ERROR`, etc.)
+- [ ] UI actions for update and branch management
+
+### Git Addon Manager — Phase 4
+
+> Goal: support authenticated private repository access with a clean UX.
+> Test: connect a private repo through GitHub OAuth, PAT, or SSH key and clone successfully.
+
+- [ ] GitHub OAuth repo picker integration
+- [ ] Personal access token credential flow
+- [ ] SSH key-based repo auth flow
+- [ ] Secure credential storage and references
+- [ ] Private repo validation before linking
+
+### Git Addon Manager — Phase 5
+
+> Goal: make repo management production-grade and intelligent.
+> Test: auto-sync changed repos, update only affected modules when possible, and recover cleanly from failures.
+
+- [ ] Scheduled auto-update worker
+- [ ] Changed-module detection
+- [ ] `Update All Modules` fallback
+- [ ] Repo rollback to previous commit
+- [ ] Notifications for repo sync results
+- [ ] Repo health dashboard and deeper diagnostics
 
 #### Audit
 

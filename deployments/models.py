@@ -256,6 +256,12 @@ class OdooInstance(models.Model):
         FAILED = "FAILED", "Failed"
         DELETED = "DELETED", "Deleted"
 
+    class AddonsSyncStatus(models.TextChoices):
+        NOT_CONFIGURED = "NOT_CONFIGURED", "Not configured"
+        PENDING = "PENDING", "Pending"
+        READY = "READY", "Ready"
+        ERROR = "ERROR", "Error"
+
     class RestartPolicy(models.TextChoices):
         ALWAYS = "always", "Always"
         ON_FAILURE = "on-failure", "On Failure"
@@ -290,6 +296,14 @@ class OdooInstance(models.Model):
     provisioning_log = models.TextField(blank=True)
     installation_summary = models.JSONField(default=dict, blank=True)
     installation_summary_text = models.TextField(blank=True)
+    addons_root_path = models.CharField(max_length=500, blank=True, default="")
+    addons_path_cache = models.TextField(blank=True, default="")
+    addons_sync_status = models.CharField(
+        max_length=20,
+        choices=AddonsSyncStatus.choices,
+        default=AddonsSyncStatus.NOT_CONFIGURED,
+    )
+    addons_last_sync_at = models.DateTimeField(null=True, blank=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,
@@ -324,6 +338,67 @@ class OdooInstance(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.db_name}) [{self.status}]"
+
+
+class OdooInstanceGitRepo(models.Model):
+    class AuthType(models.TextChoices):
+        PUBLIC = "PUBLIC", "Public"
+        GITHUB_OAUTH = "GITHUB_OAUTH", "GitHub OAuth"
+        TOKEN = "TOKEN", "Personal access token"
+        SSH_KEY = "SSH_KEY", "SSH key"
+
+    class Status(models.TextChoices):
+        CONNECTED = "CONNECTED", "Connected"
+        CLONING = "CLONING", "Cloning"
+        UPDATING = "UPDATING", "Updating"
+        ERROR = "ERROR", "Error"
+        DISCONNECTED = "DISCONNECTED", "Disconnected"
+
+    instance = models.ForeignKey(
+        OdooInstance,
+        on_delete=models.CASCADE,
+        related_name="git_repos",
+    )
+    repo_name = models.CharField(max_length=255)
+    git_url = models.CharField(max_length=500)
+    branch = models.CharField(max_length=120, default="main")
+    auth_type = models.CharField(
+        max_length=20,
+        choices=AuthType.choices,
+        default=AuthType.PUBLIC,
+    )
+    local_path = models.CharField(max_length=500, blank=True, default="")
+    auto_update = models.BooleanField(default=False)
+    is_enabled = models.BooleanField(default=True)
+    display_order = models.PositiveIntegerField(default=0)
+    last_pulled_commit = models.CharField(max_length=64, blank=True, default="")
+    last_pulled_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.DISCONNECTED,
+    )
+    last_error = models.TextField(blank=True, default="")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="created_odoo_instance_git_repos",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["display_order", "repo_name", "id"]
+        unique_together = (("instance", "repo_name"),)
+        indexes = [
+            models.Index(fields=["instance", "status"], name="dep_repo_inst_status_idx"),
+            models.Index(fields=["instance", "auto_update"], name="dep_repo_inst_auto_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.repo_name} [{self.branch}] -> {self.instance.name}"
 
 
 # ---------------------------------------------------------------------------

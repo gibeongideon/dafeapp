@@ -18,6 +18,7 @@ from deployments.models import (
     Infrastructure,
     Instance,
     OdooInstance,
+    OdooInstanceGitRepo,
     OdooInstanceHistory,
     OdooServer,
     OdooServerHistory,
@@ -28,6 +29,7 @@ from deployments.serializers import (
     DeploymentJobSerializer,
     InfrastructureSerializer,
     InstanceSerializer,
+    OdooInstanceGitRepoSerializer,
     OdooInstanceHistorySerializer,
     OdooInstanceSerializer,
     OdooServerHistorySerializer,
@@ -727,6 +729,23 @@ class OdooInstanceListAPIView(LoginRequiredMixin, View):
         return JsonResponse({"results": data})
 
 
+class OdooInstanceGitRepoListAPIView(LoginRequiredMixin, View):
+    def get(self, request, instance_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if request.org_role not in ("SUPER_ADMIN", "ADMIN", "MANAGER", "USER"):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+        instance = get_object_or_404(
+            OdooInstance.objects.select_related("server"),
+            pk=instance_id,
+            organization=org,
+        )
+        repos = instance.git_repos.all()
+        data = OdooInstanceGitRepoSerializer(repos, many=True).data
+        return JsonResponse({"results": data})
+
+
 class OdooInstanceConsoleView(LoginRequiredMixin, TemplateView):
     template_name = "deployments/odoo_instance_console.html"
 
@@ -751,6 +770,7 @@ class OdooInstanceConsoleView(LoginRequiredMixin, TemplateView):
         )
         ctx["odoo_instance"] = instance
         ctx["odoo_server"] = instance.server
+        ctx["instance_git_repos"] = list(instance.git_repos.all())
         ctx["env_sections"] = ["Production", "Staging", "Development"]
         ctx["tool_tabs"] = [
             "GitHistory",

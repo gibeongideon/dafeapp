@@ -5,6 +5,7 @@ from deployments.models import (
     Infrastructure,
     Instance,
     OdooInstance,
+    OdooInstanceGitRepo,
     OdooInstanceHistory,
     OdooServer,
     OdooServerHistory,
@@ -179,6 +180,35 @@ class OdooInstanceSerializer(serializers.ModelSerializer):
             "installation_summary",
             "installation_summary_text",
             "server",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class OdooInstanceGitRepoSerializer(serializers.ModelSerializer):
+    instance_name = serializers.SerializerMethodField()
+
+    def get_instance_name(self, obj):
+        return obj.instance.name if obj.instance_id else ""
+
+    class Meta:
+        model = OdooInstanceGitRepo
+        fields = [
+            "id",
+            "instance",
+            "instance_name",
+            "repo_name",
+            "git_url",
+            "branch",
+            "auth_type",
+            "local_path",
+            "auto_update",
+            "is_enabled",
+            "display_order",
+            "last_pulled_commit",
+            "last_pulled_at",
+            "status",
+            "last_error",
             "created_at",
             "updated_at",
         ]

@@ -7,7 +7,7 @@ from django.urls import reverse
 from unittest.mock import AsyncMock, patch
 
 from cloud.models import CloudAccount
-from deployments.models import Infrastructure, Instance, OdooInstance, OdooServer, TerraformRun
+from deployments.models import Infrastructure, Instance, OdooInstance, OdooInstanceGitRepo, OdooServer, TerraformRun
 from organizations.models import Organization, OrganizationMembership
 from subscriptions.models import Plan, Subscription
 from deployments.tasks import delete_odoo_instance
@@ -210,11 +210,28 @@ class OdooVersionedFlowTests(TestCase):
             db_name="inventory_db",
             status=OdooInstance.Status.RUNNING,
             created_by=self.user,
+            addons_root_path="/odoo_instances/1/addons",
+            addons_path_cache="/odoo/odoo-server/addons,/odoo_instances/1/addons/sales-tools",
+            addons_sync_status=OdooInstance.AddonsSyncStatus.READY,
+        )
+        OdooInstanceGitRepo.objects.create(
+            instance=instance,
+            repo_name="sales-tools",
+            git_url="https://github.com/acme/sales-tools.git",
+            branch="main",
+            local_path="/odoo_instances/1/addons/sales-tools",
+            status=OdooInstanceGitRepo.Status.CONNECTED,
+            auto_update=True,
+            created_by=self.user,
         )
         resp = self.client.get(
             reverse("deployments_ui:odoo-instance-console", kwargs={"instance_id": instance.id})
         )
         self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Addons")
+        self.assertContains(resp, "Git Addon Sources")
+        self.assertContains(resp, "sales-tools")
+        self.assertContains(resp, "/odoo_instances/1/addons")
         self.assertContains(resp, "Production")
         self.assertContains(resp, "Staging")
         self.assertContains(resp, "Development")
@@ -222,6 +239,48 @@ class OdooVersionedFlowTests(TestCase):
         self.assertContains(resp, "Setting")
         self.assertContains(resp, "Installation Summary")
         self.assertContains(resp, "Server IP")
+
+    def test_instance_repo_list_api_returns_instance_repos(self):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-repos",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            status=OdooServer.Status.PROVISIONED,
+            created_by=self.user,
+        )
+        instance = OdooInstance.objects.create(
+            organization=self.org,
+            server=server,
+            name="inventory",
+            db_name="inventory_db",
+            status=OdooInstance.Status.RUNNING,
+            created_by=self.user,
+        )
+        repo = OdooInstanceGitRepo.objects.create(
+            instance=instance,
+            repo_name="stock-custom",
+            git_url="git@github.com:acme/stock-custom.git",
+            branch="18.0",
+            auth_type=OdooInstanceGitRepo.AuthType.SSH_KEY,
+            local_path="/odoo_instances/44/addons/stock-custom",
+            status=OdooInstanceGitRepo.Status.DISCONNECTED,
+            created_by=self.user,
+        )
+
+        resp = self.client.get(
+            reverse("deployments:odoo-instance-repo-list", kwargs={"instance_id": instance.id})
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.json()
+        self.assertEqual(len(payload["results"]), 1)
+        self.assertEqual(payload["results"][0]["id"], repo.id)
+        self.assertEqual(payload["results"][0]["repo_name"], "stock-custom")
+        self.assertEqual(payload["results"][0]["branch"], "18.0")
 
     def test_infrastructure_delete_requires_force_if_servers_exist(self):
         server = OdooServer.objects.create(
