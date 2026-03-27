@@ -10,6 +10,7 @@ from cloud.models import CloudAccount
 from deployments.models import Infrastructure, Instance, OdooInstance, OdooServer, TerraformRun
 from organizations.models import Organization, OrganizationMembership
 from subscriptions.models import Plan, Subscription
+from deployments.tasks import delete_odoo_instance
 
 User = get_user_model()
 
@@ -280,6 +281,32 @@ class OdooVersionedFlowTests(TestCase):
         )
         self.assertEqual(delete_resp.status_code, 200)
         self.assertFalse(OdooServer.objects.filter(pk=server.pk).exists())
+        self.assertFalse(OdooInstance.objects.filter(pk=instance.pk).exists())
+
+    def test_delete_odoo_instance_hard_removes_record(self):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-instance-delete",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            status=OdooServer.Status.PROVISIONED,
+            ip_address=None,
+            created_by=self.user,
+        )
+        instance = OdooInstance.objects.create(
+            organization=self.org,
+            server=server,
+            name="sales",
+            db_name="sales_db",
+            status=OdooInstance.Status.RUNNING,
+            created_by=self.user,
+        )
+
+        delete_odoo_instance(instance.id)
+
         self.assertFalse(OdooInstance.objects.filter(pk=instance.pk).exists())
 
     @patch("deployments.signals.get_channel_layer")

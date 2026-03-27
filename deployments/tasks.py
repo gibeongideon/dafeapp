@@ -101,6 +101,25 @@ def _broadcast_instance(
         logger.warning("Instance broadcast skipped for instance %s", instance_id, exc_info=True)
 
 
+def _broadcast_instance_removed(instance_id: int, server_id: int):
+    channel_layer = get_channel_layer()
+    if channel_layer is None:
+        return
+    payload = {
+        "type": "removed",
+        "instance_id": instance_id,
+        "server_id": server_id,
+        "reason": "deleted",
+    }
+    try:
+        async_to_sync(channel_layer.group_send)(
+            f"odoo.instance.{instance_id}",
+            {"type": "instance.update", "payload": payload},
+        )
+    except Exception:
+        logger.warning("Instance removal broadcast skipped for instance %s", instance_id, exc_info=True)
+
+
 def _broadcast_run(run: TerraformRun):
     channel_layer = get_channel_layer()
     if channel_layer is None:
@@ -1324,7 +1343,7 @@ def create_odoo_instance(self, instance_id: int, job_id: int | None = None):
 
 @shared_task(bind=True, max_retries=0)
 def delete_odoo_instance(self, instance_id: int):
-    """Run the direct-IP deletion playbook then mark the instance DELETED."""
+    """Run the deletion playbook, then remove the instance record completely."""
     instance = OdooInstance.objects.select_related(
         "organization",
         "server",
@@ -1333,43 +1352,46 @@ def delete_odoo_instance(self, instance_id: int):
     ).get(pk=instance_id)
     server = instance.server
 
-    if not server.ip_address:
-        # Server IP gone (server deleted); nothing to clean up remotely.
-        instance.status = OdooInstance.Status.DELETED
-        instance.provisioning_log = _append_text(instance.provisioning_log, "Server IP unavailable; skipped remote cleanup.")
-        instance.save(update_fields=["status", "provisioning_log", "updated_at"])
-        return
-
-    if server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
-        _run_docker_instance_delete(instance, server)
-        return
-
-    playbook = os.getenv("ANSIBLE_ODOO_INSTANCE_DELETE_PLAYBOOK", "").strip()
-    if not playbook:
-        instance.status = OdooInstance.Status.DELETED
-        instance.provisioning_log = _append_text(instance.provisioning_log, "No delete playbook configured; marked DELETED.")
-        instance.save(update_fields=["status", "provisioning_log", "updated_at"])
-        return
-
-    ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
     try:
-        ok, log_blob = _run_ansible_playbook(
-            playbook,
-            str(server.ip_address),
-            {
-                "db_name": instance.db_name,
-                "http_port": instance.http_port,
-            },
-            ssh_user=ssh_user,
-            ssh_key_path=ssh_key,
-            ssh_password=ssh_password,
-        )
+        if server.ip_address:
+            if server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
+                _run_docker_instance_delete(instance, server)
+            else:
+                playbook = os.getenv("ANSIBLE_ODOO_INSTANCE_DELETE_PLAYBOOK", "").strip()
+                if playbook:
+                    ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
+                    try:
+                        ok, log_blob = _run_ansible_playbook(
+                            playbook,
+                            str(server.ip_address),
+                            {
+                                "db_name": instance.db_name,
+                                "http_port": instance.http_port,
+                            },
+                            ssh_user=ssh_user,
+                            ssh_key_path=ssh_key,
+                            ssh_password=ssh_password,
+                        )
+                    finally:
+                        if tmp_key:
+                            os.unlink(tmp_key)
+                    instance.provisioning_log = _append_text(instance.provisioning_log, f"[ansible delete]\n{log_blob}")
+                    instance.status = OdooInstance.Status.DELETED
+                    instance.save(update_fields=["status", "provisioning_log", "updated_at"])
+                else:
+                    instance.status = OdooInstance.Status.DELETED
+                    instance.provisioning_log = _append_text(instance.provisioning_log, "No delete playbook configured; removing record.")
+                    instance.save(update_fields=["status", "provisioning_log", "updated_at"])
+        else:
+            instance.status = OdooInstance.Status.DELETED
+            instance.provisioning_log = _append_text(instance.provisioning_log, "Server IP unavailable; skipped remote cleanup.")
+            instance.save(update_fields=["status", "provisioning_log", "updated_at"])
+    except Exception:
+        logger.warning("Instance %s cleanup failed; removing database record anyway.", instance_id, exc_info=True)
     finally:
-        if tmp_key:
-            os.unlink(tmp_key)
-    instance.provisioning_log = _append_text(instance.provisioning_log, f"[ansible delete]\n{log_blob}")
-    instance.status = OdooInstance.Status.DELETED
-    instance.save(update_fields=["status", "provisioning_log", "updated_at"])
+        _broadcast_instance_removed(instance.id, server.id)
+        instance.delete()
+        _broadcast_server_snapshot(server)
 
 
 def _tcp_reachable(host: str, port: int, timeout: int = 5) -> bool:

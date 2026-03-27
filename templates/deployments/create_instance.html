@@ -1,6 +1,6 @@
 {% extends "dashboard/layout.html" %}
 
-{% block page_title %}Servers{% endblock %}
+{% block page_title %}{% if selected_server or show_instances_view %}Instances{% else %}Servers{% endif %}{% endblock %}
 
 {% block content %}
 <div class="max-w-7xl mx-auto space-y-6">
@@ -17,6 +17,11 @@
         {{ selected_server.odoo_version }} ·
         {% if selected_server.deployment_mode == 'DOCKER' %}Docker{% else %}Bare-metal{% endif %} ·
         {{ selected_server.active_instance_count }}/{{ selected_server.max_instances }} instances
+      </p>
+      {% elif show_instances_view %}
+      <h2 class="text-2xl font-semibold text-gray-900">Instances</h2>
+      <p class="text-sm text-gray-500">
+        Browse every instance in the organization, then switch servers from the sidebar to narrow the view.
       </p>
       {% else %}
       <h2 class="text-2xl font-semibold text-gray-900">Servers</h2>
@@ -41,6 +46,11 @@
               data-server-mode="{{ selected_server.deployment_mode }}">
         + New Instance
       </button>
+      {% elif show_instances_view %}
+      <a href="{% url 'deployments:create-instance' %}?section=servers"
+         class="inline-flex items-center px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+        Servers
+      </a>
       {% endif %}
       <button id="open-create-server"
               class="inline-flex items-center px-4 py-2.5 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700 transition-colors">
@@ -106,99 +116,47 @@
       <div class="text-right">
         <p class="text-[11px] uppercase tracking-wide text-gray-400">Instances</p>
         <p id="server-top-instances-{{ selected_server.id }}" class="text-xl font-semibold text-gray-900">{{ selected_server.active_instance_count }}/{{ selected_server.max_instances }}</p>
-        <p id="server-top-ip-{{ selected_server.id }}" class="text-xs text-gray-500 font-mono">{{ selected_server.ip_address|default:"pending" }}</p>
+      <p id="server-top-ip-{{ selected_server.id }}" class="text-xs text-gray-500 font-mono">{{ selected_server.ip_address|default:"pending" }}</p>
       </div>
+    </div>
+  </div>
+  {% elif show_instances_view %}
+  <div class="bg-white border border-gray-200 rounded-2xl p-4 lg:p-5 shadow-sm">
+    <div class="flex items-start justify-between gap-4">
+      <div class="min-w-0">
+        <p class="text-xs uppercase tracking-wide text-gray-400">All instances</p>
+        <h3 class="mt-2 text-base font-semibold text-gray-900">Organization-wide instance view</h3>
+        <p class="mt-1 text-sm text-gray-500">
+          Pick a server from the sidebar to filter this page down to one server.
+        </p>
+      </div>
+      <div class="text-right">
+        <p class="text-[11px] uppercase tracking-wide text-gray-400">Total instances</p>
+        <p class="text-xl font-semibold text-gray-900">{{ odoo_instances|length }}</p>
+      </div>
+    </div>
+    <div class="mt-4 flex flex-wrap gap-2">
+      <a href="{% url 'deployments:create-instance' %}?section=servers"
+         class="inline-flex items-center justify-center rounded-2xl bg-white border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-colors">
+        Back to Servers
+      </a>
     </div>
   </div>
   {% endif %}
 
   <!-- Server Kanban -->
   <div id="instances" class="flex items-center justify-between gap-3">
-    <p class="text-xs uppercase tracking-wide text-gray-400">{% if selected_server %}Instances{% else %}Servers{% endif %}</p>
+    <p class="text-xs uppercase tracking-wide text-gray-400">{% if selected_server %}Instances{% elif show_instances_view %}Instances{% else %}Servers{% endif %}</p>
+    {% if not show_instances_view or selected_server %}
     <div class="inline-flex items-center rounded-lg border border-gray-200 bg-white p-1 text-xs">
       <button type="button" class="view-mode-btn px-3 py-1.5 rounded-md bg-gray-900 text-white" data-target="{% if selected_server %}instance-card-grid{% else %}server-kanban{% endif %}" data-mode="kanban">Kanban</button>
       <button type="button" class="view-mode-btn px-3 py-1.5 rounded-md text-gray-600 hover:bg-gray-50" data-target="{% if selected_server %}instance-card-grid{% else %}server-kanban{% endif %}" data-mode="list">List</button>
     </div>
+    {% endif %}
   </div>
 
   {% if selected_server %}
-  <div class="grid gap-6 xl:grid-cols-[280px_minmax(0,1fr)] items-start">
-    <aside class="xl:sticky xl:top-6">
-      <div class="space-y-4">
-        <div class="relative overflow-hidden rounded-3xl bg-gradient-to-br from-gray-950 via-gray-900 to-gray-800 text-white shadow-2xl ring-1 ring-black/10">
-          <div class="absolute inset-y-0 left-0 w-1 bg-emerald-400"></div>
-          <div class="p-4">
-            <p class="text-[10px] uppercase tracking-[0.3em] text-gray-400">Selected server</p>
-            <div class="mt-2 flex items-start justify-between gap-3">
-              <div class="min-w-0">
-                <h3 class="text-base font-semibold truncate">{{ selected_server.name }}</h3>
-                <p class="mt-1 text-xs text-gray-300">
-                  {{ selected_server.odoo_version }} ·
-                  {% if selected_server.deployment_mode == 'DOCKER' %}Docker{% else %}Bare-metal{% endif %} ·
-                  {{ selected_server.active_instance_count }}/{{ selected_server.max_instances }} instances
-                </p>
-              </div>
-              <span class="shrink-0 rounded-full bg-emerald-400/15 px-2 py-1 text-[10px] font-semibold text-emerald-300">
-                Active
-              </span>
-            </div>
-            <div class="mt-4 grid grid-cols-2 gap-2 text-[11px]">
-              <div class="rounded-2xl bg-white/5 px-3 py-2">
-                <p class="text-gray-400">Status</p>
-                <p class="mt-0.5 font-medium">{{ selected_server.get_status_display }}</p>
-              </div>
-              <div class="rounded-2xl bg-white/5 px-3 py-2">
-                <p class="text-gray-400">Reachability</p>
-                <p class="mt-0.5 font-medium">
-                  {% if selected_server.infrastructure and selected_server.infrastructure.infra_type == 'PYOS' and selected_server.infrastructure.external_server %}
-                    {% if selected_server.infrastructure.external_server.last_verified_at %}
-                      {% if selected_server.infrastructure.external_server.is_verified %}Connected{% else %}Disconnected{% endif %}
-                    {% else %}Checking…{% endif %}
-                  {% elif selected_server.last_checked_at %}
-                    {% if selected_server.is_reachable %}Connected{% else %}Disconnected{% endif %}
-                  {% else %}Unknown{% endif %}
-                </p>
-              </div>
-            </div>
-            <a href="{% url 'deployments:create-instance' %}?server_id={{ selected_server.id }}#instances"
-               class="mt-4 inline-flex items-center justify-center rounded-2xl bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15 transition-colors">
-              Jump to instances
-            </a>
-          </div>
-        </div>
-
-        <div class="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
-          <div class="flex items-center justify-between gap-3">
-            <div>
-              <p class="text-xs uppercase tracking-wide text-gray-400">Servers</p>
-              <h3 class="text-sm font-semibold text-gray-900">Grouped by server</h3>
-            </div>
-            <span class="text-[10px] px-2 py-1 rounded-full bg-gray-100 text-gray-500">{{ odoo_servers|length }} total</span>
-          </div>
-          <div class="mt-4 space-y-2 max-h-[34rem] overflow-y-auto pr-1">
-          {% for s in odoo_servers %}
-          <a href="{% url 'deployments:create-instance' %}?server_id={{ s.id }}#instances"
-             class="flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 transition-colors
-               {% if s.id == selected_server.id %}border-gray-900 bg-gray-50 ring-2 ring-gray-900/10 shadow-sm{% else %}border-gray-200 hover:bg-gray-50{% endif %}">
-            <div class="min-w-0">
-              <p class="text-sm font-medium text-gray-900 truncate">{{ s.name }}</p>
-              <p class="text-[11px] text-gray-500 truncate">
-                {% if s.infrastructure and s.infrastructure.infra_type == 'PYOS' %}PYOS · existing server{% else %}Odoo {{ s.odoo_version }} · {{ s.region }}{% endif %}
-              </p>
-            </div>
-            <div class="text-right shrink-0">
-              <p class="text-[11px] font-semibold text-gray-700">{{ s.active_instance_count }}/{{ s.max_instances }}</p>
-              <p class="text-[10px] font-medium {% if s.id == selected_server.id %}text-gray-900{% else %}text-gray-400{% endif %}">
-                {% if s.id == selected_server.id %}Current{% else %}{% if s.status == 'PROVISIONED' %}Ready{% elif s.status == 'FAILED' %}Failed{% else %}{{ s.get_status_display }}{% endif %}{% endif %}
-              </p>
-            </div>
-          </a>
-          {% endfor %}
-        </div>
-        </div>
-      </div>
-    </aside>
-
+  <div class="grid gap-6">
     <div id="instance-card-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 gap-4">
       {% for oi in selected_instances %}
       <article id="instance-card-{{ oi.id }}" class="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
@@ -308,6 +266,43 @@
         <p class="text-sm text-gray-500">No instances yet on this server. Click <strong>New Instance</strong> to create one.</p>
       </div>
       {% endfor %}
+    </div>
+  </div>
+  {% elif show_instances_view %}
+  <div class="grid gap-6 xl:grid-cols-[280px_minmax(0,1fr)] items-start">
+    <aside class="xl:sticky xl:top-6">
+      <div class="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
+        <p class="text-xs uppercase tracking-wide text-gray-400">Servers</p>
+        <h3 class="mt-2 text-sm font-semibold text-gray-900">Switch the instance filter</h3>
+        <p class="mt-1 text-xs text-gray-500">Select a server below to jump straight to its instances.</p>
+        <div class="mt-4 space-y-2 max-h-[34rem] overflow-y-auto pr-1">
+          {% for s in odoo_servers %}
+          <a href="{% url 'deployments:create-instance' %}?server_id={{ s.id }}&section=instances#instances"
+             class="flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 transition-colors
+               {% if s.id == selected_server.id %}border-gray-900 bg-gray-50 ring-2 ring-gray-900/10 shadow-sm{% else %}border-gray-200 hover:bg-gray-50{% endif %}">
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-gray-900 truncate">{{ s.name }}</p>
+              <p class="text-[11px] text-gray-500 truncate">
+                {% if s.infrastructure and s.infrastructure.infra_type == 'PYOS' %}PYOS · existing server{% else %}Odoo {{ s.odoo_version }} · {{ s.region }}{% endif %}
+              </p>
+            </div>
+            <div class="text-right shrink-0">
+              <p class="text-[11px] font-semibold text-gray-700">{{ s.active_instance_count }}/{{ s.max_instances }}</p>
+              <p class="text-[10px] font-medium {% if s.id == selected_server.id %}text-gray-900{% else %}text-gray-400{% endif %}">
+                {% if s.id == selected_server.id %}Current{% else %}{% if s.status == 'PROVISIONED' %}Ready{% elif s.status == 'FAILED' %}Failed{% else %}{{ s.get_status_display }}{% endif %}{% endif %}
+              </p>
+            </div>
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+    </aside>
+    <div class="space-y-4">
+      <div class="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
+        <p class="text-xs uppercase tracking-wide text-gray-400">Instances</p>
+        <h3 class="mt-2 text-sm font-semibold text-gray-900">Global instance list</h3>
+        <p class="mt-1 text-xs text-gray-500">The table below shows every active instance in the organization.</p>
+      </div>
     </div>
   </div>
   {% else %}
@@ -441,7 +436,7 @@
                   {% if s.status == 'PROVISIONED' and not s.last_checked_at or s.status == 'PROVISIONED' and s.is_reachable %}text-white bg-gray-900 hover:bg-gray-700{% else %}text-gray-400 bg-gray-100 cursor-not-allowed{% endif %}"
                 data-server-id="{{ s.id }}"
                 data-server-name="{{ s.name }}"
-                data-target-url="{% url 'deployments:create-instance' %}?server_id={{ s.id }}#instances"
+                data-target-url="{% url 'deployments:create-instance' %}?server_id={{ s.id }}&section=instances#instances"
                 {% if s.status != 'PROVISIONED' or s.last_checked_at and not s.is_reachable %}disabled{% endif %}>
           Create Instance
         </button>
@@ -541,7 +536,7 @@
   {% endif %}
 
   <!-- Instances Table -->
-  <div id="instance-list-panel" class="hidden bg-white border border-gray-200 rounded-xl overflow-hidden">
+  <div id="instance-list-panel" class="{% if show_instances_view and not selected_server %}bg-white border border-gray-200 rounded-xl overflow-hidden{% else %}hidden bg-white border border-gray-200 rounded-xl overflow-hidden{% endif %}">
     <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
       <h3 class="text-sm font-semibold text-gray-900">Odoo Instances</h3>
       <p class="text-xs text-gray-400">Bare-metal: IP:PORT · Docker: HTTPS domain</p>
@@ -1389,9 +1384,11 @@
   }
 
   async function refreshInstanceRows() {
-    if (!selectedServerId) return;
     try {
-      const resp = await fetch(`/api/deployments/odoo/instances/?server_id=${encodeURIComponent(selectedServerId)}`);
+      const endpoint = selectedServerId
+        ? `/api/deployments/odoo/instances/?server_id=${encodeURIComponent(selectedServerId)}`
+        : "/api/deployments/odoo/instances/";
+      const resp = await fetch(endpoint);
       if (!resp.ok) return;
       const data = await resp.json();
       const instances = data.results || [];
@@ -1556,7 +1553,7 @@
       if (server.ip_address !== undefined) instanceBtn.dataset.serverIp = server.ip_address || "";
       if (server.min_port !== undefined) instanceBtn.dataset.serverMinPort = String(server.min_port || 8069);
       if (server.deployment_mode) instanceBtn.dataset.serverMode = server.deployment_mode;
-      instanceBtn.dataset.targetUrl = `/deployments/create/?server_id=${sid}#instances`;
+      instanceBtn.dataset.targetUrl = `/deployments/create/?server_id=${sid}&section=instances#instances`;
       instanceBtn.textContent = "Create Instance";
       instanceBtn.disabled = !(provisioned && (!server.last_checked_at || reachable));
       instanceBtn.className = instanceBtn.disabled
@@ -1754,7 +1751,7 @@
       <div class="mt-4 flex gap-2">
         <button type="button" disabled
                 class="open-server-instances-btn flex-1 inline-flex items-center justify-center px-3 py-2 text-xs font-medium rounded-lg transition-colors text-gray-400 bg-gray-100 cursor-not-allowed"
-                data-server-id="${sid}" data-server-name="${name}" data-target-url="/deployments/create/?server_id=${sid}#instances">
+                data-server-id="${sid}" data-server-name="${name}" data-target-url="/deployments/create/?server_id=${sid}&section=instances#instances">
           Create Instance
         </button>
         <button type="button"
@@ -2299,7 +2296,7 @@
     const btn = e.target.closest(".open-server-instances-btn");
     if (!btn) return;
     if (btn.disabled) return;
-    const targetUrl = btn.dataset.targetUrl || `/deployments/create/?server_id=${btn.dataset.serverId || ""}#instances`;
+    const targetUrl = btn.dataset.targetUrl || `/deployments/create/?server_id=${btn.dataset.serverId || ""}&section=instances#instances`;
     window.location.href = targetUrl;
   });
 

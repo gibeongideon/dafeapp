@@ -179,9 +179,11 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         org = self.request.organization
+        section = (self.request.GET.get("section") or "servers").strip()
         server_id = (self.request.GET.get("server_id") or "").strip()
         accounts = CloudAccount.objects.filter(organization=org, is_verified=True)
         ctx["accounts"] = accounts
+        ctx["show_instances_view"] = section == "instances"
         from cloud.models import ExternalServer
 
         ctx["external_servers"] = ExternalServer.objects.filter(
@@ -198,6 +200,7 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
         )
         ctx["odoo_instances"] = (
             OdooInstance.objects.filter(organization=org, server__is_active=True)
+            .exclude(status=OdooInstance.Status.DELETED)
             .select_related("server")
             .order_by("-created_at")[:20]
         )
@@ -214,6 +217,7 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
             ctx["selected_server"] = selected_server
             ctx["selected_instances"] = (
                 OdooInstance.objects.filter(organization=org, server=selected_server)
+                .exclude(status=OdooInstance.Status.DELETED)
                 .select_related("server")
                 .order_by("-created_at")
             )
@@ -716,7 +720,7 @@ class OdooInstanceListAPIView(LoginRequiredMixin, View):
                 OdooServer.Status.PROVISIONED,
                 OdooServer.Status.FAILED,
             ],
-        ).select_related("server")
+        ).exclude(status=OdooInstance.Status.DELETED).select_related("server")
         if server_id:
             qs = qs.filter(server_id=server_id)
         data = OdooInstanceSerializer(qs[:200], many=True).data

@@ -357,6 +357,10 @@ function instanceConsole(instanceId) {
           if (msg.status) {
             this.instanceStatus = msg.status;
           }
+          if (msg.type === 'removed') {
+            window.location.href = `/deployments/create/?server_id=${msg.server_id}&section=instances#instances`;
+            return;
+          }
           if (msg.summary && msg.summary.installation_summary_text) {
             this.updateInstallationSummary(msg.summary.installation_summary_text);
           }
