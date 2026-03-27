@@ -1,0 +1,239 @@
+{% extends "dashboard/layout.html" %}
+{% load i18n %}
+{% load socialaccount %}
+
+{% block page_title %}Account Connections{% endblock %}
+
+{% block content %}
+{% get_providers as socialaccount_providers %}
+<div class="mx-auto max-w-6xl space-y-6">
+  <section class="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
+    <div class="bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.22),_transparent_38%),linear-gradient(135deg,#0f172a_0%,#1e293b_52%,#0f766e_100%)] px-6 py-8 text-white md:px-8">
+      <div class="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+        <div class="max-w-2xl">
+          <p class="text-xs font-semibold uppercase tracking-[0.35em] text-cyan-200">Identity And Access</p>
+          <h1 class="mt-3 text-3xl font-semibold tracking-tight">Third-party accounts tied to your workspace</h1>
+          <p class="mt-3 max-w-xl text-sm leading-6 text-slate-200">
+            Link GitHub, GitLab, or Google once and keep account access organized from one place. Connected Git providers also power repository access across deployments.
+          </p>
+        </div>
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div class="rounded-2xl border border-white/10 bg-white/10 px-4 py-3 backdrop-blur">
+            <p class="text-xs uppercase tracking-[0.25em] text-slate-300">Signed In As</p>
+            <p class="mt-2 text-sm font-semibold text-white">{{ request.user.email }}</p>
+          </div>
+          <div class="rounded-2xl border border-emerald-300/20 bg-emerald-400/10 px-4 py-3 backdrop-blur">
+            <p class="text-xs uppercase tracking-[0.25em] text-emerald-100">Status</p>
+            <p class="mt-2 text-sm font-semibold text-white">
+              {% if form.accounts %}{{ form.accounts|length }} provider{{ form.accounts|length|pluralize }} connected{% else %}Ready to connect{% endif %}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="border-t border-slate-200 bg-slate-50/80 px-4 py-4 md:px-6">
+      <div class="flex flex-wrap items-center gap-3">
+        <a href="{% url 'account_email' %}" class="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-blue-200 hover:text-blue-700">
+          Change Email
+        </a>
+        <a href="{% url 'account_change_password' %}" class="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 transition hover:border-blue-200 hover:text-blue-700">
+          Change Password
+        </a>
+        <a href="{% url 'socialaccount_connections' %}" class="rounded-full border border-blue-600 bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm">
+          Account Connections
+        </a>
+        <form method="post" action="{% url 'account_logout' %}" class="inline-flex">
+          {% csrf_token %}
+          <button type="submit" class="rounded-full border border-rose-200 bg-white px-4 py-2 text-sm font-medium text-rose-600 transition hover:border-rose-300 hover:bg-rose-50">
+            Sign Out
+          </button>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <div class="grid gap-6 xl:grid-cols-[1.25fr_0.95fr]">
+    <section class="rounded-[26px] border border-slate-200 bg-white p-6 shadow-sm">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Connected Accounts</p>
+          <h2 class="mt-2 text-2xl font-semibold tracking-tight text-slate-900">Active identity links</h2>
+          <p class="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
+            Remove a provider here if you want to disconnect sign-in access or reconnect with a different account.
+          </p>
+        </div>
+      </div>
+
+      {% if form.accounts %}
+      <div class="mt-6 grid gap-4">
+        {% for acc in form.fields.account.choices %}
+        {% with provider_account=acc.0.instance.get_provider_account social=acc.0.instance %}
+        <article class="group relative overflow-hidden rounded-3xl border border-slate-200 bg-[linear-gradient(135deg,rgba(248,250,252,1),rgba(241,245,249,0.65))] p-5 transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-lg">
+          <div class="absolute inset-y-0 right-0 w-40 bg-[radial-gradient(circle_at_center,_rgba(59,130,246,0.12),_transparent_70%)]"></div>
+          <div class="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+            <div class="flex items-start gap-4">
+              <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl
+                {% if social.provider == 'github' %}bg-slate-950 text-white
+                {% elif social.provider == 'gitlab' %}bg-orange-500 text-white
+                {% elif social.provider == 'google' %}bg-white text-slate-700 ring-1 ring-slate-200
+                {% else %}bg-slate-200 text-slate-700{% endif %}">
+                {% if social.provider == 'github' %}
+                <svg class="h-7 w-7" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path fill-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clip-rule="evenodd"/>
+                </svg>
+                {% elif social.provider == 'gitlab' %}
+                <svg class="h-7 w-7" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M22.65 14.39L12 22.13 1.35 14.39a.84.84 0 01-.3-.94l1.22-3.78 2.44-7.51A.42.42 0 014.83 2a.43.43 0 01.42.31l2.44 7.49h8.62l2.44-7.49c.06-.19.24-.31.42-.31a.42.42 0 01.41.28l2.44 7.51 1.22 3.78c.12.36 0 .75-.29.94z"/>
+                </svg>
+                {% elif social.provider == 'google' %}
+                <svg class="h-7 w-7" viewBox="0 0 24 24" aria-hidden="true">
+                  <path fill="#EA4335" d="M12 10.2v3.9h5.4c-.2 1.3-1.5 3.9-5.4 3.9-3.2 0-5.9-2.7-5.9-6s2.7-6 5.9-6c1.8 0 3 .8 3.7 1.5l2.5-2.4C16.6 3.5 14.5 2.6 12 2.6 6.9 2.6 2.8 6.8 2.8 12s4.1 9.4 9.2 9.4c5.3 0 8.8-3.7 8.8-8.9 0-.6-.1-1.1-.2-1.6z"/>
+                  <path fill="#34A853" d="M3.9 7l3.2 2.4C8 7.7 9.8 6.4 12 6.4c1.8 0 3 .8 3.7 1.5l2.5-2.4C16.6 3.5 14.5 2.6 12 2.6 8.5 2.6 5.5 4.6 3.9 7z"/>
+                  <path fill="#FBBC05" d="M2.8 12c0 1.7.5 3.3 1.4 4.7l3.6-2.8c-.2-.5-.4-1.2-.4-1.9 0-.7.1-1.3.4-1.9L4.2 7.3C3.3 8.7 2.8 10.3 2.8 12z"/>
+                  <path fill="#4285F4" d="M12 21.4c2.5 0 4.6-.8 6.2-2.3l-3-2.4c-.8.5-1.8.9-3.2.9-2.2 0-4.1-1.5-4.8-3.5l-3.7 2.9c1.6 3.1 4.8 4.4 8.5 4.4z"/>
+                </svg>
+                {% else %}
+                <span class="text-lg font-semibold">{{ social.provider|first|upper }}</span>
+                {% endif %}
+              </div>
+              <div class="space-y-2">
+                <div class="flex flex-wrap items-center gap-2">
+                  <h3 class="text-lg font-semibold text-slate-900">{{ provider_account.get_brand.name }}</h3>
+                  <span class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">
+                    Connected
+                  </span>
+                </div>
+                <p class="text-sm font-medium text-slate-700">{{ provider_account }}</p>
+                <div class="flex flex-wrap gap-3 text-xs text-slate-500">
+                  <span class="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">Provider: {{ social.provider|title }}</span>
+                  {% if social.uid %}
+                  <span class="rounded-full bg-white px-3 py-1 ring-1 ring-slate-200">UID: {{ social.uid }}</span>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+            <form method="post" action="{% url 'socialaccount_connections' %}" class="relative z-10 shrink-0">
+              {% csrf_token %}
+              <input type="hidden" name="account" value="{{ social.pk }}">
+              <button type="submit" class="inline-flex items-center justify-center rounded-2xl border border-rose-200 bg-white px-4 py-2.5 text-sm font-semibold text-rose-600 transition hover:border-rose-300 hover:bg-rose-50">
+                Remove
+              </button>
+            </form>
+          </div>
+        </article>
+        {% endwith %}
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="mt-6 rounded-3xl border border-dashed border-slate-300 bg-slate-50 px-6 py-12 text-center">
+        <div class="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-white shadow-sm ring-1 ring-slate-200">
+          <svg class="h-8 w-8 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
+          </svg>
+        </div>
+        <h3 class="mt-4 text-lg font-semibold text-slate-900">No providers connected yet</h3>
+        <p class="mt-2 text-sm leading-6 text-slate-500">
+          Add a provider from the panel on the right to unlock social sign-in and Git-backed deployment workflows.
+        </p>
+      </div>
+      {% endif %}
+    </section>
+
+    <aside class="space-y-6">
+      <section class="rounded-[26px] border border-slate-200 bg-white p-6 shadow-sm">
+        <p class="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Add Provider</p>
+        <h2 class="mt-2 text-2xl font-semibold tracking-tight text-slate-900">Connect another account</h2>
+        <p class="mt-2 text-sm leading-6 text-slate-500">
+          Pick a provider below. GitHub and GitLab are used for repository access, while Google remains available for sign-in.
+        </p>
+
+        <div class="mt-6 grid gap-3">
+          {% for provider in socialaccount_providers %}
+            {% if provider.id != "openid" %}
+              {% provider_login_url provider process="connect" as href %}
+              <a href="{{ href }}" class="group rounded-3xl border border-slate-200 bg-[linear-gradient(135deg,rgba(255,255,255,1),rgba(248,250,252,0.9))] p-4 transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md">
+                <div class="flex items-center gap-4">
+                  <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl
+                    {% if provider.id == 'github' %}bg-slate-950 text-white
+                    {% elif provider.id == 'gitlab' %}bg-orange-500 text-white
+                    {% elif provider.id == 'google' %}bg-white text-slate-700 ring-1 ring-slate-200
+                    {% else %}bg-slate-200 text-slate-700{% endif %}">
+                    {% if provider.id == 'github' %}
+                    <svg class="h-6 w-6" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path fill-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" clip-rule="evenodd"/>
+                    </svg>
+                    {% elif provider.id == 'gitlab' %}
+                    <svg class="h-6 w-6" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M22.65 14.39L12 22.13 1.35 14.39a.84.84 0 01-.3-.94l1.22-3.78 2.44-7.51A.42.42 0 014.83 2a.43.43 0 01.42.31l2.44 7.49h8.62l2.44-7.49c.06-.19.24-.31.42-.31a.42.42 0 01.41.28l2.44 7.51 1.22 3.78c.12.36 0 .75-.29.94z"/>
+                    </svg>
+                    {% elif provider.id == 'google' %}
+                    <svg class="h-6 w-6" viewBox="0 0 24 24" aria-hidden="true">
+                      <path fill="#EA4335" d="M12 10.2v3.9h5.4c-.2 1.3-1.5 3.9-5.4 3.9-3.2 0-5.9-2.7-5.9-6s2.7-6 5.9-6c1.8 0 3 .8 3.7 1.5l2.5-2.4C16.6 3.5 14.5 2.6 12 2.6 6.9 2.6 2.8 6.8 2.8 12s4.1 9.4 9.2 9.4c5.3 0 8.8-3.7 8.8-8.9 0-.6-.1-1.1-.2-1.6z"/>
+                      <path fill="#34A853" d="M3.9 7l3.2 2.4C8 7.7 9.8 6.4 12 6.4c1.8 0 3 .8 3.7 1.5l2.5-2.4C16.6 3.5 14.5 2.6 12 2.6 8.5 2.6 5.5 4.6 3.9 7z"/>
+                      <path fill="#FBBC05" d="M2.8 12c0 1.7.5 3.3 1.4 4.7l3.6-2.8c-.2-.5-.4-1.2-.4-1.9 0-.7.1-1.3.4-1.9L4.2 7.3C3.3 8.7 2.8 10.3 2.8 12z"/>
+                      <path fill="#4285F4" d="M12 21.4c2.5 0 4.6-.8 6.2-2.3l-3-2.4c-.8.5-1.8.9-3.2.9-2.2 0-4.1-1.5-4.8-3.5l-3.7 2.9c1.6 3.1 4.8 4.4 8.5 4.4z"/>
+                    </svg>
+                    {% else %}
+                    <span class="text-lg font-semibold">{{ provider.name|first|upper }}</span>
+                    {% endif %}
+                  </div>
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center justify-between gap-3">
+                      <h3 class="text-sm font-semibold text-slate-900">{{ provider.name }}</h3>
+                      <span class="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500 transition group-hover:bg-blue-50 group-hover:text-blue-700">
+                        Connect
+                      </span>
+                    </div>
+                    <p class="mt-1 text-sm text-slate-500">
+                      {% if provider.id == 'github' %}
+                      Link repositories and deployment credentials.
+                      {% elif provider.id == 'gitlab' %}
+                      Bring private or shared GitLab repos into your workflow.
+                      {% elif provider.id == 'google' %}
+                      Enable Google sign-in for your user account.
+                      {% else %}
+                      Authorize {{ provider.name }} for account access.
+                      {% endif %}
+                    </p>
+                  </div>
+                </div>
+              </a>
+            {% endif %}
+          {% empty %}
+          <div class="rounded-3xl border border-dashed border-slate-300 bg-slate-50 px-5 py-8 text-center text-sm text-slate-500">
+            No social providers are configured yet.
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+
+      <section class="overflow-hidden rounded-[26px] border border-slate-200 bg-white shadow-sm">
+        <div class="border-b border-slate-200 px-6 py-5">
+          <p class="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">How It Works</p>
+          <h2 class="mt-2 text-xl font-semibold tracking-tight text-slate-900">What changes when you connect</h2>
+        </div>
+        <div class="space-y-4 px-6 py-5">
+          <div class="rounded-2xl bg-slate-50 p-4">
+            <p class="text-sm font-semibold text-slate-800">Encrypted storage</p>
+            <p class="mt-1 text-sm leading-6 text-slate-500">
+              OAuth tokens are stored encrypted before they reach the database.
+            </p>
+          </div>
+          <div class="rounded-2xl bg-slate-50 p-4">
+            <p class="text-sm font-semibold text-slate-800">Deployment access</p>
+            <p class="mt-1 text-sm leading-6 text-slate-500">
+              GitHub and GitLab connections are reused by the addon manager for private repositories.
+            </p>
+          </div>
+          <div class="rounded-2xl bg-slate-50 p-4">
+            <p class="text-sm font-semibold text-slate-800">Clean disconnect</p>
+            <p class="mt-1 text-sm leading-6 text-slate-500">
+              Removing a connection disables third-party access and lets you reconnect with a different account later.
+            </p>
+          </div>
+        </div>
+      </section>
+    </aside>
+  </div>
+</div>
+{% endblock %}

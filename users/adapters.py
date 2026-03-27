@@ -7,9 +7,13 @@ SocialAccountAdapter — on first social signup: connects existing user by email
                        Also populates auth_provider on the User model.
 """
 
+import logging
+
 from allauth.account.adapter import DefaultAccountAdapter
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from django.db import transaction
+
+logger = logging.getLogger(__name__)
 
 
 class AccountAdapter(DefaultAccountAdapter):
@@ -48,6 +52,35 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
             sociallogin.connect(request, existing)
         except User.DoesNotExist:
             pass
+
+    def on_authentication_error(
+        self,
+        request,
+        provider,
+        error=None,
+        exception=None,
+        extra_context=None,
+    ):
+        logger.warning(
+            "Social auth error: provider=%s error=%s exception=%r path=%s user=%s session_key=%s state_id=%s session_states=%s",
+            getattr(provider, "id", provider),
+            error,
+            exception,
+            getattr(request, "path", ""),
+            getattr(getattr(request, "user", None), "email", None),
+            getattr(getattr(request, "session", None), "session_key", None),
+            (extra_context or {}).get("state_id"),
+            list((getattr(request, "session", {}) or {}).get("socialaccount_states", {}).keys())
+            if hasattr(request, "session")
+            else [],
+        )
+        return super().on_authentication_error(
+            request,
+            provider,
+            error=error,
+            exception=exception,
+            extra_context=extra_context,
+        )
 
     def save_user(self, request, sociallogin, form=None):
         """

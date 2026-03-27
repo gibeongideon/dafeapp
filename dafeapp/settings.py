@@ -23,6 +23,14 @@ SECRET_KEY = env("SECRET_KEY", default="django-insecure-change-me-in-production"
 DEBUG = env("DEBUG")
 ALLOWED_HOSTS = env("ALLOWED_HOSTS")
 
+# OAuth callbacks rely on the browser sending the same session cookie back to
+# /accounts/<provider>/login/callback/. In local development browsers can be
+# picky about cross-site redirects, so keep the cookie policy explicit.
+SESSION_COOKIE_SAMESITE = env("SESSION_COOKIE_SAMESITE", default="Lax")
+CSRF_COOKIE_SAMESITE = env("CSRF_COOKIE_SAMESITE", default="Lax")
+SESSION_COOKIE_SECURE = env.bool("SESSION_COOKIE_SECURE", default=False)
+CSRF_COOKIE_SECURE = env.bool("CSRF_COOKIE_SECURE", default=False)
+
 # ---------------------------------------------------------------------------
 # Installed Apps
 # ---------------------------------------------------------------------------
@@ -176,6 +184,10 @@ ACCOUNT_ADAPTER = "users.adapters.AccountAdapter"
 SOCIALACCOUNT_ADAPTER = "users.adapters.SocialAccountAdapter"
 SOCIALACCOUNT_STORE_TOKENS = True         # Keep OAuth tokens for API use
 SOCIALACCOUNT_AUTO_SIGNUP = True
+# GitHub `process=connect` only needs enough profile data to link the account
+# and persist the token into users.VCSAccount. Avoid a hard dependency on
+# /user/emails, which some tokens/accounts reject with 403.
+SOCIALACCOUNT_QUERY_EMAIL = False
 
 SOCIALACCOUNT_PROVIDERS = {
     "google": {
@@ -193,7 +205,9 @@ SOCIALACCOUNT_PROVIDERS = {
             "secret": env("GITHUB_SECRET", default=""),
             "key": "",
         },
-        "SCOPE": ["user:email", "read:user", "repo"],
+        # We do not query /user/emails during connect, so profile read +
+        # repository access is sufficient.
+        "SCOPE": ["read:user", "repo"],
     },
     "gitlab": {
         "APP": {

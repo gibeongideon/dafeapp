@@ -14,8 +14,9 @@ Test plan:
 
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.test import Client, RequestFactory, TestCase
+from django.test import Client, RequestFactory, SimpleTestCase, TestCase
 from django.urls import reverse
 
 from audit.models import AuditLog
@@ -141,6 +142,15 @@ class SocialSignupAdapterTests(TestCase):
 
         # Only 1 org should exist — no duplicate was created
         self.assertEqual(Organization.objects.filter(owner=existing_user).count(), 1)
+
+
+class SocialAuthSettingsTests(SimpleTestCase):
+    def test_github_connect_does_not_require_email_query(self):
+        self.assertFalse(settings.SOCIALACCOUNT_QUERY_EMAIL)
+        self.assertEqual(
+            settings.SOCIALACCOUNT_PROVIDERS["github"]["SCOPE"],
+            ["read:user", "repo"],
+        )
 
 
 class VCSAccountTests(TestCase):

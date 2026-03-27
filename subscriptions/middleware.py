@@ -7,6 +7,7 @@ from .services import SubscriptionEnforcer
 _EXEMPT_PREFIXES = (
     "/admin/",
     "/auth/",
+    "/accounts/",
     "/orgs/",
     "/api/token/",
     "/subscriptions/required/",
