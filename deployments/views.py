@@ -1,12 +1,18 @@
 import logging
 import json
-from urllib.parse import urlparse
+import shutil
+import subprocess
+import tempfile
+import zipfile
+from pathlib import Path
+from urllib.parse import quote, urlparse
 
 import requests
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.http import JsonResponse
+from django.urls import reverse
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
 from django.views import View
@@ -109,6 +115,209 @@ def _build_repo_local_path(instance: OdooInstance, repo_name: str) -> str:
     slug = "".join(ch.lower() if ch.isalnum() or ch in ("-", "_", ".") else "-" for ch in repo_name).strip("-._")
     slug = slug or f"repo-{instance.id}"
     return f"{base.rstrip('/')}/{slug}"
+
+
+def _active_github_account(*, user, account_id=None):
+    qs = VCSAccount.objects.filter(
+        user=user,
+        provider=VCSAccount.Provider.GITHUB,
+        is_active=True,
+    )
+    if account_id:
+        return get_object_or_404(qs, pk=account_id)
+    account = qs.order_by("id").first()
+    if not account:
+        raise ValueError("Connect a GitHub account first.")
+    return account
+
+
+def _ensure_github_oauth_credential(*, org, user, account):
+    credential = (
+        GitRepositoryCredential.objects.filter(
+            organization=org,
+            auth_type=GitRepositoryCredential.AuthType.GITHUB_OAUTH,
+            github_account=account,
+        )
+        .order_by("id")
+        .first()
+    )
+    if credential:
+        if credential.git_username != (account.username or credential.git_username):
+            credential.git_username = account.username or credential.git_username
+            credential.save(update_fields=["git_username", "updated_at"])
+        return credential
+
+    base_name = f"github-{account.username or account.id}"
+    name = base_name
+    suffix = 2
+    while GitRepositoryCredential.objects.filter(organization=org, name=name).exists():
+        name = f"{base_name}-{suffix}"
+        suffix += 1
+
+    return GitRepositoryCredential.objects.create(
+        organization=org,
+        name=name,
+        auth_type=GitRepositoryCredential.AuthType.GITHUB_OAUTH,
+        github_account=account,
+        git_username=account.username or "",
+        created_by=user,
+    )
+
+
+def _create_instance_repo_and_dispatch(
+    *,
+    org,
+    user,
+    instance,
+    repo_name: str,
+    git_url: str,
+    branch: str,
+    auth_type: str,
+    credential,
+    auto_update: bool = False,
+    is_enabled: bool = True,
+    display_order=None,
+):
+    repo_name = _derive_repo_name(repo_name, git_url)
+    if instance.git_repos.filter(repo_name=repo_name).exists():
+        raise ValueError("A repo with that name already exists on this instance.")
+
+    if display_order in ("", None):
+        display_order = instance.git_repos.count()
+
+    repo = OdooInstanceGitRepo.objects.create(
+        instance=instance,
+        credential=credential,
+        repo_name=repo_name,
+        git_url=git_url,
+        branch=(branch or "main").strip() or "main",
+        auth_type=auth_type,
+        local_path=_build_repo_local_path(instance, repo_name),
+        auto_update=auto_update,
+        is_enabled=is_enabled,
+        display_order=int(display_order or 0),
+        default_branch=(branch or "main").strip() or "main",
+        created_by=user,
+    )
+    job = _repo_job(
+        org,
+        job_type=DeploymentJob.JobType.CLONE_INSTANCE_REPO,
+        instance=instance,
+        user=user,
+    )
+    _dispatch(clone_instance_repo, repo.id, job.id)
+    return repo, job
+
+
+def _github_api_headers(token: str) -> dict:
+    return {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+
+def _zip_extract_root(extract_dir: Path) -> Path:
+    candidates = [path for path in extract_dir.iterdir() if path.name != "__MACOSX"]
+    if len(candidates) == 1 and candidates[0].is_dir():
+        return candidates[0]
+    return extract_dir
+
+
+def _run_local_git(args, *, cwd: Path):
+    result = subprocess.run(
+        args,
+        cwd=str(cwd),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        output = (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
+        raise RuntimeError(output.strip() or f"Git command failed: {' '.join(args)}")
+    return result
+
+
+def _cleanup_github_repo(account, full_name: str):
+    try:
+        requests.delete(
+            f"https://api.github.com/repos/{full_name}",
+            headers=_github_api_headers(account.access_token),
+            timeout=20,
+        )
+    except requests.RequestException:
+        logger.warning("GitHub cleanup skipped for %s", full_name, exc_info=True)
+
+
+def _publish_zip_to_github(*, account, user, repo_name: str, zip_file, branch: str = "main"):
+    try:
+        create_response = requests.post(
+            "https://api.github.com/user/repos",
+            headers=_github_api_headers(account.access_token),
+            json={
+                "name": repo_name,
+                "private": True,
+                "auto_init": False,
+            },
+            timeout=20,
+        )
+        create_response.raise_for_status()
+    except requests.RequestException as exc:
+        detail = ""
+        if getattr(exc, "response", None) is not None:
+            try:
+                detail = (exc.response.json() or {}).get("message", "")
+            except ValueError:
+                detail = exc.response.text
+        raise RuntimeError(detail or f"GitHub repository creation failed: {exc}") from exc
+
+    repo_data = create_response.json()
+    full_name = repo_data["full_name"]
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="dafeapp-github-upload-") as tmpdir:
+            temp_dir = Path(tmpdir)
+            archive_path = temp_dir / "upload.zip"
+            with archive_path.open("wb") as handle:
+                for chunk in zip_file.chunks():
+                    handle.write(chunk)
+
+            try:
+                with zipfile.ZipFile(archive_path) as archive:
+                    archive.extractall(temp_dir / "src")
+            except zipfile.BadZipFile as exc:
+                raise RuntimeError("The uploaded file must be a valid .zip archive.") from exc
+
+            repo_root = _zip_extract_root(temp_dir / "src")
+            if not repo_root.exists():
+                raise RuntimeError("The uploaded zip archive is empty.")
+
+            git_dir = repo_root / ".git"
+            if git_dir.exists():
+                shutil.rmtree(git_dir)
+
+            has_files = any(path.name != "__MACOSX" for path in repo_root.rglob("*"))
+            if not has_files:
+                raise RuntimeError("The uploaded zip archive does not contain any files to publish.")
+
+            branch = (branch or "main").strip() or "main"
+            remote_url = f"https://x-access-token:{quote(account.access_token, safe='')}@github.com/{full_name}.git"
+            git_author = account.username or user.get_full_name() or user.email.split("@")[0]
+            git_email = user.email or f"{git_author}@users.noreply.github.com"
+
+            _run_local_git(["git", "init", "-b", branch], cwd=repo_root)
+            _run_local_git(["git", "config", "user.name", git_author], cwd=repo_root)
+            _run_local_git(["git", "config", "user.email", git_email], cwd=repo_root)
+            _run_local_git(["git", "add", "."], cwd=repo_root)
+            _run_local_git(["git", "commit", "-m", "Initial import from DafeApp"], cwd=repo_root)
+            _run_local_git(["git", "remote", "add", "origin", remote_url], cwd=repo_root)
+            _run_local_git(["git", "push", "-u", "origin", branch], cwd=repo_root)
+    except Exception:
+        _cleanup_github_repo(account, full_name)
+        raise
+
+    repo_data["default_branch"] = repo_data.get("default_branch") or branch
+    return repo_data
 
 
 def _resolve_git_credential(*, org, user, payload, auth_type: str):
@@ -911,31 +1120,22 @@ class OdooInstanceGitRepoListAPIView(LoginRequiredMixin, View):
         except ValueError as exc:
             return JsonResponse({"error": str(exc)}, status=400)
 
-        display_order = payload.get("display_order")
-        if display_order in ("", None):
-            display_order = instance.git_repos.count()
-
-        repo = OdooInstanceGitRepo.objects.create(
-            instance=instance,
-            credential=credential,
-            repo_name=repo_name,
-            git_url=git_url,
-            branch=branch,
-            auth_type=auth_type,
-            local_path=_build_repo_local_path(instance, repo_name),
-            auto_update=str(payload.get("auto_update", "")).lower() in ("1", "true", "yes", "on"),
-            is_enabled=str(payload.get("is_enabled", "true")).lower() not in ("0", "false", "no", "off"),
-            display_order=int(display_order or 0),
-            default_branch=branch,
-            created_by=request.user,
-        )
-        job = _repo_job(
-            org,
-            job_type=DeploymentJob.JobType.CLONE_INSTANCE_REPO,
-            instance=instance,
-            user=request.user,
-        )
-        _dispatch(clone_instance_repo, repo.id, job.id)
+        try:
+            repo, job = _create_instance_repo_and_dispatch(
+                org=org,
+                user=request.user,
+                instance=instance,
+                repo_name=repo_name,
+                git_url=git_url,
+                branch=branch,
+                auth_type=auth_type,
+                credential=credential,
+                auto_update=str(payload.get("auto_update", "")).lower() in ("1", "true", "yes", "on"),
+                is_enabled=str(payload.get("is_enabled", "true")).lower() not in ("0", "false", "no", "off"),
+                display_order=payload.get("display_order"),
+            )
+        except ValueError as exc:
+            return JsonResponse({"error": str(exc)}, status=400)
         data = OdooInstanceGitRepoSerializer(repo).data
         data["job_id"] = job.id
         return JsonResponse(data, status=201)
@@ -1144,9 +1344,8 @@ class GitHubRepositoryListAPIView(LoginRequiredMixin, View):
         if not org:
             return JsonResponse({"error": "No active organization."}, status=400)
 
-        account_id = request.GET.get("github_account_id")
         credential_id = request.GET.get("credential_id")
-        token = ""
+        account = None
         if credential_id:
             credential = get_object_or_404(
                 GitRepositoryCredential,
@@ -1154,22 +1353,26 @@ class GitHubRepositoryListAPIView(LoginRequiredMixin, View):
                 organization=org,
             )
             token = credential.access_token
-        elif account_id:
-            account = get_object_or_404(
-                VCSAccount.objects.filter(user=request.user, provider=VCSAccount.Provider.GITHUB, is_active=True),
-                pk=account_id,
-            )
-            token = account.access_token
         else:
-            return JsonResponse({"error": "github_account_id or credential_id is required."}, status=400)
+            try:
+                account = _active_github_account(
+                    user=request.user,
+                    account_id=request.GET.get("github_account_id"),
+                )
+            except ValueError as exc:
+                return JsonResponse(
+                    {
+                        "error": str(exc),
+                        "connect_url": reverse("socialaccount_connections"),
+                    },
+                    status=400,
+                )
+            token = account.access_token
 
         try:
             response = requests.get(
                 "https://api.github.com/user/repos",
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "Authorization": f"Bearer {token}",
-                },
+                headers=_github_api_headers(token),
                 params={"per_page": 100, "sort": "updated"},
                 timeout=15,
             )
@@ -1199,12 +1402,10 @@ class GitHubBranchListAPIView(LoginRequiredMixin, View):
             return JsonResponse({"error": "No active organization."}, status=400)
 
         full_name = (request.GET.get("full_name") or "").strip()
-        account_id = request.GET.get("github_account_id")
         credential_id = request.GET.get("credential_id")
         if not full_name:
             return JsonResponse({"error": "full_name is required."}, status=400)
 
-        token = ""
         if credential_id:
             credential = get_object_or_404(
                 GitRepositoryCredential,
@@ -1212,22 +1413,26 @@ class GitHubBranchListAPIView(LoginRequiredMixin, View):
                 organization=org,
             )
             token = credential.access_token
-        elif account_id:
-            account = get_object_or_404(
-                VCSAccount.objects.filter(user=request.user, provider=VCSAccount.Provider.GITHUB, is_active=True),
-                pk=account_id,
-            )
-            token = account.access_token
         else:
-            return JsonResponse({"error": "github_account_id or credential_id is required."}, status=400)
+            try:
+                account = _active_github_account(
+                    user=request.user,
+                    account_id=request.GET.get("github_account_id"),
+                )
+            except ValueError as exc:
+                return JsonResponse(
+                    {
+                        "error": str(exc),
+                        "connect_url": reverse("socialaccount_connections"),
+                    },
+                    status=400,
+                )
+            token = account.access_token
 
         try:
             response = requests.get(
                 f"https://api.github.com/repos/{full_name}/branches",
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "Authorization": f"Bearer {token}",
-                },
+                headers=_github_api_headers(token),
                 params={"per_page": 100},
                 timeout=15,
             )
@@ -1244,6 +1449,79 @@ class GitHubBranchListAPIView(LoginRequiredMixin, View):
             for item in response.json()
         ]
         return JsonResponse({"results": branches})
+
+
+class OdooInstanceGitRepoUploadToGitHubAPIView(LoginRequiredMixin, View):
+    def post(self, request, instance_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if _repo_permission_denied(request):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        instance = get_object_or_404(
+            OdooInstance.objects.select_related("server"),
+            pk=instance_id,
+            organization=org,
+        )
+
+        repo_name = (request.POST.get("repo_name") or "").strip()
+        branch = (request.POST.get("branch") or "main").strip() or "main"
+        zip_file = request.FILES.get("zip_file")
+        if not repo_name:
+            return JsonResponse({"error": "repo_name is required."}, status=400)
+        if not zip_file:
+            return JsonResponse({"error": "zip_file is required."}, status=400)
+
+        try:
+            account = _active_github_account(
+                user=request.user,
+                account_id=request.POST.get("github_account_id"),
+            )
+        except ValueError as exc:
+            return JsonResponse(
+                {
+                    "error": str(exc),
+                    "connect_url": reverse("socialaccount_connections"),
+                },
+                status=400,
+            )
+
+        try:
+            repo_data = _publish_zip_to_github(
+                account=account,
+                user=request.user,
+                repo_name=repo_name,
+                zip_file=zip_file,
+                branch=branch,
+            )
+            credential = _ensure_github_oauth_credential(
+                org=org,
+                user=request.user,
+                account=account,
+            )
+            repo, job = _create_instance_repo_and_dispatch(
+                org=org,
+                user=request.user,
+                instance=instance,
+                repo_name=repo_data.get("name") or repo_name,
+                git_url=repo_data["clone_url"],
+                branch=repo_data.get("default_branch") or branch,
+                auth_type=OdooInstanceGitRepo.AuthType.GITHUB_OAUTH,
+                credential=credential,
+            )
+        except RuntimeError as exc:
+            return JsonResponse({"error": str(exc)}, status=400)
+        except ValueError as exc:
+            return JsonResponse({"error": str(exc)}, status=400)
+
+        data = OdooInstanceGitRepoSerializer(repo).data
+        data["job_id"] = job.id
+        data["github_repo"] = {
+            "full_name": repo_data.get("full_name"),
+            "html_url": repo_data.get("html_url"),
+        }
+        return JsonResponse(data, status=201)
 
 
 class OdooInstanceConsoleView(LoginRequiredMixin, TemplateView):

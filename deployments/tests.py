@@ -1,5 +1,6 @@
 import json
 from django.test import TestCase
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
 from datetime import timedelta
 
@@ -469,6 +470,89 @@ class OdooVersionedFlowTests(TestCase):
         self.assertEqual(payload["results"][0]["name"], "public-readonly")
         self.assertEqual(len(payload["github_accounts"]), 1)
         self.assertEqual(payload["github_accounts"][0]["username"], "octocat")
+
+    @patch("deployments.views.requests.get")
+    def test_github_repo_list_defaults_to_connected_account(self, mock_get):
+        VCSAccount.objects.create(
+            user=self.user,
+            provider=VCSAccount.Provider.GITHUB,
+            username="octocat",
+            encrypted_access_token="encrypted-token",
+            is_active=True,
+        )
+        mock_get.return_value.json.return_value = [
+            {
+                "id": 7,
+                "full_name": "octocat/octo-tools",
+                "name": "octo-tools",
+                "default_branch": "main",
+                "private": True,
+                "clone_url": "https://github.com/octocat/octo-tools.git",
+                "ssh_url": "git@github.com:octocat/octo-tools.git",
+            }
+        ]
+        mock_get.return_value.raise_for_status.return_value = None
+
+        resp = self.client.get(reverse("deployments:github-repo-list"))
+
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.json()
+        self.assertEqual(payload["results"][0]["full_name"], "octocat/octo-tools")
+        self.assertTrue(mock_get.called)
+
+    @patch("deployments.views._publish_zip_to_github")
+    @patch("deployments.views._dispatch")
+    def test_upload_to_github_creates_repo_and_instance_link(self, mock_dispatch, mock_publish):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-upload",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            status=OdooServer.Status.PROVISIONED,
+            ip_address="203.0.113.25",
+            created_by=self.user,
+        )
+        instance = OdooInstance.objects.create(
+            organization=self.org,
+            server=server,
+            name="marketing",
+            db_name="marketing_db",
+            status=OdooInstance.Status.RUNNING,
+            created_by=self.user,
+        )
+        vcs = VCSAccount.objects.create(
+            user=self.user,
+            provider=VCSAccount.Provider.GITHUB,
+            username="octocat",
+            encrypted_access_token="encrypted-token",
+            is_active=True,
+        )
+        mock_publish.return_value = {
+            "name": "addon-bundle",
+            "full_name": "octocat/addon-bundle",
+            "clone_url": "https://github.com/octocat/addon-bundle.git",
+            "default_branch": "main",
+            "html_url": "https://github.com/octocat/addon-bundle",
+        }
+
+        resp = self.client.post(
+            reverse("deployments:odoo-instance-repo-upload-github", kwargs={"instance_id": instance.id}),
+            data={
+                "repo_name": "addon-bundle",
+                "zip_file": SimpleUploadedFile("addon-bundle.zip", b"PK\x03\x04fake-zip"),
+            },
+        )
+
+        self.assertEqual(resp.status_code, 201)
+        repo = OdooInstanceGitRepo.objects.get(instance=instance, repo_name="addon-bundle")
+        self.assertEqual(repo.auth_type, OdooInstanceGitRepo.AuthType.GITHUB_OAUTH)
+        self.assertEqual(repo.credential.github_account_id, vcs.id)
+        self.assertEqual(repo.git_url, "https://github.com/octocat/addon-bundle.git")
+        mock_publish.assert_called_once()
+        mock_dispatch.assert_called_once()
 
     def test_infrastructure_delete_requires_force_if_servers_exist(self):
         server = OdooServer.objects.create(
