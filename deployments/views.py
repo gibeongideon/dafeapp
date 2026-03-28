@@ -238,25 +238,14 @@ def _run_local_git(args, *, cwd: Path):
     return result
 
 
-def _cleanup_github_repo(account, full_name: str):
-    try:
-        requests.delete(
-            f"https://api.github.com/repos/{full_name}",
-            headers=_github_api_headers(account.access_token),
-            timeout=20,
-        )
-    except requests.RequestException:
-        logger.warning("GitHub cleanup skipped for %s", full_name, exc_info=True)
-
-
-def _publish_zip_to_github(*, account, user, repo_name: str, zip_file, branch: str = "main"):
+def _create_github_repository(*, account, repo_name: str, private: bool = True):
     try:
         create_response = requests.post(
             "https://api.github.com/user/repos",
             headers=_github_api_headers(account.access_token),
             json={
                 "name": repo_name,
-                "private": True,
+                "private": private,
                 "auto_init": False,
             },
             timeout=20,
@@ -271,53 +260,46 @@ def _publish_zip_to_github(*, account, user, repo_name: str, zip_file, branch: s
                 detail = exc.response.text
         raise RuntimeError(detail or f"GitHub repository creation failed: {exc}") from exc
 
-    repo_data = create_response.json()
-    full_name = repo_data["full_name"]
+    return create_response.json()
 
-    try:
-        with tempfile.TemporaryDirectory(prefix="dafeapp-github-upload-") as tmpdir:
-            temp_dir = Path(tmpdir)
-            archive_path = temp_dir / "upload.zip"
-            with archive_path.open("wb") as handle:
-                for chunk in zip_file.chunks():
-                    handle.write(chunk)
+def _push_zip_to_github_repo(*, account, user, full_name: str, zip_file, branch: str = "main"):
+    with tempfile.TemporaryDirectory(prefix="dafeapp-github-upload-") as tmpdir:
+        temp_dir = Path(tmpdir)
+        archive_path = temp_dir / "upload.zip"
+        with archive_path.open("wb") as handle:
+            for chunk in zip_file.chunks():
+                handle.write(chunk)
 
-            try:
-                with zipfile.ZipFile(archive_path) as archive:
-                    archive.extractall(temp_dir / "src")
-            except zipfile.BadZipFile as exc:
-                raise RuntimeError("The uploaded file must be a valid .zip archive.") from exc
+        try:
+            with zipfile.ZipFile(archive_path) as archive:
+                archive.extractall(temp_dir / "src")
+        except zipfile.BadZipFile as exc:
+            raise RuntimeError("The uploaded file must be a valid .zip archive.") from exc
 
-            repo_root = _zip_extract_root(temp_dir / "src")
-            if not repo_root.exists():
-                raise RuntimeError("The uploaded zip archive is empty.")
+        repo_root = _zip_extract_root(temp_dir / "src")
+        if not repo_root.exists():
+            raise RuntimeError("The uploaded zip archive is empty.")
 
-            git_dir = repo_root / ".git"
-            if git_dir.exists():
-                shutil.rmtree(git_dir)
+        git_dir = repo_root / ".git"
+        if git_dir.exists():
+            shutil.rmtree(git_dir)
 
-            has_files = any(path.name != "__MACOSX" for path in repo_root.rglob("*"))
-            if not has_files:
-                raise RuntimeError("The uploaded zip archive does not contain any files to publish.")
+        has_files = any(path.name != "__MACOSX" for path in repo_root.rglob("*"))
+        if not has_files:
+            raise RuntimeError("The uploaded zip archive does not contain any files to publish.")
 
-            branch = (branch or "main").strip() or "main"
-            remote_url = f"https://x-access-token:{quote(account.access_token, safe='')}@github.com/{full_name}.git"
-            git_author = account.username or user.get_full_name() or user.email.split("@")[0]
-            git_email = user.email or f"{git_author}@users.noreply.github.com"
+        branch = (branch or "main").strip() or "main"
+        remote_url = f"https://x-access-token:{quote(account.access_token, safe='')}@github.com/{full_name}.git"
+        git_author = account.username or user.get_full_name() or user.email.split("@")[0]
+        git_email = user.email or f"{git_author}@users.noreply.github.com"
 
-            _run_local_git(["git", "init", "-b", branch], cwd=repo_root)
-            _run_local_git(["git", "config", "user.name", git_author], cwd=repo_root)
-            _run_local_git(["git", "config", "user.email", git_email], cwd=repo_root)
-            _run_local_git(["git", "add", "."], cwd=repo_root)
-            _run_local_git(["git", "commit", "-m", "Initial import from DafeApp"], cwd=repo_root)
-            _run_local_git(["git", "remote", "add", "origin", remote_url], cwd=repo_root)
-            _run_local_git(["git", "push", "-u", "origin", branch], cwd=repo_root)
-    except Exception:
-        _cleanup_github_repo(account, full_name)
-        raise
-
-    repo_data["default_branch"] = repo_data.get("default_branch") or branch
-    return repo_data
+        _run_local_git(["git", "init", "-b", branch], cwd=repo_root)
+        _run_local_git(["git", "config", "user.name", git_author], cwd=repo_root)
+        _run_local_git(["git", "config", "user.email", git_email], cwd=repo_root)
+        _run_local_git(["git", "add", "."], cwd=repo_root)
+        _run_local_git(["git", "commit", "-m", "Initial import from DafeApp"], cwd=repo_root)
+        _run_local_git(["git", "remote", "add", "origin", remote_url], cwd=repo_root)
+        _run_local_git(["git", "push", "-u", "origin", branch], cwd=repo_root)
 
 
 def _resolve_git_credential(*, org, user, payload, auth_type: str):
@@ -1451,6 +1433,57 @@ class GitHubBranchListAPIView(LoginRequiredMixin, View):
         return JsonResponse({"results": branches})
 
 
+class OdooInstanceGitRepoCreateGitHubAPIView(LoginRequiredMixin, View):
+    def post(self, request, instance_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if _repo_permission_denied(request):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        get_object_or_404(
+            OdooInstance.objects.only("id"),
+            pk=instance_id,
+            organization=org,
+        )
+
+        payload = _request_data(request)
+        repo_name = (payload.get("repo_name") or "").strip()
+        if not repo_name:
+            return JsonResponse({"error": "repo_name is required."}, status=400)
+
+        try:
+            account = _active_github_account(
+                user=request.user,
+                account_id=payload.get("github_account_id"),
+            )
+            repo_data = _create_github_repository(account=account, repo_name=repo_name)
+        except ValueError as exc:
+            return JsonResponse(
+                {
+                    "error": str(exc),
+                    "connect_url": reverse("socialaccount_connections"),
+                },
+                status=400,
+            )
+        except RuntimeError as exc:
+            return JsonResponse({"error": str(exc)}, status=400)
+
+        return JsonResponse(
+            {
+                "github_repo": {
+                    "name": repo_data.get("name"),
+                    "full_name": repo_data.get("full_name"),
+                    "clone_url": repo_data.get("clone_url"),
+                    "default_branch": repo_data.get("default_branch") or "main",
+                    "html_url": repo_data.get("html_url"),
+                    "private": repo_data.get("private", True),
+                }
+            },
+            status=201,
+        )
+
+
 class OdooInstanceGitRepoUploadToGitHubAPIView(LoginRequiredMixin, View):
     def post(self, request, instance_id):
         org = getattr(request, "organization", None)
@@ -1465,11 +1498,13 @@ class OdooInstanceGitRepoUploadToGitHubAPIView(LoginRequiredMixin, View):
             organization=org,
         )
 
-        repo_name = (request.POST.get("repo_name") or "").strip()
         branch = (request.POST.get("branch") or "main").strip() or "main"
         zip_file = request.FILES.get("zip_file")
-        if not repo_name:
-            return JsonResponse({"error": "repo_name is required."}, status=400)
+        full_name = (request.POST.get("full_name") or "").strip()
+        clone_url = (request.POST.get("clone_url") or "").strip()
+        repo_name = _derive_repo_name(request.POST.get("repo_name"), clone_url or full_name)
+        if not full_name:
+            return JsonResponse({"error": "full_name is required."}, status=400)
         if not zip_file:
             return JsonResponse({"error": "zip_file is required."}, status=400)
 
@@ -1488,10 +1523,10 @@ class OdooInstanceGitRepoUploadToGitHubAPIView(LoginRequiredMixin, View):
             )
 
         try:
-            repo_data = _publish_zip_to_github(
+            _push_zip_to_github_repo(
                 account=account,
                 user=request.user,
-                repo_name=repo_name,
+                full_name=full_name,
                 zip_file=zip_file,
                 branch=branch,
             )
@@ -1504,9 +1539,9 @@ class OdooInstanceGitRepoUploadToGitHubAPIView(LoginRequiredMixin, View):
                 org=org,
                 user=request.user,
                 instance=instance,
-                repo_name=repo_data.get("name") or repo_name,
-                git_url=repo_data["clone_url"],
-                branch=repo_data.get("default_branch") or branch,
+                repo_name=repo_name,
+                git_url=clone_url or f"https://github.com/{full_name}.git",
+                branch=branch,
                 auth_type=OdooInstanceGitRepo.AuthType.GITHUB_OAUTH,
                 credential=credential,
             )
@@ -1518,8 +1553,8 @@ class OdooInstanceGitRepoUploadToGitHubAPIView(LoginRequiredMixin, View):
         data = OdooInstanceGitRepoSerializer(repo).data
         data["job_id"] = job.id
         data["github_repo"] = {
-            "full_name": repo_data.get("full_name"),
-            "html_url": repo_data.get("html_url"),
+            "full_name": full_name,
+            "html_url": f"https://github.com/{full_name}",
         }
         return JsonResponse(data, status=201)
 
