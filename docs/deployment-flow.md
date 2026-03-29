@@ -104,6 +104,22 @@ ansible-playbook infra/ansible/create_odoo_instance.yml \
 
 The app uses the same playbooks from `deployments/tasks.py`, so these commands are the closest manual simulation of what DafeApp runs after server creation.
 
+### DNS / SSL direction
+
+Today, the project supports:
+
+- direct bare-metal access via `IP:PORT`
+- Docker domain routing via Traefik
+- bare-metal domain routing via `nginx + certbot`
+
+The intended next-step architecture is to keep direct `IP:PORT` access, but move long-term domain routing toward:
+
+- Cloudflare-managed DNS
+- Traefik for HTTPS termination and host-based routing
+- first-class domain lifecycle management inside the `dns/` app
+
+That plan is documented in [dns-ssl-implementation-plan.md](dns-ssl-implementation-plan.md).
+
 The instance playbooks now include PostgreSQL preflight checks and bootstrap logic:
 
 - `pg_lsclusters` is checked first so we can detect whether a real cluster exists.
@@ -130,9 +146,13 @@ create_odoo_instance(instance_id)
     │                Opens UFW port (http_port)
     │
     └── Domain → run: create_odoo_instance.yml
-            Creates: nginx site + SSL (certbot)
-                     /etc/odoo/<db_name>.conf
-                     systemd service
+            Current path:
+                Creates: nginx site + SSL (certbot)
+                         /etc/odoo/<db_name>.conf
+                         systemd service
+            Planned path:
+                Keep systemd + host port
+                Add Cloudflare DNS + Traefik route on top
 ```
 
 **OdooInstance status progression:**
@@ -168,6 +188,8 @@ A periodic Celery Beat task (`check_server_connectivity`) runs every **2 minutes
 | `create_odoo_instance.yml` | Instance creation with domain + nginx + SSL |
 | `create_odoo_instance_direct.yml` | Instance creation with direct IP:PORT (no nginx) |
 | `delete_odoo_instance_direct.yml` | Instance deletion and cleanup |
+
+For the planned Cloudflare + Traefik DNS/SSL rollout, see [dns-ssl-implementation-plan.md](dns-ssl-implementation-plan.md).
 
 ---
 

@@ -8,7 +8,7 @@ DafeApp is a **multi-tenant SaaS platform** for deploying and managing Odoo inst
 
 1. **Connects to infrastructure** — Users add either an external SSH server (PYOS) or a cloud account (DigitalOcean, AWS).
 2. **Provisions Odoo servers** — A full Ubuntu 24.04 server is configured via Ansible + custom install scripts.
-3. **Creates Odoo instances** — Each instance gets its own PostgreSQL database, systemd service, and optional nginx/SSL config.
+3. **Creates Odoo instances** — Each instance gets its own PostgreSQL database, systemd service, and direct `IP:PORT` access, with domain-based routing layered on where enabled.
 4. **Manages the full lifecycle** — Start, stop, delete instances; monitor connectivity; clean up resources.
 5. **Multi-org & subscriptions** — Every resource is scoped to an Organization. Subscription plans gate feature access (max instances, backups, staging, etc.).
 

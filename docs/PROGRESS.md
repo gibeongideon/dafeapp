@@ -398,12 +398,29 @@ Track of what has been built, what is in progress, and what is planned.
 > Goal: every instance gets a proper domain and auto-renewing SSL cert.
 > Test: provision an instance, verify DNS record appears and HTTPS works end-to-end.
 
+Chosen implementation direction:
+
+- Keep direct `IP:PORT` access for bare-metal instances
+- Add optional domain routing on top instead of replacing direct access
+- Use Cloudflare as the first-class managed DNS provider
+- Standardize on Traefik as the long-term HTTPS layer
+- Ship exact per-instance DNS records first, then consider wildcard support later
+
+Detailed design: see `docs/dns-ssl-implementation-plan.md`
+
 - [x] DNS scripts (DigitalOcean API + Route53)
 - [x] Traefik automatic HTTPS via Let's Encrypt (Docker mode)
+- [ ] `dns/` app implementation for first-class DNS provider accounts, zones, and records
+- [ ] Cloudflare provider integration in `dns/`
+- [ ] Domain management UI for server- and instance-level domain assignment
 - [ ] Automated DNS record creation on server / instance provision
-- [ ] Let's Encrypt certificate auto-renewal (bare-metal / nginx path)
+- [ ] Bare-metal Traefik gateway installation and route generation
+- [ ] Bare-metal instance domain routing via Traefik while preserving `IP:PORT`
+- [ ] Access URL model update: direct URL + domain URL + preferred URL
+- [ ] DNS and Traefik reconciliation task for drift repair
+- [ ] Let's Encrypt certificate auto-renewal for the chosen Traefik-based path
 - [ ] Custom certificate upload per instance
-- [ ] Domain management UI (add / remove domains per instance)
+- [ ] Optional wildcard DNS / DNS challenge rollout after exact-record path is stable
 
 ---
 
