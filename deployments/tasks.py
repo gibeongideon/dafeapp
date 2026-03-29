@@ -1795,6 +1795,9 @@ def create_odoo_instance(self, instance_id: int, job_id: int | None = None):
         _initialize_instance_addons_metadata(instance)
     else:
         instance.status = OdooInstance.Status.FAILED
+        reachable, message = _probe_server_ssh(server)
+        if not reachable:
+            _persist_server_reachability(server, reachable=False, message=message)
     instance.provisioning_log = _append_text(
         instance.provisioning_log,
         "Instance created successfully — ready." if ok else "Instance creation failed.",
@@ -1921,10 +1924,133 @@ def _odoo_server_ssh_target(server: OdooServer) -> tuple[str | None, int]:
     return None, 22
 
 
+def _probe_server_ssh(server: OdooServer, timeout: int = 15) -> tuple[bool, str]:
+    """Validate SSH reachability using ansible-playbook with a minimal gather-facts play."""
+    host, port = _odoo_server_ssh_target(server)
+    if not host:
+        return False, "No host/IP to probe — server has no SSH target yet."
+
+    ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
+    if not (ssh_key or ssh_password):
+        return False, f"No SSH credentials available for {host}:{port}."
+
+    effective_user = ssh_user or os.getenv("ANSIBLE_SSH_USER", "root").strip()
+    message = ""
+    tmp_playbook = None
+    try:
+        tmp_playbook = tempfile.NamedTemporaryFile(mode="w", suffix=".yml", delete=False)
+        tmp_playbook.write(
+            "- hosts: all\n"
+            "  gather_facts: true\n"
+            "  tasks:\n"
+            "    - name: Connectivity OK\n"
+            "      ansible.builtin.debug:\n"
+            "        msg: reachability-ok\n"
+        )
+        tmp_playbook.close()
+
+        args = [
+            "ansible-playbook",
+            tmp_playbook.name,
+            "-i",
+            f"{host},",
+            "--user",
+            effective_user,
+            "--ssh-extra-args",
+            f"-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout={timeout}",
+            "-e",
+            f"ansible_port={port}",
+        ]
+        if ssh_key:
+            args.extend(["--private-key", ssh_key])
+        if ssh_password and not ssh_key:
+            args.extend(["-e", f"ansible_ssh_pass={ssh_password}"])
+            args.extend(["-e", f"ansible_password={ssh_password}"])
+
+        code, out, err = _run_cmd(
+            args,
+            Path(settings.BASE_DIR),
+            extra_env={"ANSIBLE_HOST_KEY_CHECKING": "False"},
+        )
+        log_blob = _append_text(out.strip(), err.strip())
+        if code == 0:
+            return True, f"SSH validation succeeded for {host}:{port}."
+        message = _extract_ansible_unreachable_message(log_blob)
+        if not message:
+            non_empty = [line.strip() for line in log_blob.splitlines() if line.strip()]
+            message = non_empty[-1] if non_empty else f"SSH validation failed for {host}:{port}."
+        return False, message
+    except FileNotFoundError:
+        return False, "Ansible command not found for reachability check."
+    except Exception as exc:
+        return False, f"SSH validation failed for {host}:{port}: {exc}"
+    finally:
+        if tmp_key:
+            with suppress(OSError):
+                os.unlink(tmp_key)
+        if tmp_playbook:
+            with suppress(OSError):
+                os.unlink(tmp_playbook.name)
+
+
+def _persist_server_reachability(
+    server: OdooServer,
+    *,
+    reachable: bool,
+    message: str = "",
+    checked_at=None,
+    broadcast: bool = True,
+):
+    now = checked_at or timezone.now()
+    server.is_reachable = reachable
+    server.last_checked_at = now
+    server.save(update_fields=["is_reachable", "last_checked_at", "updated_at"])
+
+    infra = getattr(server, "infrastructure", None)
+    if infra and infra.infra_type == Infrastructure.InfraType.PYOS and infra.external_server:
+        ext = infra.external_server
+        ext.is_reachable = reachable
+        ext.last_checked_at = now
+        ext.is_verified = reachable
+        ext.verification_error = "" if reachable else message
+        ext.last_verified_at = now
+        ext.save(
+            update_fields=[
+                "is_reachable",
+                "last_checked_at",
+                "is_verified",
+                "verification_error",
+                "last_verified_at",
+            ]
+        )
+
+    if broadcast:
+        _broadcast_server_snapshot(server)
+
+
+def _extract_ansible_unreachable_message(log_blob: str) -> str:
+    for raw_line in reversed((log_blob or "").splitlines()):
+        line = raw_line.strip()
+        lowered = line.lower()
+        if not line:
+            continue
+        if "unreachable!" in lowered or "failed to connect to the host via ssh" in lowered:
+            return line
+    return ""
+
+
+def _mark_server_unreachable_from_ansible_log(server: OdooServer, log_blob: str) -> bool:
+    message = _extract_ansible_unreachable_message(log_blob)
+    if not message:
+        return False
+    _persist_server_reachability(server, reachable=False, message=message)
+    return True
+
+
 @shared_task
 def check_server_connectivity():
     """
-    Periodic task: TCP-probe every active OdooServer and ExternalServer.
+    Periodic task: SSH-validate every active OdooServer and ExternalServer.
     Updates is_reachable + last_checked_at without touching other fields.
     """
     from cloud.models import ExternalServer
@@ -1943,41 +2069,41 @@ def check_server_connectivity():
         host, port = _odoo_server_ssh_target(server)
         if not host:
             continue
-        infra = getattr(server, "infrastructure", None)
-        if infra and infra.infra_type == Infrastructure.InfraType.PYOS and infra.external_server:
-            reachable = _tcp_reachable(host, port)
-            message = f"Host unreachable for {host}:{port}." if not reachable else f"Port reachable at {host}:{port}."
-            ext = infra.external_server
-            ext.is_verified = reachable
-            ext.verification_error = "" if reachable else message
-            ext.last_verified_at = now
-            ext.save(update_fields=["is_verified", "verification_error", "last_verified_at"])
-        else:
-            reachable = _tcp_reachable(host, port)
-        server.is_reachable = reachable
-        server.last_checked_at = now
-        update_fields = ["is_reachable", "last_checked_at"]
+        reachable, message = _probe_server_ssh(server)
         if server.ip_address != host:
             server.ip_address = host
-            update_fields.append("ip_address")
-        server.save(update_fields=update_fields)
-        _broadcast_server_snapshot(server)
+            server.save(update_fields=["ip_address", "updated_at"])
+        _persist_server_reachability(server, reachable=reachable, message=message, checked_at=now)
         logger.info(
-            "Reachability check: server %s (%s:%s) is %s",
+            "Reachability check: server %s (%s:%s) is %s (%s)",
             server.id,
             host,
             port,
             "connected" if reachable else "disconnected",
+            message,
         )
 
-    # --- ExternalServer: probe the configured SSH port ---
+    # --- ExternalServer: validate SSH using the same PYOS connection path ---
     ext_servers = ExternalServer.objects.filter(host__isnull=False)
 
     for ext in ext_servers:
-        reachable = _tcp_reachable(str(ext.host), ext.port or 22)
+        from cloud.pyos import PyOSService
+
+        reachable, message = PyOSService(ext).validate()
         ext.is_reachable = reachable
         ext.last_checked_at = now
-        ext.save(update_fields=["is_reachable", "last_checked_at"])
+        ext.is_verified = reachable
+        ext.verification_error = "" if reachable else message
+        ext.last_verified_at = now
+        ext.save(
+            update_fields=[
+                "is_reachable",
+                "last_checked_at",
+                "is_verified",
+                "verification_error",
+                "last_verified_at",
+            ]
+        )
     logger.info("Periodic reachability sweep finished.")
 
 
@@ -2775,6 +2901,9 @@ def _run_docker_instance_create(instance: OdooInstance, server: OdooServer, job_
         _initialize_instance_addons_metadata(instance)
     else:
         instance.status = OdooInstance.Status.FAILED
+        reachable, message = _probe_server_ssh(server)
+        if not reachable:
+            _persist_server_reachability(server, reachable=False, message=message)
     instance.provisioning_log = _append_text(
         instance.provisioning_log,
         "Docker instance created successfully — ready." if ok else "Docker instance creation failed.",

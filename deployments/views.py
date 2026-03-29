@@ -875,9 +875,8 @@ class OdooServerCheckConnectivityView(LoginRequiredMixin, View):
 
     def post(self, request, server_id):
         from django.utils import timezone
-        import socket
 
-        from deployments.tasks import _tcp_reachable
+        from deployments.tasks import _odoo_server_ssh_target, _persist_server_reachability, _probe_server_ssh
 
         org = getattr(request, "organization", None)
         if not org:
@@ -891,47 +890,14 @@ class OdooServerCheckConnectivityView(LoginRequiredMixin, View):
         )
         logger.info("Manual reachability check requested by %s for server %s", request.user, server.id)
 
-        infra = server.infrastructure
-        if infra and infra.infra_type == Infrastructure.InfraType.PYOS and infra.external_server:
-            ext = infra.external_server
-            host = str(ext.host)
-            port = ext.port or 22
-            reachable = _tcp_reachable(host, port)
-            message = f"Port reachable at {host}:{port}." if reachable else f"Host unreachable for {host}:{port}."
-            ext.is_verified = reachable
-            ext.verification_error = "" if reachable else message
-            ext.last_verified_at = timezone.now()
-            ext.save(update_fields=["is_verified", "verification_error", "last_verified_at"])
-        elif server.ip_address:
-            host = str(server.ip_address)
-            port = 22
-            reachable = False
-            message = ""
-            try:
-                with socket.create_connection((host, port), timeout=5):
-                    reachable = True
-            except OSError as exc:
-                message = str(exc)
-        else:
-            host = ""
-            port = 22
-            reachable = False
-            message = "No host/IP to probe — server has no IP yet."
+        host, port = _odoo_server_ssh_target(server)
+        reachable, message = _probe_server_ssh(server)
 
         now = timezone.now()
-        server.is_reachable = reachable
-        server.last_checked_at = now
-        update_fields = ["is_reachable", "last_checked_at"]
         if host and server.ip_address != host:
             server.ip_address = host
-            update_fields.append("ip_address")
-        server.save(update_fields=update_fields)
-        if infra and infra.infra_type == Infrastructure.InfraType.PYOS and infra.external_server:
-            ext.is_reachable = reachable
-            ext.last_checked_at = now
-            ext.save(update_fields=["is_reachable", "last_checked_at"])
-
-        _broadcast_server_snapshot(server)
+            server.save(update_fields=["ip_address", "updated_at"])
+        _persist_server_reachability(server, reachable=reachable, message=message, checked_at=now)
 
         payload = {
             "is_reachable": reachable,

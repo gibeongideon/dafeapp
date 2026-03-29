@@ -62,45 +62,48 @@ class OdooServerSerializer(serializers.ModelSerializer):
             return getattr(infra, "external_server", None)
         return None
 
+    def _reachability_snapshot(self, obj):
+        ext = self._pyos_ext(obj)
+        checked_at = obj.last_checked_at
+        reachable = obj.is_reachable
+        error = ""
+
+        if ext:
+            error = ext.verification_error or ""
+            if checked_at is None and ext.last_checked_at:
+                checked_at = ext.last_checked_at
+                reachable = ext.is_reachable
+            elif checked_at is None and ext.last_verified_at:
+                checked_at = ext.last_verified_at
+                reachable = ext.is_verified
+
+        return reachable, checked_at, error
+
     def get_ssh_connection_status(self, obj):
         if obj.status == OdooServer.Status.ARCHIVED:
             return "unknown"
-        ext = self._pyos_ext(obj)
-        if ext:
-            if obj.status in (OdooServer.Status.PROVISIONING, OdooServer.Status.CONFIGURING) and ext.last_verified_at is None:
-                return "checking"
-            if ext.last_verified_at is None and not ext.is_verified:
-                return "unknown"
-            return "connected" if ext.is_verified else "disconnected"
-        if obj.status in (OdooServer.Status.PROVISIONING, OdooServer.Status.CONFIGURING) and obj.last_checked_at is None:
+        reachable, checked_at, _ = self._reachability_snapshot(obj)
+        if obj.status in (OdooServer.Status.PROVISIONING, OdooServer.Status.CONFIGURING) and checked_at is None:
             return "checking"
-        if obj.last_checked_at is None:
+        if checked_at is None:
             return "unknown"
-        return "connected" if obj.is_reachable else "disconnected"
+        return "connected" if reachable else "disconnected"
 
     def get_ssh_connection_message(self, obj):
         if obj.status == OdooServer.Status.ARCHIVED:
             return "Server is archived."
-        ext = self._pyos_ext(obj)
-        if ext:
-            if obj.status in (OdooServer.Status.PROVISIONING, OdooServer.Status.CONFIGURING) and ext.last_verified_at is None:
-                return "Reachability is being verified..."
-            if ext.is_verified:
-                return "Reachability successful."
-            if ext.verification_error:
-                return ext.verification_error
-            return "Reachability has not been verified yet."
-        if obj.status in (OdooServer.Status.PROVISIONING, OdooServer.Status.CONFIGURING) and obj.last_checked_at is None:
+        reachable, checked_at, error = self._reachability_snapshot(obj)
+        if obj.status in (OdooServer.Status.PROVISIONING, OdooServer.Status.CONFIGURING) and checked_at is None:
             return "Reachability is being verified..."
-        if obj.last_checked_at is None:
+        if checked_at is None:
             return "Reachability has not been checked yet."
-        return "Reachability successful." if obj.is_reachable else "Reachability failed."
+        if reachable:
+            return "Reachability successful."
+        return error or "Reachability failed."
 
     def get_ssh_last_checked_at(self, obj):
-        ext = self._pyos_ext(obj)
-        if ext and ext.last_verified_at:
-            return ext.last_verified_at
-        return obj.last_checked_at
+        _, checked_at, _ = self._reachability_snapshot(obj)
+        return checked_at
 
     def get_instance_count(self, obj):
         return obj.instances.exclude(status=OdooInstance.Status.DELETED).count()

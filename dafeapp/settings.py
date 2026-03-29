@@ -154,7 +154,7 @@ CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 CELERY_BEAT_SCHEDULE = {
     "check-server-connectivity": {
         "task": "deployments.tasks.check_server_connectivity",
-        "schedule": 120.0,  # every 2 minutes
+        "schedule": 60.0,  # every 1 minute
     },
     "check-instance-health": {
         "task": "deployments.tasks.check_instance_health",

@@ -8,7 +8,7 @@ from django.contrib.auth import get_user_model
 from django.urls import reverse
 from unittest.mock import AsyncMock, patch
 
-from cloud.models import CloudAccount
+from cloud.models import CloudAccount, ExternalServer
 from deployments.models import (
     DeploymentJob,
     GitRepositoryCredential,
@@ -21,7 +21,7 @@ from deployments.models import (
 )
 from organizations.models import Organization, OrganizationMembership
 from subscriptions.models import Plan, Subscription
-from deployments.tasks import delete_odoo_instance
+from deployments.tasks import delete_odoo_instance, _mark_server_unreachable_from_ansible_log
 from users.models import VCSAccount
 
 User = get_user_model()
@@ -251,6 +251,238 @@ class OdooVersionedFlowTests(TestCase):
         self.assertContains(resp, "Setting")
         self.assertContains(resp, "Installation Summary")
         self.assertContains(resp, "Server IP")
+
+    def test_all_instances_view_hides_instance_summary_and_extra_header_copy(self):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-list",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            ip_address="203.0.113.30",
+            status=OdooServer.Status.PROVISIONED,
+            created_by=self.user,
+        )
+        OdooInstance.objects.create(
+            organization=self.org,
+            server=server,
+            name="inventory",
+            db_name="inventory_db",
+            http_port=8070,
+            status=OdooInstance.Status.RUNNING,
+            installation_summary_text="Server IP     : 203.0.113.30\nAccess       : http://203.0.113.30:8070",
+            created_by=self.user,
+        )
+
+        resp = self.client.get(reverse("deployments_ui:create-instance"), {"section": "instances"})
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "All instances")
+        self.assertContains(resp, "1 total")
+        self.assertNotContains(resp, "Organization-wide instance view")
+        self.assertNotContains(resp, "Pick a server from the sidebar to filter this page down to one server.")
+        self.assertNotContains(resp, "Back to Servers")
+        self.assertNotContains(resp, "Installation Summary")
+        self.assertNotContains(resp, "Server IP     : 203.0.113.30")
+
+    def test_server_list_reports_pyos_server_as_disconnected_after_latest_failed_check(self):
+        external_server = ExternalServer.objects.create(
+            organization=self.org,
+            name="ssh-box",
+            host="203.0.113.40",
+            port=22,
+            username="root",
+            auth_type=ExternalServer.AuthType.DAFEAPP_KEY,
+            is_verified=True,
+            last_verified_at=timezone.now() - timedelta(hours=1),
+            verification_error="",
+        )
+        pyos_infra = Infrastructure.objects.create(
+            organization=self.org,
+            name="ssh-box",
+            infra_type=Infrastructure.InfraType.PYOS,
+            external_server=external_server,
+            is_connected=True,
+            created_by=self.user,
+        )
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=pyos_infra,
+            name="odoo19-pyos",
+            odoo_version="19",
+            region="manual",
+            size="manual",
+            ip_address="203.0.113.40",
+            status=OdooServer.Status.PROVISIONED,
+            is_reachable=False,
+            last_checked_at=timezone.now(),
+            created_by=self.user,
+        )
+
+        resp = self.client.get(reverse("deployments:odoo-server-list"))
+
+        self.assertEqual(resp.status_code, 200)
+        server_data = next(row for row in resp.json()["results"] if row["id"] == server.id)
+        self.assertEqual(server_data["ssh_connection_status"], "disconnected")
+        self.assertEqual(server_data["ssh_connection_message"], "Reachability failed.")
+
+    def test_instance_list_relays_disconnected_parent_server_state(self):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-down",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            ip_address="203.0.113.41",
+            status=OdooServer.Status.PROVISIONED,
+            is_reachable=False,
+            last_checked_at=timezone.now(),
+            created_by=self.user,
+        )
+        instance = OdooInstance.objects.create(
+            organization=self.org,
+            server=server,
+            name="crm",
+            db_name="crm_db",
+            http_port=8071,
+            status=OdooInstance.Status.RUNNING,
+            created_by=self.user,
+        )
+
+        resp = self.client.get(reverse("deployments:odoo-instance-list"))
+
+        self.assertEqual(resp.status_code, 200)
+        instance_data = next(row for row in resp.json()["results"] if row["id"] == instance.id)
+        self.assertEqual(instance_data["status"], OdooInstance.Status.RUNNING)
+        self.assertEqual(instance_data["server"]["ssh_connection_status"], "disconnected")
+
+    @patch("deployments.tasks._probe_server_ssh")
+    def test_manual_connectivity_check_marks_server_disconnected_when_ssh_validation_fails(self, mock_probe):
+        mock_probe.return_value = (False, "SSH validation failed for 203.0.113.42:22: timed out")
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-check",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            ip_address="203.0.113.42",
+            status=OdooServer.Status.PROVISIONED,
+            is_reachable=True,
+            created_by=self.user,
+        )
+
+        resp = self.client.post(
+            reverse("deployments:odoo-server-check", kwargs={"server_id": server.id}),
+            data={},
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["connectivity_status"], "disconnected")
+        self.assertEqual(resp.json()["message"], "SSH validation failed for 203.0.113.42:22: timed out")
+        server.refresh_from_db()
+        self.assertFalse(server.is_reachable)
+        self.assertIsNotNone(server.last_checked_at)
+        mock_probe.assert_called_once()
+
+    @patch("deployments.tasks._probe_server_ssh")
+    def test_manual_connectivity_check_updates_pyos_external_server_state(self, mock_probe):
+        mock_probe.return_value = (False, "Host unreachable for root@203.0.113.43:22: timed out")
+        external_server = ExternalServer.objects.create(
+            organization=self.org,
+            name="pyos-check",
+            host="203.0.113.43",
+            port=22,
+            username="root",
+            auth_type=ExternalServer.AuthType.DAFEAPP_KEY,
+            is_verified=True,
+        )
+        pyos_infra = Infrastructure.objects.create(
+            organization=self.org,
+            name="pyos-check",
+            infra_type=Infrastructure.InfraType.PYOS,
+            external_server=external_server,
+            is_connected=True,
+            created_by=self.user,
+        )
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=pyos_infra,
+            name="odoo19-pyos-check",
+            odoo_version="19",
+            region="manual",
+            size="manual",
+            ip_address="203.0.113.43",
+            status=OdooServer.Status.PROVISIONED,
+            is_reachable=True,
+            created_by=self.user,
+        )
+
+        resp = self.client.post(
+            reverse("deployments:odoo-server-check", kwargs={"server_id": server.id}),
+            data={},
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        server.refresh_from_db()
+        external_server.refresh_from_db()
+        self.assertFalse(server.is_reachable)
+        self.assertFalse(external_server.is_reachable)
+        self.assertFalse(external_server.is_verified)
+        self.assertEqual(
+            external_server.verification_error,
+            "Host unreachable for root@203.0.113.43:22: timed out",
+        )
+
+    def test_ansible_unreachable_log_marks_server_and_external_server_disconnected(self):
+        external_server = ExternalServer.objects.create(
+            organization=self.org,
+            name="pyos-ansible",
+            host="203.0.113.44",
+            port=22,
+            username="root",
+            auth_type=ExternalServer.AuthType.DAFEAPP_KEY,
+            is_verified=True,
+            is_reachable=True,
+        )
+        pyos_infra = Infrastructure.objects.create(
+            organization=self.org,
+            name="pyos-ansible",
+            infra_type=Infrastructure.InfraType.PYOS,
+            external_server=external_server,
+            is_connected=True,
+            created_by=self.user,
+        )
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=pyos_infra,
+            name="odoo19-pyos-ansible",
+            odoo_version="19",
+            region="manual",
+            size="manual",
+            ip_address="203.0.113.44",
+            status=OdooServer.Status.PROVISIONED,
+            is_reachable=True,
+            created_by=self.user,
+        )
+
+        changed = _mark_server_unreachable_from_ansible_log(
+            server,
+            'fatal: [203.0.113.44]: UNREACHABLE! => {"changed": false, "msg": "Failed to connect to the host via ssh: ssh: connect to host 203.0.113.44 port 22: Connection timed out", "unreachable": true}',
+        )
+
+        self.assertTrue(changed)
+        server.refresh_from_db()
+        external_server.refresh_from_db()
+        self.assertFalse(server.is_reachable)
+        self.assertFalse(external_server.is_reachable)
+        self.assertFalse(external_server.is_verified)
+        self.assertIn("UNREACHABLE!", external_server.verification_error)
 
     def test_instance_repo_list_api_returns_instance_repos(self):
         server = OdooServer.objects.create(

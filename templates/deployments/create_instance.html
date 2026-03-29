@@ -79,33 +79,29 @@
             {{ selected_server.get_status_display }}
           </span>
           <span id="server-conn-badge-{{ selected_server.id }}" class="px-1.5 py-0.5 rounded text-[10px] font-medium
-            {% if selected_server.infrastructure and selected_server.infrastructure.infra_type == 'PYOS' and selected_server.infrastructure.external_server %}
-              {% if selected_server.status == 'PROVISIONING' or selected_server.status == 'CONFIGURING' %}
-                {% if selected_server.infrastructure.external_server.last_verified_at %}
-                  {% if selected_server.infrastructure.external_server.is_verified %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}
-                {% else %}bg-yellow-50 text-yellow-600{% endif %}
-              {% elif selected_server.infrastructure.external_server.last_verified_at %}
+            {% if selected_server.status == 'PROVISIONING' or selected_server.status == 'CONFIGURING' %}
+              {% if selected_server.last_checked_at %}
+                {% if selected_server.is_reachable %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}
+              {% elif selected_server.infrastructure and selected_server.infrastructure.infra_type == 'PYOS' and selected_server.infrastructure.external_server and selected_server.infrastructure.external_server.last_verified_at %}
                 {% if selected_server.infrastructure.external_server.is_verified %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}
-              {% else %}bg-gray-50 text-gray-400{% endif %}
-            {% else %}
-              {% if selected_server.status == 'PROVISIONING' or selected_server.status == 'CONFIGURING' %}
-                {% if selected_server.last_checked_at %}{% if selected_server.is_reachable %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}{% else %}bg-yellow-50 text-yellow-600{% endif %}
-              {% elif selected_server.last_checked_at %}{% if selected_server.is_reachable %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}{% else %}bg-gray-50 text-gray-400{% endif %}
-            {% endif %}">
+              {% else %}bg-yellow-50 text-yellow-600{% endif %}
+            {% elif selected_server.last_checked_at %}
+              {% if selected_server.is_reachable %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}
+            {% elif selected_server.infrastructure and selected_server.infrastructure.infra_type == 'PYOS' and selected_server.infrastructure.external_server and selected_server.infrastructure.external_server.last_verified_at %}
+              {% if selected_server.infrastructure.external_server.is_verified %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}
+            {% else %}bg-gray-50 text-gray-400{% endif %}">
             Reachability:
-            {% if selected_server.infrastructure and selected_server.infrastructure.infra_type == 'PYOS' and selected_server.infrastructure.external_server %}
-              {% if selected_server.status == 'PROVISIONING' or selected_server.status == 'CONFIGURING' %}
-                {% if selected_server.infrastructure.external_server.last_verified_at %}
-                  {% if selected_server.infrastructure.external_server.is_verified %}Connected{% else %}Disconnected{% endif %}
-                {% else %}Checking…{% endif %}
-              {% elif selected_server.infrastructure.external_server.last_verified_at %}
+            {% if selected_server.status == 'PROVISIONING' or selected_server.status == 'CONFIGURING' %}
+              {% if selected_server.last_checked_at %}
+                {% if selected_server.is_reachable %}Connected{% else %}Disconnected{% endif %}
+              {% elif selected_server.infrastructure and selected_server.infrastructure.infra_type == 'PYOS' and selected_server.infrastructure.external_server and selected_server.infrastructure.external_server.last_verified_at %}
                 {% if selected_server.infrastructure.external_server.is_verified %}Connected{% else %}Disconnected{% endif %}
-              {% else %}Unknown{% endif %}
-            {% else %}
-              {% if selected_server.status == 'PROVISIONING' or selected_server.status == 'CONFIGURING' %}
-                {% if selected_server.last_checked_at %}{% if selected_server.is_reachable %}Connected{% else %}Disconnected{% endif %}{% else %}Checking…{% endif %}
-              {% elif selected_server.last_checked_at %}{% if selected_server.is_reachable %}Connected{% else %}Disconnected{% endif %}{% else %}Unknown{% endif %}
-            {% endif %}
+              {% else %}Checking…{% endif %}
+            {% elif selected_server.last_checked_at %}
+              {% if selected_server.is_reachable %}Connected{% else %}Disconnected{% endif %}
+            {% elif selected_server.infrastructure and selected_server.infrastructure.infra_type == 'PYOS' and selected_server.infrastructure.external_server and selected_server.infrastructure.external_server.last_verified_at %}
+              {% if selected_server.infrastructure.external_server.is_verified %}Connected{% else %}Disconnected{% endif %}
+            {% else %}Unknown{% endif %}
           </span>
         </div>
         <p class="mt-2 text-sm font-medium text-gray-900">{{ selected_server.name }}</p>
@@ -121,26 +117,9 @@
     </div>
   </div>
   {% elif show_instances_view %}
-  <div class="bg-white border border-gray-200 rounded-2xl p-4 lg:p-5 shadow-sm">
-    <div class="flex items-start justify-between gap-4">
-      <div class="min-w-0">
-        <p class="text-xs uppercase tracking-wide text-gray-400">All instances</p>
-        <h3 class="mt-2 text-base font-semibold text-gray-900">Organization-wide instance view</h3>
-        <p class="mt-1 text-sm text-gray-500">
-          Pick a server from the sidebar to filter this page down to one server.
-        </p>
-      </div>
-      <div class="text-right">
-        <p class="text-[11px] uppercase tracking-wide text-gray-400">Total instances</p>
-        <p class="text-xl font-semibold text-gray-900">{{ odoo_instances|length }}</p>
-      </div>
-    </div>
-    <div class="mt-4 flex flex-wrap gap-2">
-      <a href="{% url 'deployments:create-instance' %}?section=servers"
-         class="inline-flex items-center justify-center rounded-2xl bg-white border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-colors">
-        Back to Servers
-      </a>
-    </div>
+  <div class="flex items-center justify-between gap-3">
+    <p class="text-sm font-semibold text-gray-900">All instances</p>
+    <p class="text-xs text-gray-400">{{ odoo_instances|length }} total</p>
   </div>
   {% endif %}
 
@@ -193,18 +172,20 @@
         <div class="flex flex-col items-end gap-1">
           <span class="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide text-gray-400">
             <span id="instance-dot-{{ oi.id }}" class="inline-block w-2 h-2 rounded-full
-              {% if oi.status == 'RUNNING' %}bg-green-500
+              {% if oi.server.last_checked_at and not oi.server.is_reachable and oi.status != 'FAILED' and oi.status != 'DELETED' %}bg-red-500
+              {% elif oi.status == 'RUNNING' %}bg-green-500
               {% elif oi.status == 'FAILED' %}bg-red-500
               {% elif oi.status == 'CONFIGURING' %}bg-yellow-500 animate-pulse
               {% elif oi.status == 'DELETED' %}bg-gray-300
               {% else %}bg-gray-300{% endif %}"></span>
             <span id="instance-badge-{{ oi.id }}" class="px-2 py-1 rounded-full text-[11px] font-medium
-              {% if oi.status == 'RUNNING' %}bg-green-100 text-green-700
+              {% if oi.server.last_checked_at and not oi.server.is_reachable and oi.status != 'FAILED' and oi.status != 'DELETED' %}bg-red-100 text-red-700
+              {% elif oi.status == 'RUNNING' %}bg-green-100 text-green-700
               {% elif oi.status == 'FAILED' %}bg-red-100 text-red-700
               {% elif oi.status == 'CONFIGURING' %}bg-yellow-100 text-yellow-700 animate-pulse
               {% elif oi.status == 'DELETED' %}bg-gray-100 text-gray-400
               {% else %}bg-gray-100 text-gray-600{% endif %}">
-              {{ oi.get_status_display }}
+              {% if oi.server.last_checked_at and not oi.server.is_reachable and oi.status != 'FAILED' and oi.status != 'DELETED' %}Disconnected{% else %}{{ oi.get_status_display }}{% endif %}
             </span>
           </span>
         </div>
@@ -253,12 +234,6 @@
             <span class="text-gray-800">{% if oi.created_by %}{% if oi.created_by.get_full_name %}{{ oi.created_by.get_full_name }}{% else %}{{ oi.created_by.username }}{% endif %}{% else %}—{% endif %}</span>
           </div>
         </div>
-        {% if oi.installation_summary_text %}
-        <div class="mt-3">
-          <p class="text-[10px] uppercase tracking-wide text-gray-400 mb-1">Instance Installation Summary</p>
-          <pre class="text-[11px] font-mono text-gray-700 bg-white border border-gray-100 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap">{{ oi.installation_summary_text }}</pre>
-        </div>
-        {% endif %}
       </details>
       </article>
       {% empty %}
@@ -329,6 +304,7 @@
               Odoo {{ s.odoo_version }} · {{ s.region }} · {{ s.size }}
               {% endif %}
             </p>
+            <p id="server-top-ip-{{ s.id }}" class="mt-1 text-[11px] font-mono text-gray-500">{{ s.ip_address|default:"pending" }}</p>
             <div class="mt-1 flex items-center gap-2 text-[11px] text-gray-500">
               <span class="inline-flex items-center gap-1">
                 <span class="text-gray-400">Specs</span>
@@ -365,35 +341,37 @@
             </span>
           </div>
           <span id="server-conn-badge-{{ s.id }}" class="px-1.5 py-0.5 rounded text-[10px] font-medium
-            {% if s.infrastructure and s.infrastructure.infra_type == 'PYOS' and s.infrastructure.external_server %}
-              {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
-                {% if s.infrastructure.external_server.last_verified_at %}
-                  {% if s.infrastructure.external_server.is_verified %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}
-                {% else %}bg-yellow-50 text-yellow-600{% endif %}
-              {% elif s.infrastructure.external_server.last_verified_at %}
+            {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
+              {% if s.last_checked_at %}
+                {% if s.is_reachable %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}
+              {% elif s.infrastructure and s.infrastructure.infra_type == 'PYOS' and s.infrastructure.external_server and s.infrastructure.external_server.last_verified_at %}
                 {% if s.infrastructure.external_server.is_verified %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}
-              {% else %}bg-gray-50 text-gray-400{% endif %}
-            {% else %}
-              {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
-                {% if s.last_checked_at %}{% if s.is_reachable %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}{% else %}bg-yellow-50 text-yellow-600{% endif %}
-              {% elif s.last_checked_at %}{% if s.is_reachable %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}{% else %}bg-gray-50 text-gray-400{% endif %}
-            {% endif %}">
-            {% if s.infrastructure and s.infrastructure.infra_type == 'PYOS' and s.infrastructure.external_server %}
-              {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
-                {% if s.infrastructure.external_server.last_verified_at %}
-                  {% if s.infrastructure.external_server.is_verified %}Reachability: Connected{% else %}Reachability: Disconnected{% endif %}
-                {% else %}Reachability: Checking…{% endif %}
-              {% elif s.infrastructure.external_server.last_verified_at %}
+              {% else %}bg-yellow-50 text-yellow-600{% endif %}
+            {% elif s.last_checked_at %}
+              {% if s.is_reachable %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}
+            {% elif s.infrastructure and s.infrastructure.infra_type == 'PYOS' and s.infrastructure.external_server and s.infrastructure.external_server.last_verified_at %}
+              {% if s.infrastructure.external_server.is_verified %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}
+            {% else %}bg-gray-50 text-gray-400{% endif %}">
+            {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
+              {% if s.last_checked_at %}
+                {% if s.is_reachable %}Reachability: Connected{% else %}Reachability: Disconnected{% endif %}
+              {% elif s.infrastructure and s.infrastructure.infra_type == 'PYOS' and s.infrastructure.external_server and s.infrastructure.external_server.last_verified_at %}
                 {% if s.infrastructure.external_server.is_verified %}Reachability: Connected{% else %}Reachability: Disconnected{% endif %}
-              {% else %}Reachability: Unknown{% endif %}
-            {% else %}
-              {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
-                {% if s.last_checked_at %}{% if s.is_reachable %}Reachability: Connected{% else %}Reachability: Disconnected{% endif %}{% else %}Reachability: Checking…{% endif %}
-              {% elif s.last_checked_at %}{% if s.is_reachable %}Reachability: Connected{% else %}Reachability: Disconnected{% endif %}{% else %}Reachability: Unknown{% endif %}
-            {% endif %}
+              {% else %}Reachability: Checking…{% endif %}
+            {% elif s.last_checked_at %}
+              {% if s.is_reachable %}Reachability: Connected{% else %}Reachability: Disconnected{% endif %}
+            {% elif s.infrastructure and s.infrastructure.infra_type == 'PYOS' and s.infrastructure.external_server and s.infrastructure.external_server.last_verified_at %}
+              {% if s.infrastructure.external_server.is_verified %}Reachability: Connected{% else %}Reachability: Disconnected{% endif %}
+            {% else %}Reachability: Unknown{% endif %}
           </span>
           <span id="server-conn-msg-{{ s.id }}" class="text-[10px] text-gray-400 max-w-[11rem] text-right leading-tight">
-            {% if s.infrastructure and s.infrastructure.infra_type == 'PYOS' and s.infrastructure.external_server %}
+            {% if s.last_checked_at %}
+              {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
+                {% if s.is_reachable %}Reachability successful.{% else %}Reachability failed.{% endif %}
+              {% else %}
+                {% if s.is_reachable %}Reachability successful.{% else %}Reachability failed.{% endif %}
+              {% endif %}
+            {% elif s.infrastructure and s.infrastructure.infra_type == 'PYOS' and s.infrastructure.external_server %}
               {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
                 {% if s.infrastructure.external_server.last_verified_at %}
                   {% if s.infrastructure.external_server.verification_error %}
@@ -412,12 +390,6 @@
               Reachability successful.
               {% else %}
               Reachability has not been verified yet.
-              {% endif %}
-            {% elif s.last_checked_at %}
-              {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
-                {% if s.is_reachable %}Reachability successful.{% else %}Reachability failed.{% endif %}
-              {% else %}
-                {% if s.is_reachable %}Reachability successful.{% else %}Reachability failed.{% endif %}
               {% endif %}
             {% else %}
               {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
@@ -603,12 +575,13 @@
           </td>
           <td class="px-5 py-3">
             <span id="instance-badge-{{ oi.id }}" class="px-2 py-0.5 rounded text-[11px] font-medium
-              {% if oi.status == 'RUNNING' %}bg-green-100 text-green-700
+              {% if oi.server.last_checked_at and not oi.server.is_reachable and oi.status != 'FAILED' and oi.status != 'DELETED' %}bg-red-100 text-red-700
+              {% elif oi.status == 'RUNNING' %}bg-green-100 text-green-700
               {% elif oi.status == 'FAILED' %}bg-red-100 text-red-700
               {% elif oi.status == 'CONFIGURING' %}bg-yellow-100 text-yellow-700 animate-pulse
               {% elif oi.status == 'DELETED' %}bg-gray-100 text-gray-400
               {% else %}bg-gray-100 text-gray-600{% endif %}">
-              {{ oi.get_status_display }}
+              {% if oi.server.last_checked_at and not oi.server.is_reachable and oi.status != 'FAILED' and oi.status != 'DELETED' %}Disconnected{% else %}{{ oi.get_status_display }}{% endif %}
             </span>
           </td>
           <td class="px-5 py-3 text-right">
@@ -637,12 +610,6 @@
           </td>
         </tr>
         {% endif %}
-        <tr id="instance-summary-row-{{ oi.id }}" class="border-0 {% if not oi.installation_summary_text %}hidden{% endif %}">
-          <td colspan="6" class="px-5 pb-3 pt-0 bg-gray-50/60">
-            <p class="text-[10px] uppercase tracking-wide text-gray-400 mb-1">Installation Summary</p>
-            <pre id="instance-summary-text-{{ oi.id }}" class="text-[11px] font-mono text-gray-700 bg-white border border-gray-100 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap">{{ oi.installation_summary_text }}</pre>
-          </td>
-        </tr>
         {% empty %}
         <tr id="instance-empty-row"><td colspan="6" class="px-5 py-6 text-sm text-gray-400 text-center">No Odoo instances yet. Create a server first, then add instances.</td></tr>
         {% endfor %}
@@ -1087,6 +1054,10 @@
     return server.ssh_connection_message || "";
   }
 
+  function serverConnectivityStatus(server) {
+    return ((server && server.ssh_connection_status) || "").toLowerCase();
+  }
+
   function extractProgressLines(text, limit = 4) {
     if (!text) return [];
     return String(text)
@@ -1104,6 +1075,13 @@
       '"': "&quot;",
       "'": "&#39;",
     }[ch]));
+  }
+
+  function allById(id) {
+    if (window.CSS && typeof window.CSS.escape === "function") {
+      return Array.from(document.querySelectorAll(`#${CSS.escape(id)}`));
+    }
+    return Array.from(document.querySelectorAll(`[id="${String(id).replace(/"/g, '\\"')}"]`));
   }
 
   function setGridMode(targetId, mode) {
@@ -1189,17 +1167,30 @@
     return value.charAt(0) + value.slice(1).toLowerCase();
   }
 
-  function updateInstanceSummaryFromApi(instance) {
-    const iid = instance.id;
-    const wrap = document.getElementById(`instance-summary-row-${iid}`);
-    const pre = document.getElementById(`instance-summary-text-${iid}`);
-    if (!wrap || !pre) return;
-    if (instance.installation_summary_text) {
-      pre.textContent = instance.installation_summary_text;
-      wrap.classList.remove("hidden");
-    } else {
-      wrap.classList.add("hidden");
+  function instanceDotClass(status) {
+    const value = (status || "").trim().toUpperCase();
+    if (value === "RUNNING") return "bg-green-500";
+    if (value === "FAILED") return "bg-red-500";
+    if (value === "CONFIGURING") return "bg-yellow-500 animate-pulse";
+    if (value === "DELETED") return "bg-gray-300";
+    return "bg-gray-300";
+  }
+
+  function instancePresentation(instance) {
+    const rawStatus = (instance.status || "").trim().toUpperCase();
+    const serverStatus = serverConnectivityStatus(instance.server);
+    if (serverStatus === "disconnected" && rawStatus !== "FAILED" && rawStatus !== "DELETED") {
+      return {
+        label: "Disconnected",
+        className: "px-2 py-0.5 rounded text-[11px] font-medium bg-red-100 text-red-700",
+        dotClass: "bg-red-500",
+      };
     }
+    return {
+      label: instanceBadgeLabel(instance.status),
+      className: instanceBadgeClass(instance.status),
+      dotClass: instanceDotClass(instance.status),
+    };
   }
 
   function resolveInstanceStorage(instance) {
@@ -1211,15 +1202,7 @@
     const iid = instance.id;
     const server = instance.server || {};
     const status = (instance.status || "").toUpperCase();
-    const statusLabel = instanceBadgeLabel(instance.status);
-    const statusClass = instanceBadgeClass(instance.status);
-    const dotClass = status === "RUNNING"
-      ? "bg-green-500"
-      : status === "FAILED"
-        ? "bg-red-500"
-        : status === "CONFIGURING"
-          ? "bg-yellow-500 animate-pulse"
-          : "bg-gray-300";
+    const presentation = instancePresentation(instance);
     const domainText = instance.domain || "No domain yet";
     const domainClass = instance.domain ? "text-indigo-600" : "text-gray-400";
     const envText = server.deployment_mode === "DOCKER" ? "Docker" : "Bare-metal";
@@ -1239,12 +1222,6 @@
           ? `<a href="${escapeHtml(accessUrl)}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 font-mono text-blue-600 hover:text-blue-800 hover:underline">${escapeHtml(accessUrl)}</a>`
           : `<span class="text-gray-400">Access pending</span>`);
     const progressLines = extractProgressLines(instance.provisioning_log, 3);
-    const summaryText = instance.installation_summary_text || "";
-    const summaryHtml = summaryText ? `
-      <div class="mt-3">
-        <p class="text-[10px] uppercase tracking-wide text-gray-400 mb-1">Instance Installation Summary</p>
-        <pre class="text-[11px] font-mono text-gray-700 bg-white border border-gray-100 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap">${escapeHtml(summaryText)}</pre>
-      </div>` : "";
     const progressHtml = (status === "CONFIGURING" && progressLines.length) ? `
       <div class="mt-3 rounded-lg bg-amber-50 border border-amber-100 px-3 py-2">
         <p class="text-[10px] uppercase tracking-wide text-amber-500 mb-1">Live Progress</p>
@@ -1262,13 +1239,13 @@
             <p id="instance-domain-${iid}" class="mt-1 text-sm font-medium ${domainClass} truncate">${escapeHtml(domainText)}</p>
             <div class="mt-1 text-[11px]">${accessHtml}</div>
           </div>
-          <div class="flex flex-col items-end gap-1">
-            <span class="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide text-gray-400">
-              <span id="instance-dot-${iid}" class="inline-block w-2 h-2 rounded-full ${dotClass}"></span>
-              <span id="instance-badge-${iid}" class="${statusClass}">${statusLabel}</span>
-            </span>
-          </div>
+        <div class="flex flex-col items-end gap-1">
+          <span class="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide text-gray-400">
+            <span id="instance-dot-${iid}" class="inline-block w-2 h-2 rounded-full ${presentation.dotClass}"></span>
+            <span id="instance-badge-${iid}" class="${presentation.className}">${presentation.label}</span>
+          </span>
         </div>
+      </div>
         ${status === "CONFIGURING" ? `
           <p class="mt-3 text-[10px] text-amber-500">This step may take 5–15 minutes.</p>
         ` : ""}
@@ -1288,7 +1265,6 @@
             <div class="flex items-center justify-between gap-3"><span class="text-gray-400">Environment</span><span class="text-gray-800">${envText}</span></div>
             <div class="flex items-center justify-between gap-3"><span class="text-gray-400">Owner</span><span class="text-gray-800">${owner}</span></div>
           </div>
-          ${summaryHtml}
         </details>
       </article>`;
   }
@@ -1310,20 +1286,24 @@
 
   function updateInstanceProgressFromApi(instance) {
     const iid = instance.id;
-    updateInstanceSummaryFromApi(instance);
     const row = document.getElementById(`instance-progress-row-${iid}`);
     const ul = document.getElementById(`instance-progress-${iid}`);
     const note = document.getElementById(`instance-progress-note-${iid}`);
     const badge = document.getElementById(`instance-badge-${iid}`);
+    const dot = document.getElementById(`instance-dot-${iid}`);
 
     const status = (instance.status || "").toUpperCase();
     const isLive = status === "CONFIGURING";
     const lines = extractProgressLines(instance.provisioning_log, 4);
     const logText = instance.provisioning_log || "";
+    const presentation = instancePresentation(instance);
 
     if (badge) {
-      badge.textContent = instanceBadgeLabel(instance.status);
-      badge.className = instanceBadgeClass(instance.status);
+      badge.textContent = presentation.label;
+      badge.className = presentation.className;
+    }
+    if (dot) {
+      dot.className = `inline-block w-2 h-2 rounded-full ${presentation.dotClass}`;
     }
     if (note) {
       if (isLive) note.classList.remove("hidden");
@@ -1352,10 +1332,6 @@
     });
     document.querySelectorAll("#instance-tbody tr[id^='instance-progress-row-']").forEach((row) => {
       const iid = row.id.replace("instance-progress-row-", "");
-      if (!seenIds.has(iid)) row.remove();
-    });
-    document.querySelectorAll("#instance-tbody tr[id^='instance-summary-row-']").forEach((row) => {
-      const iid = row.id.replace("instance-summary-row-", "");
       if (!seenIds.has(iid)) row.remove();
     });
     const remaining = document.querySelectorAll("#instance-tbody tr[id^='instance-row-']").length;
@@ -1441,12 +1417,12 @@
       removeServerCard(sid);
       return;
     }
-    const statusBadge = document.getElementById(`server-badge-${sid}`);
+    const statusBadges = allById(`server-badge-${sid}`);
     const busyIcon = document.getElementById(`server-busy-${sid}`);
-    const connBadge = document.getElementById(`server-conn-badge-${sid}`);
-    const connMsg = document.getElementById(`server-conn-msg-${sid}`);
-    const topIp = document.getElementById(`server-top-ip-${sid}`);
-    const topInstances = document.getElementById(`server-top-instances-${sid}`);
+    const connBadges = allById(`server-conn-badge-${sid}`);
+    const connMsgs = allById(`server-conn-msg-${sid}`);
+    const topIps = allById(`server-top-ip-${sid}`);
+    const topInstancesEls = allById(`server-top-instances-${sid}`);
     const detailsWrap = document.getElementById(`server-details-${sid}`);
     const toggleBtn = document.querySelector(`.toggle-server-details[data-server-id="${sid}"]`);
     const ipEl = document.getElementById(`server-ip-${sid}`);
@@ -1459,10 +1435,10 @@
     const progressNote = document.getElementById(`server-progress-note-${sid}`);
     const instanceBtn = document.querySelector(`.open-server-instances-btn[data-server-id="${sid}"]`);
     const isBusy = isBusyStatus(server.status);
-    if (statusBadge) {
+    statusBadges.forEach((statusBadge) => {
       statusBadge.textContent = serverBadgeLabel(server.status);
       statusBadge.className = serverBadgeClass(server.status);
-    }
+    });
     if (busyIcon) {
       if (isBusy) {
         busyIcon.className = "inline-flex items-center justify-center w-4 h-4 text-yellow-500";
@@ -1473,7 +1449,7 @@
       }
     }
     const sshPending = pendingServerChecks.has(String(sid));
-    if (connBadge) {
+    connBadges.forEach((connBadge) => {
       if (sshPending) {
         connBadge.textContent = "Reachability: Checking…";
         connBadge.className = "px-1.5 py-0.5 rounded text-[10px] font-medium bg-yellow-50 text-yellow-600";
@@ -1483,8 +1459,8 @@
         connBadge.className = connBadgeClass(server);
         connBadge.title = connMessageLabel(server);
       }
-    }
-    if (connMsg) {
+    });
+    connMsgs.forEach((connMsg) => {
       if (sshPending) {
         connMsg.textContent = "Reachability is being verified...";
         connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-yellow-600";
@@ -1496,13 +1472,13 @@
           ? `text-[10px] max-w-[11rem] text-right leading-tight ${sshStatus === "connected" ? "text-green-500" : sshStatus === "checking" ? "text-yellow-600" : "text-red-500"}`
           : "text-[10px] max-w-[11rem] text-right leading-tight text-gray-400";
       }
-    }
+    });
     if (ipEl) {
       ipEl.textContent = server.ip_address || "—";
     }
-    if (topIp) {
+    topIps.forEach((topIp) => {
       topIp.textContent = server.ip_address || "pending";
-    }
+    });
     if (routingEl) {
       routingEl.textContent = "Domain → HTTPS (Traefik)";
     }
@@ -1514,10 +1490,10 @@
       const maxInstances = server.max_instances || 0;
       instancesEl.textContent = used === null ? `${maxInstances ? "—" : "0"}/${maxInstances || "—"}` : `${used}/${maxInstances}`;
     }
-    if (topInstances) {
+    topInstancesEls.forEach((topInstances) => {
       const used = typeof server.instance_count === "number" ? server.instance_count : 0;
       topInstances.textContent = `${used}/${server.max_instances || "—"}`;
-    }
+    });
     if (exampleAccessEl) {
       const mode = (server.deployment_mode || "").toUpperCase();
       if (mode === "DOCKER") {
@@ -1580,6 +1556,86 @@
 
   const pendingServerChecks = new Set();
   const pendingServerCheckTimeouts = new Map();
+
+  function visibleServerIds() {
+    const ids = new Set();
+    document.querySelectorAll("[id^='server-badge-']").forEach((el) => {
+      const sid = el.id.replace("server-badge-", "");
+      if (sid) ids.add(sid);
+    });
+    return [...ids];
+  }
+
+  async function triggerConnectivityCheck(serverId, { updateInstances = true } = {}) {
+    const sid = String(serverId || "");
+    if (!sid || pendingServerChecks.has(sid)) return null;
+    pendingServerChecks.add(sid);
+
+    const connBadges = allById(`server-conn-badge-${sid}`);
+    const connBadgeBase = "px-1.5 py-0.5 rounded text-[10px] font-medium";
+    connBadges.forEach((connBadge) => {
+      connBadge.textContent = "Reachability: Checking…";
+      connBadge.className = `${connBadgeBase} bg-yellow-50 text-yellow-600`;
+      connBadge.title = "Checking connection…";
+    });
+    const connMsgs = allById(`server-conn-msg-${sid}`);
+    connMsgs.forEach((connMsg) => {
+      connMsg.textContent = "Reachability is being verified...";
+      connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-yellow-600";
+    });
+
+    const resp = await postForm(`/api/deployments/odoo/servers/${sid}/check/`, {});
+    const existingTimeout = pendingServerCheckTimeouts.get(sid);
+    if (existingTimeout) clearTimeout(existingTimeout);
+    pendingServerCheckTimeouts.set(sid, setTimeout(() => {
+      pendingServerChecks.delete(sid);
+      pendingServerCheckTimeouts.delete(sid);
+      refreshServerCards();
+      if (updateInstances) refreshInstanceRows();
+    }, 1800));
+
+    if (!resp.ok) {
+      const errorText = resp.data.message || resp.data.error || "Reachability: Error";
+      connBadges.forEach((connBadge) => {
+        connBadge.textContent = "Reachability: Checking…";
+        connBadge.className = `${connBadgeBase} bg-yellow-50 text-yellow-600`;
+        connBadge.title = errorText;
+      });
+      connMsgs.forEach((connMsg) => {
+        connMsg.textContent = "Reachability is being verified...";
+        connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-yellow-600";
+        connMsg.title = errorText;
+      });
+    }
+    if (resp.ok) {
+      const connected = !!resp.data.is_reachable;
+      connBadges.forEach((connBadge) => {
+        connBadge.textContent = connected ? "Reachability: Connected" : "Reachability: Disconnected";
+        connBadge.className = `${connBadgeBase} ${connected ? "bg-green-50 text-green-600" : "bg-red-50 text-red-600"}`;
+        connBadge.title = resp.data.message || "";
+      });
+      connMsgs.forEach((connMsg) => {
+        connMsg.textContent = resp.data.message || (connected ? "Reachability successful." : "Reachability failed.");
+        connMsg.className = `text-[10px] max-w-[11rem] text-right leading-tight ${connected ? "text-green-500" : "text-red-500"}`;
+        connMsg.title = resp.data.message || "";
+      });
+      if (updateInstances) {
+        setTimeout(refreshInstanceRows, 200);
+      }
+    }
+
+    return resp;
+  }
+
+  async function autoCheckVisibleServers() {
+    const ids = visibleServerIds();
+    if (!ids.length) return;
+    await Promise.all(ids.map((sid) => triggerConnectivityCheck(sid, { updateInstances: false })));
+    setTimeout(() => {
+      refreshServerCards();
+      refreshInstanceRows();
+    }, 900);
+  }
 
   function connectServerProgress(serverId, ul) {
     const ws = new WebSocket(`${wsBase}/ws/deployments/servers/${serverId}/`);
@@ -1677,12 +1733,6 @@
           badge.textContent = isFailed ? "Failed" : "Running";
           badge.className = `px-2 py-0.5 rounded text-[11px] font-medium ${isFailed ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"}`;
         }
-        if (data.summary && data.summary.installation_summary_text) {
-          updateInstanceSummaryFromApi({
-            id: instanceId,
-            installation_summary_text: data.summary.installation_summary_text,
-          });
-        }
         setTimeout(refreshInstanceRows, 800);
         addStepTo(ul, '<button onclick="location.reload()" class="text-blue-600 underline">Reload page</button>', false);
         ws.close();
@@ -1722,6 +1772,7 @@
           <div>
             <p class="text-sm font-semibold text-gray-900">${name}</p>
             <p class="text-[11px] text-gray-500">${subtitle}</p>
+            <p id="server-top-ip-${sid}" class="mt-1 text-[11px] font-mono text-gray-500">${server.ip_address || "pending"}</p>
             <div class="mt-1 flex items-center gap-2 text-[11px] text-gray-500">
               <span class="inline-flex items-center gap-1">
                 <span class="text-gray-400">Specs</span>
@@ -1858,10 +1909,6 @@
   (function(){ const ul = document.getElementById("instance-progress-{{ oi.id }}"); if (ul) connectInstanceProgress({{ oi.id }}, ul); })();
   {% endif %}{% endfor %}
 
-  refreshServerCards();
-  setInterval(refreshServerCards, 120000);
-  refreshInstanceRows();
-
   // ─── state ───────────────────────────────────────────────────────────────
   let mode = null;          // "cloud" | "pyos"
   let selectedAccountId = "";
@@ -1869,6 +1916,13 @@
   let selectedServerIp = "";
   let selectedServerMinPort = 8069;
   let selectedServerMode = "BARE_METAL"; // "BARE_METAL" | "DOCKER"
+
+  refreshServerCards();
+  autoCheckVisibleServers();
+  setInterval(refreshServerCards, 60000);
+  setInterval(autoCheckVisibleServers, 60000);
+  refreshInstanceRows();
+  setInterval(refreshInstanceRows, 60000);
 
   const infrastructures = [
     {% for infra in infrastructures %}
@@ -2258,16 +2312,7 @@
         <p id="instance-progress-note-${iid}" class="text-[10px] text-amber-500 mb-1">This step may take 5–15 minutes.</p>
         <ul id="instance-progress-${iid}" class="space-y-1"></ul>
       </td>`;
-    const newSummaryRow = document.createElement("tr");
-    newSummaryRow.id = `instance-summary-row-${iid}`;
-    newSummaryRow.className = "border-0 hidden";
-    newSummaryRow.innerHTML = `
-      <td colspan="6" class="px-5 pb-3 pt-0 bg-gray-50/60">
-        <p class="text-[10px] uppercase tracking-wide text-gray-400 mb-1">Instance Installation Summary</p>
-        <pre id="instance-summary-text-${iid}" class="text-[11px] font-mono text-gray-700 bg-white border border-gray-100 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap"></pre>
-      </td>`;
     tbody.prepend(newProgressRow);
-    tbody.prepend(newSummaryRow);
     tbody.prepend(newRow);
     connectInstanceProgress(iid, document.getElementById(`instance-progress-${iid}`));
     setTimeout(refreshInstanceRows, 1200);
@@ -2304,40 +2349,10 @@
     const btn = e.target.closest(".check-connectivity-btn");
     if (!btn) return;
     const sid = btn.dataset.serverId;
-    pendingServerChecks.add(String(sid));
-    const connBadge = document.getElementById(`server-conn-badge-${sid}`);
-    const connBadgeBase = "px-1.5 py-0.5 rounded text-[10px] font-medium";
-    if (connBadge) { connBadge.textContent = "Reachability: Checking…"; connBadge.className = `${connBadgeBase} bg-yellow-50 text-yellow-600`; connBadge.title = "Checking connection…"; }
-    const connMsg = document.getElementById(`server-conn-msg-${sid}`);
-    if (connMsg) {
-      connMsg.textContent = "Reachability is being verified...";
-      connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-yellow-600";
-    }
     btn.disabled = true;
-
-    const resp = await postForm(`/api/deployments/odoo/servers/${sid}/check/`, {});
+    const resp = await triggerConnectivityCheck(sid);
     btn.disabled = false;
-
-    if (!resp.ok) {
-      const errorText = resp.data.message || resp.data.error || "Reachability: Error";
-      if (connBadge) { connBadge.textContent = "Reachability: Checking…"; connBadge.className = `${connBadgeBase} bg-yellow-50 text-yellow-600`; connBadge.title = errorText; }
-      if (connMsg) { connMsg.textContent = "Reachability is being verified..."; connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-yellow-600"; connMsg.title = errorText; }
-      const existingTimeout = pendingServerCheckTimeouts.get(String(sid));
-      if (existingTimeout) clearTimeout(existingTimeout);
-      pendingServerCheckTimeouts.set(String(sid), setTimeout(() => {
-        pendingServerChecks.delete(String(sid));
-        pendingServerCheckTimeouts.delete(String(sid));
-        refreshServerCards();
-      }, 1800));
-      return;
-    }
-    const existingTimeout = pendingServerCheckTimeouts.get(String(sid));
-    if (existingTimeout) clearTimeout(existingTimeout);
-    pendingServerCheckTimeouts.set(String(sid), setTimeout(() => {
-      pendingServerChecks.delete(String(sid));
-      pendingServerCheckTimeouts.delete(String(sid));
-      refreshServerCards();
-    }, 1800));
+    if (!resp || !resp.ok) return;
 
     // Update + Instance button if server is PROVISIONED
     const serverBadge = document.getElementById(`server-badge-${sid}`);
@@ -2346,6 +2361,7 @@
     if (instanceBtn && isProvisioned) {
       const enabledCls = "open-server-instances-btn flex-1 inline-flex items-center justify-center px-3 py-2 text-xs font-medium rounded-lg transition-colors text-white bg-gray-900 hover:bg-gray-700";
       const disabledCls = "open-server-instances-btn flex-1 inline-flex items-center justify-center px-3 py-2 text-xs font-medium rounded-lg transition-colors text-gray-400 bg-gray-100 cursor-not-allowed";
+      const reachable = !!resp.data.is_reachable;
       instanceBtn.disabled = !reachable;
       instanceBtn.className = reachable ? enabledCls : disabledCls;
     }
