@@ -164,7 +164,18 @@ CELERY_BEAT_SCHEDULE = {
         "task": "deployments.tasks.auto_sync_instance_repos",
         "schedule": 600.0,  # every 10 minutes
     },
+    "reconcile-instance-domains": {
+        "task": "deployments.tasks.reconcile_instance_domains",
+        "schedule": 300.0,  # every 5 minutes
+    },
 }
+
+TRAEFIK_DYNAMIC_CONFIG_DIR = env("TRAEFIK_DYNAMIC_CONFIG_DIR", default="/etc/traefik/dynamic")
+TRAEFIK_ACME_STORAGE = env("TRAEFIK_ACME_STORAGE", default="/var/lib/traefik/acme.json")
+TRAEFIK_ACME_EMAIL = env("TRAEFIK_ACME_EMAIL", default=env("ODOO_ADMIN_EMAIL", default="odoo@example.com"))
+TRAEFIK_LOG_LEVEL = env("TRAEFIK_LOG_LEVEL", default="INFO")
+TRAEFIK_VERSION = env("TRAEFIK_VERSION", default="3.1.2")
+TRAEFIK_DEFAULT_TLS_MODE = env("TRAEFIK_DEFAULT_TLS_MODE", default="LETS_ENCRYPT")
 
 # ---------------------------------------------------------------------------
 # Authentication Backends

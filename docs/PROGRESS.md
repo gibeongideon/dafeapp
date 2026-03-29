@@ -146,7 +146,7 @@ Track of what has been built, what is in progress, and what is planned.
 - [x] Deployment create view (UI wizard)
 - [x] Cloud account options API (regions, sizes)
 - [x] Server/instance cards show deployment mode badge (Docker / Bare-metal)
-- [x] Create Instance modal: domain field for Docker, port field for bare-metal
+- [x] Create Instance modal: domain field for Docker and optional domain + port flow for bare-metal
 - [x] Create Server modal: deployment mode selector (Bare-metal / Docker radio cards)
 - [x] Instance console: Deployment Mode card, Container vs Port field, HTTPS link for Docker
 
@@ -184,8 +184,11 @@ Track of what has been built, what is in progress, and what is planned.
 ### DNS
 
 - [x] DNS script (DO + Route53)
-- [ ] `dns/` app implementation
-- [ ] Automated DNS record creation on server provision
+- [x] `dns/` app foundation (provider accounts, zones, records, domain assignments)
+- [x] Cloudflare provider integration
+- [x] Automated DNS record creation for managed instance domains
+- [x] Bare-metal Traefik gateway and per-instance route generation
+- [x] DNS / Traefik reconciliation task
 
 ### Backups
 
@@ -210,7 +213,7 @@ Track of what has been built, what is in progress, and what is planned.
 
 ## Last Updated
 
-2026-03-28 (Git Addon Manager roadmap + phase 1 foundation)
+2026-03-29 (DNS / SSL backend, Cloudflare integration, Traefik bare-metal routing, reconciliation)
 
 ---
 
@@ -410,17 +413,24 @@ Detailed design: see `docs/dns-ssl-implementation-plan.md`
 
 - [x] DNS scripts (DigitalOcean API + Route53)
 - [x] Traefik automatic HTTPS via Let's Encrypt (Docker mode)
-- [ ] `dns/` app implementation for first-class DNS provider accounts, zones, and records
-- [ ] Cloudflare provider integration in `dns/`
+- [x] `dns/` app implementation for first-class DNS provider accounts, zones, records, and domain assignments
+- [x] Cloudflare provider integration in `dns/`
+- [x] Server and instance domain lifecycle API endpoints (attach / detach / retry)
 - [ ] Domain management UI for server- and instance-level domain assignment
-- [ ] Automated DNS record creation on server / instance provision
-- [ ] Bare-metal Traefik gateway installation and route generation
-- [ ] Bare-metal instance domain routing via Traefik while preserving `IP:PORT`
-- [ ] Access URL model update: direct URL + domain URL + preferred URL
-- [ ] DNS and Traefik reconciliation task for drift repair
-- [ ] Let's Encrypt certificate auto-renewal for the chosen Traefik-based path
+- [x] Automated DNS record creation on managed instance provision
+- [x] Bare-metal Traefik gateway installation and route generation
+- [x] Bare-metal instance domain routing via Traefik while preserving `IP:PORT`
+- [x] Access URL model update: direct URL + domain URL + preferred URL
+- [x] DNS and Traefik reconciliation task for drift repair
+- [x] Let's Encrypt certificate auto-renewal for the Traefik-based path
 - [ ] Custom certificate upload per instance
 - [ ] Optional wildcard DNS / DNS challenge rollout after exact-record path is stable
+
+Current status:
+
+- Backend DNS lifecycle is implemented for Cloudflare-managed zones
+- Bare-metal domain routing now overlays Traefik on top of the existing direct `IP:PORT` runtime
+- Remaining work is mainly broader UI polish, custom certificates, and later wildcard / DNS-challenge support
 
 ---
 

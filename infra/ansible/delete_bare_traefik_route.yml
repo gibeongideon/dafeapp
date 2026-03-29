@@ -1,0 +1,18 @@
+---
+- name: Remove one Traefik dynamic route file for a bare-metal Odoo instance
+  hosts: all
+  become: true
+
+  vars:
+    route_file: "{{ route_file | default('') }}"
+
+  tasks:
+    - name: Remove Traefik route file
+      file:
+        path: "{{ route_file }}"
+        state: absent
+
+    - name: Ensure Traefik is running after route removal
+      systemd:
+        name: traefik
+        state: started

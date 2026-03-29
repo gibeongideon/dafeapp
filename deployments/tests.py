@@ -9,6 +9,7 @@ from django.urls import reverse
 from unittest.mock import AsyncMock, patch
 
 from cloud.models import CloudAccount, ExternalServer
+from dns.models import DomainAssignment, DnsProviderAccount, DnsZone
 from deployments.models import (
     DeploymentJob,
     GitRepositoryCredential,
@@ -19,6 +20,7 @@ from deployments.models import (
     OdooServer,
     TerraformRun,
 )
+from deployments.serializers import OdooInstanceSerializer
 from organizations.models import Organization, OrganizationMembership
 from subscriptions.models import Plan, Subscription
 from deployments.tasks import delete_odoo_instance, _mark_server_unreachable_from_ansible_log
@@ -939,3 +941,206 @@ class OdooVersionedFlowTests(TestCase):
             f"odoo.server.{server_id}",
             {"type": "server.update", "payload": {"type": "removed", "server_id": server_id, "reason": "deleted"}},
         )
+
+
+class DnsSslDeploymentFlowTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(email="dns-ssl@test.com", password="pass")
+        cls.org = Organization.objects.create(name="DNS SSL Org", owner=cls.user)
+        OrganizationMembership.objects.create(
+            user=cls.user,
+            organization=cls.org,
+            role=OrganizationMembership.Role.SUPER_ADMIN,
+        )
+        cls.plan = Plan.objects.create(
+            name="Pro",
+            plan_type=Plan.PlanType.GROWTH,
+            price_monthly="99.00",
+            max_instances=10,
+            max_backups_per_month=30,
+            staging_enabled=True,
+            version_upgrade_enabled=True,
+            is_active=True,
+        )
+        Subscription.objects.update_or_create(
+            organization=cls.org,
+            defaults={
+                "plan": cls.plan,
+                "status": Subscription.Status.ACTIVE,
+                "current_period_start": timezone.now(),
+                "current_period_end": timezone.now() + timedelta(days=365),
+            },
+        )
+        cls.account = CloudAccount.objects.create(
+            organization=cls.org,
+            provider=CloudAccount.Provider.DIGITALOCEAN,
+            name="DO Account",
+            encrypted_api_token="dummy",
+            is_verified=True,
+        )
+        cls.infrastructure = Infrastructure.objects.create(
+            organization=cls.org,
+            name="Managed Infra",
+            infra_type=Infrastructure.InfraType.MANAGED,
+            cloud_account=cls.account,
+            is_connected=True,
+        )
+        cls.dns_account = DnsProviderAccount.objects.create(
+            organization=cls.org,
+            name="Cloudflare",
+            provider=DnsProviderAccount.Provider.CLOUDFLARE,
+            created_by=cls.user,
+        )
+        cls.zone = DnsZone.objects.create(
+            organization=cls.org,
+            provider_account=cls.dns_account,
+            name="example.com",
+            provider_zone_id="zone-123",
+        )
+
+    def setUp(self):
+        self.client.force_login(self.user)
+        session = self.client.session
+        session["current_org_id"] = self.org.id
+        session.save()
+
+    @patch("deployments.views._dispatch")
+    def test_create_server_accepts_managed_dns_fields(self, mock_dispatch):
+        response = self.client.post(
+            reverse("deployments:odoo-server-create"),
+            data={
+                "name": "dns-enabled",
+                "infrastructure_id": self.infrastructure.id,
+                "odoo_version": "19",
+                "region": "nyc3",
+                "size": "s-2vcpu-4gb",
+                "managed_dns_enabled": "true",
+                "managed_dns_zone_id": self.zone.id,
+                "domain_routing_enabled": "true",
+                "tls_mode": OdooServer.TLSMode.LETS_ENCRYPT,
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        server = OdooServer.objects.get(name="dns-enabled")
+        self.assertTrue(server.managed_dns_enabled)
+        self.assertTrue(server.domain_routing_enabled)
+        self.assertEqual(server.managed_dns_zone_id, self.zone.id)
+        self.assertEqual(server.dns_domain, "example.com")
+        mock_dispatch.assert_called_once()
+
+    @patch("deployments.views._dispatch")
+    def test_create_instance_reserves_domain_assignment(self, mock_dispatch):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            managed_dns_enabled=True,
+            managed_dns_zone=self.zone,
+            domain_routing_enabled=True,
+            tls_mode=OdooServer.TLSMode.LETS_ENCRYPT,
+            name="routing-host",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            ip_address="203.0.113.50",
+            status=OdooServer.Status.PROVISIONED,
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            reverse("deployments:odoo-instance-create"),
+            data={
+                "server_id": server.id,
+                "name": "crm",
+                "db_name": "crm_db",
+                "domain": "crm.example.com",
+                "http_port": 8072,
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        instance = OdooInstance.objects.get(server=server, db_name="crm_db")
+        assignment = DomainAssignment.objects.get(instance=instance, status=DomainAssignment.Status.PENDING)
+        self.assertEqual(instance.domain_status, OdooInstance.DomainStatus.PENDING)
+        self.assertEqual(instance.ssl_status, OdooInstance.SSLStatus.PENDING)
+        self.assertEqual(assignment.zone_id, self.zone.id)
+        self.assertEqual(assignment.domain, "crm.example.com")
+        mock_dispatch.assert_called_once()
+
+    @patch("deployments.views._dispatch")
+    def test_domain_attach_and_detach_endpoints_queue_tasks(self, mock_dispatch):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            domain_routing_enabled=True,
+            tls_mode=OdooServer.TLSMode.LETS_ENCRYPT,
+            name="attach-host",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            ip_address="203.0.113.60",
+            status=OdooServer.Status.PROVISIONED,
+            created_by=self.user,
+        )
+        instance = OdooInstance.objects.create(
+            organization=self.org,
+            server=server,
+            name="inventory",
+            db_name="inventory_db",
+            http_port=8075,
+            status=OdooInstance.Status.RUNNING,
+            created_by=self.user,
+        )
+
+        attach_response = self.client.post(
+            reverse("deployments:odoo-instance-domain-attach", kwargs={"instance_id": instance.id}),
+            data={"domain": "inventory.example.com"},
+        )
+        self.assertEqual(attach_response.status_code, 200)
+        instance.refresh_from_db()
+        self.assertEqual(instance.domain, "inventory.example.com")
+        self.assertEqual(instance.domain_status, OdooInstance.DomainStatus.PENDING)
+        self.assertTrue(DomainAssignment.objects.filter(instance=instance, domain="inventory.example.com").exists())
+
+        detach_response = self.client.post(
+            reverse("deployments:odoo-instance-domain-detach", kwargs={"instance_id": instance.id}),
+            data={},
+        )
+        self.assertEqual(detach_response.status_code, 200)
+        self.assertEqual(mock_dispatch.call_count, 2)
+
+    def test_instance_serializer_exposes_preferred_domain_url(self):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            domain_routing_enabled=True,
+            tls_mode=OdooServer.TLSMode.LETS_ENCRYPT,
+            name="serializer-host",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            ip_address="203.0.113.70",
+            status=OdooServer.Status.PROVISIONED,
+            created_by=self.user,
+        )
+        instance = OdooInstance.objects.create(
+            organization=self.org,
+            server=server,
+            name="website",
+            db_name="website_db",
+            domain="website.example.com",
+            http_port=8078,
+            status=OdooInstance.Status.RUNNING,
+            domain_status=OdooInstance.DomainStatus.ACTIVE,
+            ssl_status=OdooInstance.SSLStatus.ACTIVE,
+            ssl_enabled=True,
+            created_by=self.user,
+        )
+
+        data = OdooInstanceSerializer(instance).data
+        self.assertEqual(data["direct_access_url"], "http://203.0.113.70:8078")
+        self.assertEqual(data["domain_access_url"], "https://website.example.com")
+        self.assertEqual(data["preferred_access_url"], "https://website.example.com")
+        self.assertEqual(data["access_url"], "https://website.example.com")

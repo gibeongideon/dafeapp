@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from dns.serializers import DomainAssignmentSerializer
 from deployments.models import (
     DeploymentJob,
     GitRepositoryCredential,
@@ -55,6 +56,7 @@ class OdooServerSerializer(serializers.ModelSerializer):
     ssh_connection_message = serializers.SerializerMethodField()
     ssh_last_checked_at = serializers.SerializerMethodField()
     instance_count = serializers.SerializerMethodField()
+    managed_dns_zone_name = serializers.SerializerMethodField()
 
     def _pyos_ext(self, obj):
         infra = getattr(obj, "infrastructure", None)
@@ -108,6 +110,9 @@ class OdooServerSerializer(serializers.ModelSerializer):
     def get_instance_count(self, obj):
         return obj.instances.exclude(status=OdooInstance.Status.DELETED).count()
 
+    def get_managed_dns_zone_name(self, obj):
+        return obj.managed_dns_zone.name if obj.managed_dns_zone_id else ""
+
     class Meta:
         model = OdooServer
         fields = [
@@ -120,6 +125,11 @@ class OdooServerSerializer(serializers.ModelSerializer):
             "provider_server_id",
             "ip_address",
             "dns_domain",
+            "managed_dns_enabled",
+            "managed_dns_zone",
+            "managed_dns_zone_name",
+            "domain_routing_enabled",
+            "tls_mode",
             "firewall_configured",
             "status",
             "is_active",
@@ -147,11 +157,24 @@ class OdooServerSerializer(serializers.ModelSerializer):
 class OdooInstanceSerializer(serializers.ModelSerializer):
     server = OdooServerSerializer(read_only=True)
     access_url = serializers.SerializerMethodField()
+    direct_access_url = serializers.SerializerMethodField()
+    domain_access_url = serializers.SerializerMethodField()
+    preferred_access_url = serializers.SerializerMethodField()
     owner_name = serializers.SerializerMethodField()
     storage_path = serializers.SerializerMethodField()
+    domain_assignment = serializers.SerializerMethodField()
 
     def get_access_url(self, obj):
         return obj.access_url
+
+    def get_direct_access_url(self, obj):
+        return obj.direct_access_url
+
+    def get_domain_access_url(self, obj):
+        return obj.domain_access_url
+
+    def get_preferred_access_url(self, obj):
+        return obj.preferred_access_url
 
     def get_owner_name(self, obj):
         if not obj.created_by:
@@ -162,6 +185,12 @@ class OdooInstanceSerializer(serializers.ModelSerializer):
     def get_storage_path(self, obj):
         return obj.storage_path
 
+    def get_domain_assignment(self, obj):
+        assignment = getattr(obj, "active_domain_assignment", None)
+        if assignment is None:
+            return None
+        return DomainAssignmentSerializer(assignment).data
+
     class Meta:
         model = OdooInstance
         fields = [
@@ -171,6 +200,12 @@ class OdooInstanceSerializer(serializers.ModelSerializer):
             "domain",
             "http_port",
             "access_url",
+            "direct_access_url",
+            "domain_access_url",
+            "preferred_access_url",
+            "domain_status",
+            "domain_last_checked_at",
+            "domain_assignment",
             "owner_name",
             "storage_path",
             "requested_cpu_cores",
@@ -179,6 +214,8 @@ class OdooInstanceSerializer(serializers.ModelSerializer):
             "systemd_service",
             "nginx_site",
             "ssl_enabled",
+            "ssl_status",
+            "ssl_error",
             "status",
             "provisioning_log",
             "installation_summary",

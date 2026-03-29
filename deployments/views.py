@@ -10,6 +10,7 @@ from urllib.parse import quote, urlparse
 import requests
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.conf import settings
 from django.db import transaction
 from django.http import JsonResponse
 from django.urls import reverse
@@ -23,6 +24,7 @@ from channels.layers import get_channel_layer
 from cloud.models import CloudAccount, PyOSSSHSettings
 from cloud.providers import get_provider
 from cloud.pyos import looks_like_public_key_text
+from dns.models import DomainAssignment, DnsZone, normalize_domain_name
 from deployments.models import (
     DeploymentJob,
     GitRepositoryCredential,
@@ -52,8 +54,10 @@ from deployments.tasks import (
     checkout_instance_repo_branch,
     clone_instance_repo,
     create_odoo_instance,
+    detach_instance_domain,
     delete_odoo_instance,
     deploy_server_ssh_key,
+    provision_instance_domain,
     provision_odoo_server,
     refresh_instance_addons,
     remove_instance_repo,
@@ -89,6 +93,87 @@ def _request_data(request):
 
 def _repo_permission_denied(request):
     return request.org_role not in ("SUPER_ADMIN", "ADMIN", "MANAGER")
+
+
+def _parse_bool(value, *, default: bool = False) -> bool:
+    if value in (None, ""):
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _default_tls_mode() -> str:
+    value = getattr(settings, "TRAEFIK_DEFAULT_TLS_MODE", OdooServer.TLSMode.LETS_ENCRYPT)
+    valid = {choice for choice, _ in OdooServer.TLSMode.choices}
+    return value if value in valid else OdooServer.TLSMode.LETS_ENCRYPT
+
+
+def _resolve_managed_dns_zone(org, zone_id):
+    if not zone_id:
+        return None
+    return get_object_or_404(DnsZone.objects.select_related("provider_account"), pk=zone_id, organization=org)
+
+
+def _active_assignment_for_instance(instance: OdooInstance):
+    return instance.domain_assignments.exclude(status=DomainAssignment.Status.DELETED).order_by("-created_at", "-id").first()
+
+
+def _domain_in_use(org, domain: str, *, exclude_instance_id: int | None = None) -> bool:
+    normalized = normalize_domain_name(domain)
+    if not normalized:
+        return False
+
+    assignments = DomainAssignment.objects.filter(
+        organization=org,
+        domain=normalized,
+    ).exclude(status=DomainAssignment.Status.DELETED)
+    if exclude_instance_id is not None:
+        assignments = assignments.exclude(instance_id=exclude_instance_id)
+    if assignments.exists():
+        return True
+
+    instances = OdooInstance.objects.filter(
+        organization=org,
+        domain=normalized,
+    ).exclude(status=OdooInstance.Status.DELETED)
+    if exclude_instance_id is not None:
+        instances = instances.exclude(pk=exclude_instance_id)
+    return instances.exists()
+
+
+def _sync_instance_domain_assignment(instance: OdooInstance, domain: str) -> DomainAssignment:
+    normalized = normalize_domain_name(domain)
+    preferred_zone = instance.server.managed_dns_zone if instance.server_id else None
+    zone = DnsZone.match_for_domain(instance.organization, normalized, preferred_zone=preferred_zone)
+
+    assignment = _active_assignment_for_instance(instance)
+    if assignment and assignment.domain != normalized:
+        assignment.status = DomainAssignment.Status.DELETED
+        assignment.instance = None
+        assignment.last_error = ""
+        assignment.last_synced_at = timezone.now()
+        assignment.save(update_fields=["status", "instance", "last_error", "last_synced_at", "updated_at"])
+        assignment = None
+
+    if assignment is None:
+        assignment = DomainAssignment(
+            organization=instance.organization,
+            instance=instance,
+        )
+
+    assignment.zone = zone
+    assignment.domain = normalized
+    assignment.hostname = zone.hostname_for_domain(normalized) if zone else normalized
+    assignment.proxied = bool(zone.default_proxied) if zone else False
+    assignment.is_managed = bool(
+        zone
+        and instance.server.managed_dns_enabled
+        and (instance.server.managed_dns_zone_id is None or instance.server.managed_dns_zone_id == zone.id)
+    )
+    assignment.status = DomainAssignment.Status.PENDING
+    assignment.last_error = ""
+    assignment.instance = instance
+    assignment.save()
+    return assignment
 
 
 def _repo_job(org, *, job_type: str, instance: OdooInstance, user):
@@ -508,7 +593,9 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
         server_id = (self.request.GET.get("server_id") or "").strip()
         accounts = CloudAccount.objects.filter(organization=org, is_verified=True)
         ctx["accounts"] = accounts
+        ctx["show_dns_view"] = section == "dns"
         ctx["show_instances_view"] = section == "instances"
+        ctx["default_tls_mode"] = _default_tls_mode()
         from cloud.models import ExternalServer
 
         ctx["external_servers"] = ExternalServer.objects.filter(
@@ -636,25 +723,43 @@ class OdooServerCreateAPIView(LoginRequiredMixin, View):
         if request.org_role not in ("SUPER_ADMIN", "ADMIN", "MANAGER"):
             return JsonResponse({"error": "Permission denied."}, status=403)
 
-        odoo_version = (request.POST.get("odoo_version") or "").strip()
+        payload = _request_data(request)
+
+        odoo_version = (payload.get("odoo_version") or "").strip()
         if odoo_version not in ("17", "18", "19"):
             return JsonResponse({"error": "odoo_version must be '17', '18', or '19'."}, status=400)
 
-        name = (request.POST.get("name") or "").strip()
-        dns_domain = (request.POST.get("dns_domain") or "").strip()
-        deployment_mode = (request.POST.get("deployment_mode") or "").strip()
+        name = (payload.get("name") or "").strip()
+        dns_domain = normalize_domain_name(payload.get("dns_domain") or "")
+        deployment_mode = (payload.get("deployment_mode") or "").strip()
         if deployment_mode not in (OdooServer.DeploymentMode.BARE_METAL, OdooServer.DeploymentMode.DOCKER):
             deployment_mode = OdooServer.DeploymentMode.BARE_METAL
+        managed_zone = _resolve_managed_dns_zone(org, str(payload.get("managed_dns_zone_id") or "").strip())
+        managed_dns_enabled = _parse_bool(payload.get("managed_dns_enabled"), default=bool(managed_zone))
+        domain_routing_enabled = _parse_bool(
+            payload.get("domain_routing_enabled"),
+            default=(deployment_mode == OdooServer.DeploymentMode.DOCKER or bool(dns_domain or managed_zone)),
+        )
+        tls_mode = (payload.get("tls_mode") or "").strip() or _default_tls_mode()
+        if tls_mode not in {choice for choice, _ in OdooServer.TLSMode.choices}:
+            tls_mode = _default_tls_mode()
+
+        if managed_dns_enabled and not managed_zone:
+            return JsonResponse({"error": "managed_dns_zone_id is required when managed DNS is enabled."}, status=400)
+        if managed_zone and not dns_domain:
+            dns_domain = managed_zone.name
+        if deployment_mode == OdooServer.DeploymentMode.DOCKER:
+            domain_routing_enabled = True
 
         # Direct PYOS provisioning: one request creates the external server
         # connection, the infrastructure wrapper, and the OdooServer record.
-        host = (request.POST.get("host") or "").strip()
+        host = (payload.get("host") or "").strip()
         if host:
-            port_raw = request.POST.get("port") or "22"
-            username = (request.POST.get("username") or "root").strip()
-            auth_type = (request.POST.get("auth_type") or "DAFEAPP_KEY").strip()
-            password = request.POST.get("password") or ""
-            ssh_key_path = (request.POST.get("ssh_key_path") or "").strip()
+            port_raw = payload.get("port") or "22"
+            username = (payload.get("username") or "root").strip()
+            auth_type = (payload.get("auth_type") or "DAFEAPP_KEY").strip()
+            password = payload.get("password") or ""
+            ssh_key_path = (payload.get("ssh_key_path") or "").strip()
             logger.info(
                 "Inline PYOS server create requested by %s: name=%s host=%s port=%s user=%s auth=%s",
                 request.user,
@@ -708,6 +813,10 @@ class OdooServerCreateAPIView(LoginRequiredMixin, View):
                 size="existing-server",
                 ip_address=host,
                 dns_domain=dns_domain,
+                managed_dns_enabled=managed_dns_enabled,
+                managed_dns_zone=managed_zone,
+                domain_routing_enabled=domain_routing_enabled,
+                tls_mode=tls_mode,
                 deployment_mode=deployment_mode,
                 created_by=request.user,
             )
@@ -721,15 +830,15 @@ class OdooServerCreateAPIView(LoginRequiredMixin, View):
             _dispatch(provision_odoo_server, server.id)
             return JsonResponse(OdooServerSerializer(server).data, status=201)
 
-        region = (request.POST.get("region") or "").strip()
-        size = (request.POST.get("size") or "").strip()
+        region = (payload.get("region") or "").strip()
+        size = (payload.get("size") or "").strip()
         if not name or not region or not size:
             return JsonResponse({"error": "name, region and size are required."}, status=400)
 
         # Resolve infrastructure — accept either an existing infra id or a
         # bare cloud_account_id (auto-creates or reuses a MANAGED infrastructure).
-        infra_id = (request.POST.get("infrastructure_id") or "").strip()
-        account_id = (request.POST.get("cloud_account_id") or "").strip()
+        infra_id = str(payload.get("infrastructure_id") or "").strip()
+        account_id = str(payload.get("cloud_account_id") or "").strip()
 
         if infra_id:
             infrastructure = get_object_or_404(Infrastructure, pk=infra_id, organization=org)
@@ -763,6 +872,10 @@ class OdooServerCreateAPIView(LoginRequiredMixin, View):
             region=region,
             size=size,
             dns_domain=dns_domain,
+            managed_dns_enabled=managed_dns_enabled,
+            managed_dns_zone=managed_zone,
+            domain_routing_enabled=domain_routing_enabled,
+            tls_mode=tls_mode,
             deployment_mode=deployment_mode,
             created_by=request.user,
         )
@@ -931,9 +1044,10 @@ class OdooInstanceCreateAPIView(LoginRequiredMixin, View):
         except (SubscriptionError, SubscriptionLimitError) as exc:
             return JsonResponse({"error": str(exc)}, status=400)
 
+        payload = _request_data(request)
         server = get_object_or_404(
             OdooServer,
-            pk=request.POST.get("server_id"),
+            pk=payload.get("server_id"),
             organization=org,
         )
         if not server.is_active:
@@ -946,15 +1060,15 @@ class OdooInstanceCreateAPIView(LoginRequiredMixin, View):
                 status=400,
             )
 
-        name = (request.POST.get("name") or "").strip()
-        db_name = (request.POST.get("db_name") or "").strip()
-        domain = (request.POST.get("domain") or "").strip()
-        req_cpu = int(request.POST.get("requested_cpu_cores") or 1)
-        req_ram = int(request.POST.get("requested_ram_mb") or 1024)
-        port_raw = request.POST.get("http_port")
+        name = (payload.get("name") or "").strip()
+        db_name = (payload.get("db_name") or "").strip()
+        domain = normalize_domain_name(payload.get("domain") or "")
+        req_cpu = int(payload.get("requested_cpu_cores") or 1)
+        req_ram = int(payload.get("requested_ram_mb") or 1024)
+        port_raw = payload.get("http_port")
         if not name or not db_name:
             return JsonResponse({"error": "name and db_name are required."}, status=400)
-        if domain and OdooInstance.objects.filter(organization=org, domain=domain).exclude(status=OdooInstance.Status.DELETED).exists():
+        if domain and _domain_in_use(org, domain):
             return JsonResponse({"error": "Domain is already used by another instance."}, status=400)
 
         port = int(port_raw) if port_raw else _next_available_port(server)
@@ -987,12 +1101,126 @@ class OdooInstanceCreateAPIView(LoginRequiredMixin, View):
             db_name=db_name,
             domain=domain,
             http_port=port,
+            domain_status=OdooInstance.DomainStatus.PENDING if domain else OdooInstance.DomainStatus.NOT_CONFIGURED,
+            ssl_status=(
+                OdooInstance.SSLStatus.NOT_CONFIGURED
+                if not domain or server.tls_mode == OdooServer.TLSMode.DISABLED
+                else OdooInstance.SSLStatus.PENDING
+            ),
             requested_cpu_cores=req_cpu,
             requested_ram_mb=req_ram,
             created_by=request.user,
         )
+        if domain:
+            _sync_instance_domain_assignment(inst, domain)
         _dispatch(create_odoo_instance, inst.id)
         return JsonResponse(OdooInstanceSerializer(inst).data, status=201)
+
+
+class OdooInstanceDomainAttachAPIView(LoginRequiredMixin, View):
+    def post(self, request, instance_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if request.org_role not in ("SUPER_ADMIN", "ADMIN", "MANAGER"):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        instance = get_object_or_404(
+            OdooInstance.objects.select_related("server"),
+            pk=instance_id,
+            organization=org,
+        )
+        if instance.status == OdooInstance.Status.DELETED:
+            return JsonResponse({"error": "Instance is deleted."}, status=400)
+
+        payload = _request_data(request)
+        domain = normalize_domain_name(payload.get("domain") or "")
+        if not domain:
+            return JsonResponse({"error": "domain is required."}, status=400)
+        if _domain_in_use(org, domain, exclude_instance_id=instance.id):
+            return JsonResponse({"error": "Domain is already used by another instance."}, status=400)
+
+        instance.domain = domain
+        instance.domain_status = OdooInstance.DomainStatus.PENDING
+        instance.domain_last_checked_at = None
+        instance.ssl_status = (
+            OdooInstance.SSLStatus.NOT_CONFIGURED
+            if instance.server.tls_mode == OdooServer.TLSMode.DISABLED
+            else OdooInstance.SSLStatus.PENDING
+        )
+        instance.ssl_error = ""
+        instance.save(
+            update_fields=[
+                "domain",
+                "domain_status",
+                "domain_last_checked_at",
+                "ssl_status",
+                "ssl_error",
+                "updated_at",
+            ]
+        )
+        _sync_instance_domain_assignment(instance, domain)
+        _dispatch(provision_instance_domain, instance.id)
+        return JsonResponse(OdooInstanceSerializer(instance).data)
+
+
+class OdooInstanceDomainDetachAPIView(LoginRequiredMixin, View):
+    def post(self, request, instance_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if request.org_role not in ("SUPER_ADMIN", "ADMIN", "MANAGER"):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        instance = get_object_or_404(
+            OdooInstance.objects.select_related("server"),
+            pk=instance_id,
+            organization=org,
+        )
+        if not instance.domain:
+            return JsonResponse({"ok": True, "message": "No domain is attached to this instance."})
+
+        instance.domain_status = OdooInstance.DomainStatus.PENDING
+        instance.ssl_status = OdooInstance.SSLStatus.NOT_CONFIGURED
+        instance.ssl_error = ""
+        instance.save(update_fields=["domain_status", "ssl_status", "ssl_error", "updated_at"])
+        _dispatch(detach_instance_domain, instance.id)
+        return JsonResponse({"ok": True, "message": "Domain detach queued."})
+
+
+class OdooInstanceDomainRetryAPIView(LoginRequiredMixin, View):
+    def post(self, request, instance_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if request.org_role not in ("SUPER_ADMIN", "ADMIN", "MANAGER"):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        instance = get_object_or_404(
+            OdooInstance.objects.select_related("server"),
+            pk=instance_id,
+            organization=org,
+        )
+        if not instance.domain:
+            return JsonResponse({"error": "This instance has no domain to reprovision."}, status=400)
+
+        instance.domain_status = OdooInstance.DomainStatus.PENDING
+        instance.domain_last_checked_at = None
+        if instance.server.tls_mode != OdooServer.TLSMode.DISABLED:
+            instance.ssl_status = OdooInstance.SSLStatus.PENDING
+        instance.ssl_error = ""
+        instance.save(
+            update_fields=[
+                "domain_status",
+                "domain_last_checked_at",
+                "ssl_status",
+                "ssl_error",
+                "updated_at",
+            ]
+        )
+        _sync_instance_domain_assignment(instance, instance.domain)
+        _dispatch(provision_instance_domain, instance.id)
+        return JsonResponse({"ok": True, "message": "Domain reprovision queued."})
 
 
 class OdooInstanceListAPIView(LoginRequiredMixin, View):

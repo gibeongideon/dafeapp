@@ -1,12 +1,17 @@
 {% extends "dashboard/layout.html" %}
 
-{% block page_title %}{% if selected_server or show_instances_view %}Instances{% else %}Servers{% endif %}{% endblock %}
+{% block page_title %}{% if show_dns_view %}DNS &amp; SSL{% elif selected_server or show_instances_view %}Instances{% else %}Servers{% endif %}{% endblock %}
 
 {% block content %}
 <div class="max-w-7xl mx-auto space-y-6">
   <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
     <div class="space-y-2">
-      {% if selected_server %}
+      {% if show_dns_view %}
+      <h2 class="text-2xl font-semibold text-gray-900">DNS &amp; SSL</h2>
+      <p class="text-sm text-gray-500">
+        Connect your DNS provider, sync zones, and manage instance domains and HTTPS without dropping to the API.
+      </p>
+      {% elif selected_server %}
       <div class="inline-flex items-center gap-2 text-[11px] uppercase tracking-[0.2em] text-gray-400">
         <a href="{% url 'deployments:create-instance' %}" class="hover:text-gray-600">Servers</a>
         <span>/</span>
@@ -31,7 +36,17 @@
       {% endif %}
     </div>
     <div class="flex items-center gap-2">
-      {% if selected_server %}
+      {% if show_dns_view %}
+      <a href="{% url 'deployments:create-instance' %}?section=servers"
+         class="inline-flex items-center px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+        Servers
+      </a>
+      <button id="open-dns-account-modal"
+              type="button"
+              class="inline-flex items-center px-4 py-2.5 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700 transition-colors">
+        Add DNS Account
+      </button>
+      {% elif selected_server %}
       <a href="{% url 'deployments:create-instance' %}"
          class="inline-flex items-center px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
         Back to Servers
@@ -52,14 +67,132 @@
         Servers
       </a>
       {% endif %}
+      {% if not show_dns_view %}
       <button id="open-create-server"
               class="inline-flex items-center px-4 py-2.5 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700 transition-colors">
         Create Server
       </button>
+      {% endif %}
     </div>
   </div>
 
-  {% if selected_server %}
+  {% if show_dns_view %}
+  <div class="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+    <div class="space-y-6">
+      <div class="grid grid-cols-2 xl:grid-cols-4 gap-3">
+        <div class="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
+          <p class="text-[11px] uppercase tracking-wide text-gray-400">Accounts</p>
+          <p id="dns-stat-accounts" class="mt-2 text-2xl font-semibold text-gray-900">0</p>
+          <p class="mt-1 text-xs text-gray-500">Connected DNS providers</p>
+        </div>
+        <div class="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
+          <p class="text-[11px] uppercase tracking-wide text-gray-400">Zones</p>
+          <p id="dns-stat-zones" class="mt-2 text-2xl font-semibold text-gray-900">0</p>
+          <p class="mt-1 text-xs text-gray-500">Synced domains available</p>
+        </div>
+        <div class="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
+          <p class="text-[11px] uppercase tracking-wide text-gray-400">Assignments</p>
+          <p id="dns-stat-assignments" class="mt-2 text-2xl font-semibold text-gray-900">0</p>
+          <p class="mt-1 text-xs text-gray-500">Instance domains tracked</p>
+        </div>
+        <div class="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
+          <p class="text-[11px] uppercase tracking-wide text-gray-400">Managed</p>
+          <p id="dns-stat-managed" class="mt-2 text-2xl font-semibold text-gray-900">0</p>
+          <p class="mt-1 text-xs text-gray-500">Assignments with managed DNS</p>
+        </div>
+      </div>
+
+      <section class="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+        <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
+          <div>
+            <p class="text-xs uppercase tracking-wide text-gray-400">Providers</p>
+            <h3 class="mt-1 text-sm font-semibold text-gray-900">DNS Accounts</h3>
+          </div>
+          <button type="button"
+                  id="dns-refresh-accounts"
+                  class="inline-flex items-center px-3 py-1.5 text-xs font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+            Refresh
+          </button>
+        </div>
+        <div id="dns-accounts-list" class="p-5 space-y-3">
+          <div class="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-sm text-gray-500 text-center">
+            Loading DNS accounts…
+          </div>
+        </div>
+      </section>
+
+      <section class="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+        <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
+          <div>
+            <p class="text-xs uppercase tracking-wide text-gray-400">Assignments</p>
+            <h3 class="mt-1 text-sm font-semibold text-gray-900">Managed Domains</h3>
+          </div>
+          <p class="text-xs text-gray-500">Use the manage action to retry or detach a domain.</p>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="bg-gray-50 border-b border-gray-100">
+                <th class="text-left px-5 py-3 text-xs text-gray-500 uppercase">Domain</th>
+                <th class="text-left px-5 py-3 text-xs text-gray-500 uppercase">Instance</th>
+                <th class="text-left px-5 py-3 text-xs text-gray-500 uppercase">Zone</th>
+                <th class="text-left px-5 py-3 text-xs text-gray-500 uppercase">Status</th>
+                <th class="text-left px-5 py-3 text-xs text-gray-500 uppercase">SSL</th>
+                <th class="text-right px-5 py-3 text-xs text-gray-500 uppercase">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="dns-assignments-body" class="divide-y divide-gray-100">
+              <tr>
+                <td colspan="6" class="px-5 py-6 text-sm text-gray-400 text-center">Loading domain assignments…</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <div class="space-y-6">
+      <section class="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+        <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
+          <div>
+            <p class="text-xs uppercase tracking-wide text-gray-400">Zones</p>
+            <h3 class="mt-1 text-sm font-semibold text-gray-900">Available DNS Zones</h3>
+          </div>
+          <p class="text-xs text-gray-500">Synced from your provider accounts</p>
+        </div>
+        <div id="dns-zones-list" class="divide-y divide-gray-100">
+          <div class="px-5 py-6 text-sm text-gray-400 text-center">Loading zones…</div>
+        </div>
+      </section>
+
+      <section class="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+        <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
+          <div>
+            <p class="text-xs uppercase tracking-wide text-gray-400">Needs Attention</p>
+            <h3 class="mt-1 text-sm font-semibold text-gray-900">Instances Without Domains</h3>
+          </div>
+          <p class="text-xs text-gray-500">Attach a hostname directly from here</p>
+        </div>
+        <div id="dns-unassigned-list" class="divide-y divide-gray-100">
+          <div class="px-5 py-6 text-sm text-gray-400 text-center">Loading instances…</div>
+        </div>
+      </section>
+
+      <section class="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+        <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
+          <div>
+            <p class="text-xs uppercase tracking-wide text-gray-400">Records</p>
+            <h3 class="mt-1 text-sm font-semibold text-gray-900">Recent DNS Records</h3>
+          </div>
+          <p class="text-xs text-gray-500">Last 20 records known to DafeApp</p>
+        </div>
+        <div id="dns-records-list" class="divide-y divide-gray-100">
+          <div class="px-5 py-6 text-sm text-gray-400 text-center">Loading DNS records…</div>
+        </div>
+      </section>
+    </div>
+  </div>
+  {% elif selected_server %}
   <div class="bg-white border border-gray-200 rounded-2xl p-4 lg:p-5 shadow-sm">
     <div class="flex flex-wrap items-start justify-between gap-4">
       <div class="min-w-0">
@@ -197,6 +330,16 @@
           View Details
         </a>
         {% if oi.status != 'DELETED' %}
+        <button type="button"
+                class="manage-domain-btn inline-flex items-center justify-center px-3 py-2 text-xs font-medium text-indigo-700 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors"
+                data-instance-id="{{ oi.id }}"
+                data-instance-name="{{ oi.name }}"
+                data-instance-domain="{{ oi.domain|default:'' }}"
+                data-server-mode="{{ oi.server.deployment_mode }}"
+                data-domain-status="{{ oi.domain_status }}"
+                data-ssl-status="{{ oi.ssl_status }}">
+          {% if oi.domain %}Manage Domain{% else %}Add Domain{% endif %}
+        </button>
         <button type="button"
                 class="delete-instance-btn inline-flex items-center justify-center px-3 py-2 text-xs font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
                 data-instance-id="{{ oi.id }}"
@@ -592,6 +735,16 @@
                 Manage
               </a>
               <button type="button"
+                      class="manage-domain-btn px-3 py-1.5 text-xs font-medium text-indigo-700 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors"
+                      data-instance-id="{{ oi.id }}"
+                      data-instance-name="{{ oi.name }}"
+                      data-instance-domain="{{ oi.domain|default:'' }}"
+                      data-server-mode="{{ oi.server.deployment_mode }}"
+                      data-domain-status="{{ oi.domain_status }}"
+                      data-ssl-status="{{ oi.ssl_status }}">
+                Domain
+              </button>
+              <button type="button"
                       class="delete-instance-btn px-2 py-1.5 text-xs font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
                       data-instance-id="{{ oi.id }}"
                       data-instance-name="{{ oi.name }}">
@@ -651,11 +804,11 @@
           </div>
         </div>
 
-        <!-- Domain field — Docker mode only -->
+        <!-- Domain field -->
         <div id="instance-domain-row">
           <label class="block text-xs font-medium text-gray-600 mb-1">
             Domain
-            <span class="text-gray-400 font-normal">— full hostname, e.g. acme.example.com</span>
+            <span class="text-gray-400 font-normal">— optional on bare-metal, required for Docker</span>
           </label>
           <input id="instance-domain" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg font-mono"
                  placeholder="acme.example.com" />
@@ -809,6 +962,55 @@
             <input id="pyos-password" type="password" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" placeholder="SSH password" />
           </div>
 
+          <div class="rounded-xl border border-gray-200 bg-gray-50 px-4 py-4 space-y-3">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <p class="text-xs uppercase tracking-wide text-gray-400">DNS &amp; SSL</p>
+                <h4 class="mt-1 text-sm font-semibold text-gray-900">Optional routing for this server</h4>
+              </div>
+              <label class="inline-flex items-center gap-2 text-xs font-medium text-gray-700">
+                <input id="pyos-domain-routing-enabled" type="checkbox" class="accent-gray-900" />
+                Enable domain routing
+              </label>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1">Primary Domain / Base Domain</label>
+                <input id="pyos-dns-domain"
+                       class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg font-mono"
+                       placeholder="apps.example.com" />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1">TLS Mode</label>
+                <select id="pyos-tls-mode" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white">
+                  <option value="LETS_ENCRYPT" {% if default_tls_mode == 'LETS_ENCRYPT' %}selected{% endif %}>Let's Encrypt</option>
+                  <option value="DISABLED" {% if default_tls_mode == 'DISABLED' %}selected{% endif %}>Disabled</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <label class="flex items-start gap-2.5 rounded-lg border border-gray-200 bg-white px-3 py-2.5 cursor-pointer">
+                <input id="pyos-managed-dns-enabled" type="checkbox" class="mt-0.5 accent-gray-900" />
+                <span>
+                  <span class="block text-xs font-medium text-gray-800">Manage DNS automatically</span>
+                  <span class="block text-[11px] text-gray-500 mt-0.5">Create and reconcile records through DafeApp.</span>
+                </span>
+              </label>
+              <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1">Managed Zone</label>
+                <select id="pyos-managed-dns-zone" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white">
+                  <option value="">Select zone…</option>
+                </select>
+              </div>
+            </div>
+
+            <p id="pyos-dns-help" class="text-[11px] text-gray-500">
+              Bare-metal servers can keep direct IP:PORT access and optionally add domain routing on top.
+            </p>
+          </div>
+
           <div class="flex justify-end">
             <button id="submit-create-pyos-server" type="button" class="px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700">
               Provision Server
@@ -885,6 +1087,55 @@
           </div>
         </div>
 
+        <div class="rounded-xl border border-gray-200 bg-gray-50 px-4 py-4 space-y-3">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <p class="text-xs uppercase tracking-wide text-gray-400">DNS &amp; SSL</p>
+              <h4 class="mt-1 text-sm font-semibold text-gray-900">Server routing settings</h4>
+            </div>
+            <label class="inline-flex items-center gap-2 text-xs font-medium text-gray-700">
+              <input id="server-domain-routing-enabled" type="checkbox" class="accent-gray-900" />
+              Enable domain routing
+            </label>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1">Primary Domain / Base Domain</label>
+              <input id="server-dns-domain"
+                     class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg font-mono"
+                     placeholder="apps.example.com" />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1">TLS Mode</label>
+              <select id="server-tls-mode" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white">
+                <option value="LETS_ENCRYPT" {% if default_tls_mode == 'LETS_ENCRYPT' %}selected{% endif %}>Let's Encrypt</option>
+                <option value="DISABLED" {% if default_tls_mode == 'DISABLED' %}selected{% endif %}>Disabled</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <label class="flex items-start gap-2.5 rounded-lg border border-gray-200 bg-white px-3 py-2.5 cursor-pointer">
+              <input id="server-managed-dns-enabled" type="checkbox" class="mt-0.5 accent-gray-900" />
+              <span>
+                <span class="block text-xs font-medium text-gray-800">Manage DNS automatically</span>
+                <span class="block text-[11px] text-gray-500 mt-0.5">Create records for instance domains in your synced zone.</span>
+              </span>
+            </label>
+            <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1">Managed Zone</label>
+              <select id="server-managed-dns-zone" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white">
+                <option value="">Select zone…</option>
+              </select>
+            </div>
+          </div>
+
+          <p id="server-dns-help" class="text-[11px] text-gray-500">
+            Docker servers always use domain routing. Bare-metal servers can expose direct ports and optional HTTPS domains together.
+          </p>
+        </div>
+
         <div id="server-info-box" class="rounded-lg px-3 py-2 text-xs bg-blue-50 border border-blue-100 text-blue-700">
           Instances will be accessible via <strong>http://SERVER_IP:PORT</strong> (ports 8069–8100).
           This server will be dedicated to Odoo <span id="version-label">19</span> only.
@@ -947,6 +1198,98 @@
   </div>
 </div>
 
+<!-- DNS account modal -->
+<div id="dns-account-modal" class="fixed inset-0 bg-black/40 hidden z-50">
+  <div class="min-h-full flex items-center justify-center p-4">
+    <div class="w-full max-w-lg bg-white rounded-xl border border-gray-200">
+      <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+        <div>
+          <h3 id="dns-account-modal-title" class="text-sm font-semibold text-gray-900">Add DNS Account</h3>
+          <p class="text-xs text-gray-500 mt-0.5">Cloudflare is supported today. Tokens stay write-only after save.</p>
+        </div>
+        <button id="close-dns-account-modal" class="text-gray-500 hover:text-gray-700 text-sm">Close</button>
+      </div>
+      <div class="p-5 space-y-4">
+        <input id="dns-account-id" type="hidden" />
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Account Name</label>
+          <input id="dns-account-name" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" placeholder="e.g. Production Cloudflare" />
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">Provider</label>
+            <select id="dns-account-provider" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white">
+              <option value="CLOUDFLARE">Cloudflare</option>
+            </select>
+          </div>
+          <label class="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2.5 text-sm text-gray-700">
+            <input id="dns-account-active" type="checkbox" class="accent-gray-900" checked />
+            Active
+          </label>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">API Token</label>
+          <input id="dns-account-token" type="password" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg font-mono" placeholder="Cloudflare API token" />
+          <p class="mt-1 text-[11px] text-gray-500">Leave blank while editing to keep the current token.</p>
+        </div>
+      </div>
+      <div class="px-5 py-4 border-t border-gray-100 flex items-center justify-between">
+        <p id="dns-account-msg" class="text-xs text-gray-500"></p>
+        <button id="submit-dns-account" type="button"
+                class="px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700">
+          Save Account
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Instance domain modal -->
+<div id="instance-domain-modal" class="fixed inset-0 bg-black/40 hidden z-50">
+  <div class="min-h-full flex items-center justify-center p-4">
+    <div class="w-full max-w-lg bg-white rounded-xl border border-gray-200">
+      <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+        <div>
+          <h3 class="text-sm font-semibold text-gray-900">Manage Domain</h3>
+          <p class="text-xs text-gray-500 mt-0.5">Instance: <span id="domain-instance-name" class="font-medium text-gray-700"></span></p>
+        </div>
+        <button id="close-instance-domain-modal" class="text-gray-500 hover:text-gray-700 text-sm">Close</button>
+      </div>
+      <div class="p-5 space-y-4">
+        <div id="domain-status-box" class="rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2.5">
+          <p id="domain-status-summary" class="text-xs text-indigo-700">No domain is attached yet.</p>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Domain</label>
+          <input id="domain-name-input" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg font-mono" placeholder="app.example.com" />
+        </div>
+        <p id="domain-help-text" class="text-[11px] text-gray-500">
+          Attach a hostname to let DafeApp configure routing, DNS reconciliation, and HTTPS for this instance.
+        </p>
+      </div>
+      <div class="px-5 py-4 border-t border-gray-100 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2">
+          <button id="domain-detach-btn" type="button"
+                  class="hidden px-3 py-2 text-xs font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors">
+            Detach Domain
+          </button>
+          <button id="domain-retry-btn" type="button"
+                  class="hidden px-3 py-2 text-xs font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+            Retry Provisioning
+          </button>
+        </div>
+        <div class="flex items-center gap-2">
+          <p id="domain-modal-msg" class="text-xs text-gray-500"></p>
+          <button id="domain-save-btn" type="button"
+                  class="px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700">
+            Save Domain
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Delete confirm -->
 <div id="confirm-modal" class="fixed inset-0 bg-black/40 hidden z-50">
   <div class="min-h-full flex items-center justify-center p-4">
@@ -964,12 +1307,15 @@
 <script>
 (() => {
   const csrf = "{{ csrf_token }}";
+  const dnsDashboardEnabled = {{ show_dns_view|yesno:"true,false" }};
+  const defaultTlsMode = "{{ default_tls_mode }}";
 
   // ─── helpers ─────────────────────────────────────────────────────────────
   const $ = (id) => document.getElementById(id);
-  const show = (el) => el.classList.remove("hidden");
-  const hide = (el) => el.classList.add("hidden");
+  const show = (el) => { if (el) el.classList.remove("hidden"); };
+  const hide = (el) => { if (el) el.classList.add("hidden"); };
   const setMsg = (el, text, isError = false) => {
+    if (!el) return;
     el.textContent = text;
     el.className = isError ? "text-xs text-red-600" : "text-xs text-gray-500";
   };
@@ -980,6 +1326,22 @@
       if (v !== null && v !== undefined && v !== "") fd.append(k, String(v));
     });
     const res = await fetch(endpoint, { method: "POST", headers: { "X-CSRFToken": csrf }, body: fd });
+    const data = await res.json().catch(() => ({}));
+    return { ok: res.ok, data };
+  }
+
+  async function requestJson(endpoint, { method = "GET", payload = null } = {}) {
+    const options = {
+      method,
+      headers: {
+        "X-CSRFToken": csrf,
+      },
+    };
+    if (payload) {
+      options.headers["Content-Type"] = "application/json";
+      options.body = JSON.stringify(payload);
+    }
+    const res = await fetch(endpoint, options);
     const data = await res.json().catch(() => ({}));
     return { ok: res.ok, data };
   }
@@ -1084,6 +1446,328 @@
     return Array.from(document.querySelectorAll(`[id="${String(id).replace(/"/g, '\\"')}"]`));
   }
 
+  let dnsAccountsCache = [];
+  let dnsZonesCache = [];
+  let dnsRecordsCache = [];
+  let dnsAssignmentsCache = [];
+  let dnsInstancesCache = [];
+
+  function formatDate(value) {
+    if (!value) return "Never";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "Never";
+    return date.toLocaleString();
+  }
+
+  function dnsStatusClass(status) {
+    const value = String(status || "").toUpperCase();
+    if (value === "ACTIVE" || value === "PROVISIONED" || value === "VERIFIED") return "bg-green-100 text-green-700";
+    if (value === "FAILED" || value === "ERROR") return "bg-red-100 text-red-700";
+    if (value === "PENDING" || value === "CONFIGURING" || value === "PROVISIONING") return "bg-yellow-100 text-yellow-700";
+    if (value === "NOT_CONFIGURED" || value === "DISABLED") return "bg-gray-100 text-gray-500";
+    if (value === "DELETED") return "bg-gray-100 text-gray-400";
+    return "bg-gray-100 text-gray-700";
+  }
+
+  function dnsStatusPill(status, fallback = "Unknown") {
+    const label = String(status || fallback).replace(/_/g, " ");
+    return `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${dnsStatusClass(status)}">${escapeHtml(label)}</span>`;
+  }
+
+  function zoneOptionLabel(zone) {
+    return `${zone.name}${zone.provider_account_name ? ` · ${zone.provider_account_name}` : ""}`;
+  }
+
+  function populateDnsZoneSelect(selectEl) {
+    if (!selectEl) return;
+    const current = selectEl.value;
+    selectEl.innerHTML = '<option value="">Select zone…</option>';
+    dnsZonesCache.forEach((zone) => {
+      const option = document.createElement("option");
+      option.value = zone.id;
+      option.textContent = zoneOptionLabel(zone);
+      selectEl.appendChild(option);
+    });
+    if (dnsZonesCache.some((zone) => String(zone.id) === String(current))) {
+      selectEl.value = current;
+    }
+  }
+
+  function populateAllDnsZoneSelects() {
+    populateDnsZoneSelect($("server-managed-dns-zone"));
+    populateDnsZoneSelect($("pyos-managed-dns-zone"));
+  }
+
+  function selectedZoneName(selectEl) {
+    const selectedId = selectEl ? String(selectEl.value || "") : "";
+    const zone = dnsZonesCache.find((item) => String(item.id) === selectedId);
+    return zone ? zone.name : "";
+  }
+
+  function updateDnsControls(prefix) {
+    const routingEl = $(`${prefix}-domain-routing-enabled`);
+    const managedEl = $(`${prefix}-managed-dns-enabled`);
+    const zoneEl = $(`${prefix}-managed-dns-zone`);
+    const domainEl = $(`${prefix}-dns-domain`);
+    const tlsEl = $(`${prefix}-tls-mode`);
+    const helpEl = $(`${prefix}-dns-help`);
+    const isDocker = String(($(`${prefix}-deployment-mode`) && $(`${prefix}-deployment-mode`).value) || "").toUpperCase() === "DOCKER"
+      || (prefix === "server" && $("mode-docker") && $("mode-docker").checked);
+
+    if (routingEl) {
+      routingEl.checked = isDocker ? true : routingEl.checked;
+      routingEl.disabled = isDocker;
+    }
+    if (zoneEl) {
+      zoneEl.disabled = !managedEl || !managedEl.checked;
+      if (managedEl && managedEl.checked && !zoneEl.value && dnsZonesCache.length === 1) {
+        zoneEl.value = String(dnsZonesCache[0].id);
+      }
+    }
+    if (managedEl && zoneEl && managedEl.checked && zoneEl.value && domainEl && !domainEl.value.trim()) {
+      domainEl.value = selectedZoneName(zoneEl);
+    }
+    if (helpEl) {
+      const routingText = isDocker
+        ? "Docker mode always enables Traefik routing for HTTPS domains."
+        : (routingEl && routingEl.checked
+            ? "Bare-metal keeps direct ports and also enables hostname routing."
+            : "Bare-metal can stay on direct ports only until you enable domain routing.");
+      const managedText = managedEl && managedEl.checked
+        ? (zoneEl && zoneEl.value ? ` Managed DNS will target ${selectedZoneName(zoneEl)}.` : " Choose a synced zone to manage records automatically.")
+        : " DNS records can still be created manually if needed.";
+      const tlsText = tlsEl && tlsEl.value === "DISABLED"
+        ? " TLS is disabled, so hostnames will resolve over HTTP only."
+        : " HTTPS will use Let's Encrypt.";
+      helpEl.textContent = `${routingText}${managedText}${tlsText}`;
+    }
+  }
+
+  function collectDnsSettings(prefix) {
+    const zoneEl = $(`${prefix}-managed-dns-zone`);
+    const managedEl = $(`${prefix}-managed-dns-enabled`);
+    const routingEl = $(`${prefix}-domain-routing-enabled`);
+    const tlsEl = $(`${prefix}-tls-mode`);
+    const domainEl = $(`${prefix}-dns-domain`);
+    const managedEnabled = Boolean(managedEl && managedEl.checked);
+    const zoneId = managedEnabled && zoneEl ? zoneEl.value.trim() : "";
+    return {
+      dns_domain: domainEl ? domainEl.value.trim() : "",
+      managed_dns_enabled: managedEnabled,
+      managed_dns_zone_id: zoneId,
+      domain_routing_enabled: Boolean(routingEl && routingEl.checked),
+      tls_mode: tlsEl ? (tlsEl.value || defaultTlsMode) : defaultTlsMode,
+    };
+  }
+
+  function setDnsStats() {
+    const managedCount = dnsAssignmentsCache.filter((item) => item.is_managed).length;
+    if ($("dns-stat-accounts")) $("dns-stat-accounts").textContent = String(dnsAccountsCache.length);
+    if ($("dns-stat-zones")) $("dns-stat-zones").textContent = String(dnsZonesCache.length);
+    if ($("dns-stat-assignments")) $("dns-stat-assignments").textContent = String(dnsAssignmentsCache.length);
+    if ($("dns-stat-managed")) $("dns-stat-managed").textContent = String(managedCount);
+  }
+
+  function renderDnsAccounts() {
+    const container = $("dns-accounts-list");
+    if (!container) return;
+    if (!dnsAccountsCache.length) {
+      container.innerHTML = `
+        <div class="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-sm text-gray-500 text-center">
+          No DNS account yet. Add a Cloudflare token to start syncing zones.
+        </div>`;
+      return;
+    }
+    container.innerHTML = dnsAccountsCache.map((account) => `
+      <article class="rounded-xl border border-gray-200 p-4">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <div class="flex items-center gap-2">
+              <p class="text-sm font-semibold text-gray-900">${escapeHtml(account.name || "")}</p>
+              ${account.is_verified ? dnsStatusPill("VERIFIED", "Verified") : dnsStatusPill(account.verification_error ? "FAILED" : "PENDING", account.verification_error ? "Failed" : "Pending")}
+            </div>
+            <p class="mt-1 text-xs text-gray-500">${escapeHtml(account.provider || "DNS provider")} · ${account.token_configured ? "token saved" : "token missing"}</p>
+            <p class="mt-2 text-[11px] text-gray-500">Last verified: ${escapeHtml(formatDate(account.last_verified_at))}</p>
+            ${account.verification_error ? `<p class="mt-2 text-[11px] text-red-600">${escapeHtml(account.verification_error)}</p>` : ""}
+          </div>
+          <div class="flex items-center gap-2">
+            <button type="button" class="edit-dns-account-btn px-3 py-1.5 text-xs font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors" data-account-id="${account.id}">Edit</button>
+            <button type="button" class="verify-dns-account-btn px-3 py-1.5 text-xs font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700 transition-colors" data-account-id="${account.id}">Verify</button>
+            <button type="button" class="sync-dns-account-btn px-3 py-1.5 text-xs font-medium text-indigo-700 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors" data-account-id="${account.id}">Sync Zones</button>
+            <button type="button" class="delete-dns-account-btn px-3 py-1.5 text-xs font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors" data-account-id="${account.id}" data-account-name="${escapeHtml(account.name || "")}">Delete</button>
+          </div>
+        </div>
+      </article>`).join("");
+  }
+
+  function renderDnsZones() {
+    const container = $("dns-zones-list");
+    if (!container) return;
+    if (!dnsZonesCache.length) {
+      container.innerHTML = '<div class="px-5 py-6 text-sm text-gray-400 text-center">No synced zones yet. Verify an account, then sync zones.</div>';
+      return;
+    }
+    container.innerHTML = dnsZonesCache.map((zone) => `
+      <article class="px-5 py-4 flex items-start justify-between gap-4">
+        <div class="min-w-0">
+          <div class="flex items-center gap-2">
+            <p class="text-sm font-semibold text-gray-900 truncate">${escapeHtml(zone.name || "")}</p>
+            ${dnsStatusPill(zone.is_active ? "ACTIVE" : "DISABLED", zone.is_active ? "Active" : "Inactive")}
+          </div>
+          <p class="mt-1 text-xs text-gray-500">${escapeHtml(zone.provider_account_name || "Unknown account")}</p>
+        </div>
+        <div class="text-right">
+          <p class="text-[11px] text-gray-500">Default proxied: <span class="font-medium text-gray-700">${zone.default_proxied ? "Yes" : "No"}</span></p>
+          <p class="mt-1 text-[11px] text-gray-400">Synced ${escapeHtml(formatDate(zone.last_synced_at))}</p>
+        </div>
+      </article>`).join("");
+  }
+
+  function renderDnsAssignments() {
+    const body = $("dns-assignments-body");
+    if (!body) return;
+    const instancesById = new Map(dnsInstancesCache.map((item) => [String(item.id), item]));
+    if (!dnsAssignmentsCache.length) {
+      body.innerHTML = '<tr><td colspan="6" class="px-5 py-6 text-sm text-gray-400 text-center">No instance domains are tracked yet.</td></tr>';
+      return;
+    }
+    body.innerHTML = dnsAssignmentsCache.map((assignment) => {
+      const linkedInstance = instancesById.get(String(assignment.instance_id || ""));
+      const serverMode = linkedInstance && linkedInstance.server ? linkedInstance.server.deployment_mode : "";
+      return `
+      <tr>
+        <td class="px-5 py-3">
+          <div class="font-medium text-gray-900">${escapeHtml(assignment.domain || "")}</div>
+          <div class="text-[11px] text-gray-500">${assignment.is_managed ? "Managed by DafeApp" : "Manual DNS"}</div>
+        </td>
+        <td class="px-5 py-3 text-xs text-gray-700">${escapeHtml(assignment.instance_name || "—")}</td>
+        <td class="px-5 py-3 text-xs text-gray-700">${escapeHtml(assignment.zone_name || "—")}</td>
+        <td class="px-5 py-3">${dnsStatusPill(assignment.status || assignment.domain_status, assignment.status || "Pending")}</td>
+        <td class="px-5 py-3">
+          ${assignment.ssl_status ? dnsStatusPill(assignment.ssl_status, assignment.ssl_status) : '<span class="text-xs text-gray-400">—</span>'}
+          ${assignment.ssl_error ? `<div class="mt-1 text-[11px] text-red-600">${escapeHtml(assignment.ssl_error)}</div>` : ""}
+        </td>
+        <td class="px-5 py-3 text-right">
+          ${assignment.instance_id ? `<button type="button" class="manage-domain-btn inline-flex items-center px-3 py-1.5 text-xs font-medium text-indigo-700 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors"
+            data-instance-id="${assignment.instance_id}"
+            data-instance-name="${escapeHtml(assignment.instance_name || "")}"
+            data-instance-domain="${escapeHtml(assignment.domain || "")}"
+            data-server-mode="${escapeHtml(serverMode || "")}"
+            data-domain-status="${escapeHtml(assignment.domain_status || assignment.status || "")}"
+            data-ssl-status="${escapeHtml(assignment.ssl_status || "")}">
+            Manage
+          </button>` : '<span class="text-xs text-gray-400">—</span>'}
+        </td>
+      </tr>`;
+    }).join("");
+  }
+
+  function renderDnsUnassignedInstances() {
+    const container = $("dns-unassigned-list");
+    if (!container) return;
+    const rows = dnsInstancesCache
+      .filter((instance) => (instance.status || "").toUpperCase() !== "DELETED" && !instance.domain)
+      .slice(0, 12);
+    if (!rows.length) {
+      container.innerHTML = '<div class="px-5 py-6 text-sm text-gray-400 text-center">Every active instance already has a domain.</div>';
+      return;
+    }
+    container.innerHTML = rows.map((instance) => `
+      <article class="px-5 py-4 flex items-center justify-between gap-3">
+        <div class="min-w-0">
+          <p class="text-sm font-semibold text-gray-900 truncate">${escapeHtml(instance.name || "")}</p>
+          <p class="text-[11px] text-gray-500 truncate">${escapeHtml((instance.server && instance.server.name) || "Unknown server")} · ${escapeHtml((instance.server && instance.server.deployment_mode) || "")}</p>
+        </div>
+        <button type="button"
+                class="manage-domain-btn inline-flex items-center px-3 py-1.5 text-xs font-medium text-indigo-700 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors"
+                data-instance-id="${instance.id}"
+                data-instance-name="${escapeHtml(instance.name || "")}"
+                data-instance-domain=""
+                data-server-mode="${escapeHtml((instance.server && instance.server.deployment_mode) || "")}"
+                data-domain-status="${escapeHtml(instance.domain_status || "")}"
+                data-ssl-status="${escapeHtml(instance.ssl_status || "")}">
+          Attach
+        </button>
+      </article>`).join("");
+  }
+
+  function renderDnsRecords() {
+    const container = $("dns-records-list");
+    if (!container) return;
+    const rows = dnsRecordsCache.slice(0, 20);
+    if (!rows.length) {
+      container.innerHTML = '<div class="px-5 py-6 text-sm text-gray-400 text-center">No DNS records synced yet.</div>';
+      return;
+    }
+    container.innerHTML = rows.map((record) => `
+      <article class="px-5 py-4 flex items-start justify-between gap-4">
+        <div class="min-w-0">
+          <div class="flex items-center gap-2">
+            <p class="text-sm font-semibold text-gray-900 truncate">${escapeHtml(record.fqdn || "")}</p>
+            ${dnsStatusPill(record.status, record.status || "Pending")}
+          </div>
+          <p class="mt-1 text-[11px] text-gray-500">${escapeHtml(record.record_type || "")} → ${escapeHtml(record.value || "")}</p>
+        </div>
+        <div class="text-right text-[11px] text-gray-500">
+          <p>${record.proxied ? "Proxied" : "DNS only"}</p>
+          <p class="mt-1">Synced ${escapeHtml(formatDate(record.last_synced_at))}</p>
+        </div>
+      </article>`).join("");
+  }
+
+  function renderDnsDashboard() {
+    setDnsStats();
+    renderDnsAccounts();
+    renderDnsZones();
+    renderDnsAssignments();
+    renderDnsUnassignedInstances();
+    renderDnsRecords();
+  }
+
+  async function loadDnsZoneOptions() {
+    try {
+      const resp = await fetch("/api/dns/zones/");
+      if (!resp.ok) return;
+      const data = await resp.json().catch(() => ({}));
+      dnsZonesCache = data.results || [];
+      populateAllDnsZoneSelects();
+      updateDnsControls("server");
+      updateDnsControls("pyos");
+    } catch (err) {
+      // DNS setup is optional for the server modals; keep the forms usable.
+    }
+  }
+
+  async function loadDnsDashboard() {
+    try {
+      const [accountsResp, zonesResp, recordsResp, assignmentsResp, instancesResp] = await Promise.all([
+        fetch("/api/dns/accounts/"),
+        fetch("/api/dns/zones/"),
+        fetch("/api/dns/records/"),
+        fetch("/api/dns/assignments/"),
+        fetch("/api/deployments/odoo/instances/"),
+      ]);
+
+      dnsAccountsCache = accountsResp.ok ? ((await accountsResp.json().catch(() => ({}))).results || []) : [];
+      dnsZonesCache = zonesResp.ok ? ((await zonesResp.json().catch(() => ({}))).results || []) : [];
+      dnsRecordsCache = recordsResp.ok ? ((await recordsResp.json().catch(() => ({}))).results || []) : [];
+      dnsAssignmentsCache = assignmentsResp.ok ? ((await assignmentsResp.json().catch(() => ({}))).results || []) : [];
+      dnsInstancesCache = instancesResp.ok ? ((await instancesResp.json().catch(() => ({}))).results || []) : [];
+
+      populateAllDnsZoneSelects();
+      updateDnsControls("server");
+      updateDnsControls("pyos");
+      renderDnsDashboard();
+    } catch (err) {
+      const fallback = '<div class="px-5 py-6 text-sm text-red-500 text-center">DNS data could not be loaded right now.</div>';
+      if ($("dns-accounts-list")) $("dns-accounts-list").innerHTML = fallback;
+      if ($("dns-zones-list")) $("dns-zones-list").innerHTML = fallback;
+      if ($("dns-records-list")) $("dns-records-list").innerHTML = fallback;
+      if ($("dns-unassigned-list")) $("dns-unassigned-list").innerHTML = fallback;
+      if ($("dns-assignments-body")) $("dns-assignments-body").innerHTML = '<tr><td colspan="6" class="px-5 py-6 text-sm text-red-500 text-center">DNS data could not be loaded right now.</td></tr>';
+    }
+  }
+
   function setGridMode(targetId, mode) {
     const grid = document.getElementById(targetId);
     if (!grid) return;
@@ -1098,7 +1782,7 @@
     grid.dataset.layout = mode;
   }
 
-  document.addEventListener("click", (e) => {
+  document.addEventListener("click", async (e) => {
     const btn = e.target.closest(".view-mode-btn");
     if (!btn) return;
     const targetId = btn.dataset.target;
@@ -1253,6 +1937,15 @@
         <div class="mt-4 flex items-center gap-2">
           <a href="/deployments/odoo/instances/${iid}/" class="inline-flex items-center justify-center px-3 py-2 text-xs font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700 transition-colors">View Details</a>
           ${status !== "DELETED" ? `
+          <button type="button" class="manage-domain-btn inline-flex items-center justify-center px-3 py-2 text-xs font-medium text-indigo-700 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors"
+                  data-instance-id="${iid}"
+                  data-instance-name="${escapeHtml(instance.name || "")}"
+                  data-instance-domain="${escapeHtml(instance.domain || "")}"
+                  data-server-mode="${escapeHtml(server.deployment_mode || "")}"
+                  data-domain-status="${escapeHtml(instance.domain_status || "")}"
+                  data-ssl-status="${escapeHtml(instance.ssl_status || "")}">
+            ${instance.domain ? "Manage Domain" : "Add Domain"}
+          </button>
           <button type="button" class="delete-instance-btn inline-flex items-center justify-center px-3 py-2 text-xs font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors" data-instance-id="${iid}" data-instance-name="${escapeHtml(instance.name || "")}">Delete</button>` : ""}
         </div>
         <details class="mt-4 rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
@@ -1326,6 +2019,8 @@
   }
 
   function removeMissingInstanceRows(seenIds) {
+    const tbody = $("instance-tbody");
+    if (!tbody) return;
     document.querySelectorAll("#instance-tbody tr[id^='instance-row-']").forEach((row) => {
       const iid = row.id.replace("instance-row-", "");
       if (!seenIds.has(iid)) row.remove();
@@ -1340,7 +2035,7 @@
       const placeholder = document.createElement("tr");
       placeholder.id = "instance-empty-row";
       placeholder.innerHTML = '<td colspan="6" class="px-5 py-6 text-sm text-gray-400 text-center">No Odoo instances yet. Create a server first, then add instances.</td>';
-      $("instance-tbody").appendChild(placeholder);
+      tbody.appendChild(placeholder);
     }
   }
 
@@ -1382,6 +2077,8 @@
   }
 
   function removeMissingServerCards(seenIds) {
+    const kanban = $("server-kanban");
+    if (!kanban) return;
     document.querySelectorAll("#server-kanban article[id^='server-card-']").forEach((card) => {
       const sid = card.id.replace("server-card-", "");
       if (!seenIds.has(sid)) card.remove();
@@ -1393,13 +2090,15 @@
       placeholder.id = "server-kanban-empty";
       placeholder.className = "md:col-span-2 xl:col-span-3 bg-gray-50 border border-gray-200 rounded-xl p-8 text-center";
       placeholder.innerHTML = '<p class="text-sm text-gray-500">No servers yet. Click <strong>Create Server</strong> to provision a DigitalOcean droplet with Odoo 19.</p>';
-      $("server-kanban").appendChild(placeholder);
+      kanban.appendChild(placeholder);
     }
   }
 
   function removeServerCard(serverId) {
+    const kanban = $("server-kanban");
     const card = document.getElementById(`server-card-${serverId}`);
     if (card) card.remove();
+    if (!kanban) return;
     const remaining = document.querySelectorAll("#server-kanban article[id^='server-card-']").length;
     const empty = $("server-kanban-empty");
     if (remaining === 0 && !empty) {
@@ -1407,7 +2106,7 @@
       placeholder.id = "server-kanban-empty";
       placeholder.className = "md:col-span-2 xl:col-span-3 bg-gray-50 border border-gray-200 rounded-xl p-8 text-center";
       placeholder.innerHTML = '<p class="text-sm text-gray-500">No servers yet. Click <strong>Create Server</strong> to provision a DigitalOcean droplet with Odoo 19.</p>';
-      $("server-kanban").appendChild(placeholder);
+      kanban.appendChild(placeholder);
     }
   }
 
@@ -1744,6 +2443,10 @@
   function insertServerCard(server, { name, odooVersion, deployMode, isPyos }) {
     const sid = server.id;
     const kanban = $("server-kanban");
+    if (!kanban) {
+      window.location.href = "/deployments/create/?section=servers";
+      return;
+    }
     const emptyPlaceholder = $("server-kanban-empty");
     if (emptyPlaceholder) emptyPlaceholder.remove();
     const newCard = document.createElement("article");
@@ -1916,6 +2619,9 @@
   let selectedServerIp = "";
   let selectedServerMinPort = 8069;
   let selectedServerMode = "BARE_METAL"; // "BARE_METAL" | "DOCKER"
+  let activeDomainInstanceId = "";
+  let activeDomainCurrentValue = "";
+  let activeDomainServerMode = "BARE_METAL";
 
   refreshServerCards();
   autoCheckVisibleServers();
@@ -1923,6 +2629,11 @@
   setInterval(autoCheckVisibleServers, 60000);
   refreshInstanceRows();
   setInterval(refreshInstanceRows, 60000);
+  loadDnsZoneOptions();
+  if (dnsDashboardEnabled) {
+    loadDnsDashboard();
+    setInterval(loadDnsDashboard, 60000);
+  }
 
   const infrastructures = [
     {% for infra in infrastructures %}
@@ -1936,22 +2647,34 @@
   const instanceModal = $("instance-modal");
   const confirmModal  = $("confirm-modal");
   const sshKeysModal  = $("ssh-keys-modal");
+  const dnsAccountModal = $("dns-account-modal");
+  const domainModal = $("instance-domain-modal");
 
-  $("open-create-server").addEventListener("click", () => {
+  $("open-create-server")?.addEventListener("click", () => {
     show(sourceModal);
     hide(detailsModal);
     showCloud();
     selectedAccountId = "";
-    $("source-modal-msg").textContent = "";
+    if ($("server-name")) $("server-name").value = "";
+    if ($("server-version")) $("server-version").value = "19";
+    if (serverDnsDomainEl) serverDnsDomainEl.value = "";
+    if (serverManagedDnsEl) serverManagedDnsEl.checked = false;
+    if (serverManagedDnsZoneEl) serverManagedDnsZoneEl.value = "";
+    if (serverRoutingEl) serverRoutingEl.checked = false;
+    if (serverTlsEl) serverTlsEl.value = defaultTlsMode;
+    updateDnsControls("server");
+    if ($("source-modal-msg")) $("source-modal-msg").textContent = "";
   });
 
-  $("close-source-modal").addEventListener("click", () => hide(sourceModal));
-  $("close-details-modal").addEventListener("click", () => hide(detailsModal));
-  $("close-instance-modal").addEventListener("click", () => hide(instanceModal));
-  $("confirm-cancel").addEventListener("click", () => hide(confirmModal));
-  $("close-ssh-keys-modal").addEventListener("click", () => hide(sshKeysModal));
+  $("close-source-modal")?.addEventListener("click", () => hide(sourceModal));
+  $("close-details-modal")?.addEventListener("click", () => hide(detailsModal));
+  $("close-instance-modal")?.addEventListener("click", () => hide(instanceModal));
+  $("confirm-cancel")?.addEventListener("click", () => hide(confirmModal));
+  $("close-ssh-keys-modal")?.addEventListener("click", () => hide(sshKeysModal));
+  $("close-dns-account-modal")?.addEventListener("click", () => hide(dnsAccountModal));
+  $("close-instance-domain-modal")?.addEventListener("click", () => hide(domainModal));
 
-  [sourceModal, detailsModal, instanceModal, confirmModal, sshKeysModal].forEach(m => {
+  [sourceModal, detailsModal, instanceModal, confirmModal, sshKeysModal, dnsAccountModal, domainModal].filter(Boolean).forEach((m) => {
     m.addEventListener("click", (e) => { if (e.target === m) hide(m); });
   });
 
@@ -1986,6 +2709,48 @@
     renderSSHKeys(data.keys || []);
   }
 
+  function openDnsAccountModal(account = null) {
+    $("dns-account-id").value = account ? String(account.id) : "";
+    $("dns-account-name").value = account ? (account.name || "") : "";
+    $("dns-account-provider").value = account ? (account.provider || "CLOUDFLARE") : "CLOUDFLARE";
+    $("dns-account-active").checked = account ? account.is_active !== false : true;
+    $("dns-account-token").value = "";
+    $("dns-account-modal-title").textContent = account ? "Edit DNS Account" : "Add DNS Account";
+    setMsg($("dns-account-msg"), "");
+    show(dnsAccountModal);
+  }
+
+  function domainStatusSummary(domainStatus, sslStatus, currentDomain) {
+    if (!currentDomain) return "No domain is attached yet.";
+    const parts = [`Current domain: ${currentDomain}`];
+    if (domainStatus) parts.push(`DNS: ${String(domainStatus).replace(/_/g, " ").toLowerCase()}`);
+    if (sslStatus) parts.push(`SSL: ${String(sslStatus).replace(/_/g, " ").toLowerCase()}`);
+    return parts.join(" · ");
+  }
+
+  function openDomainModal({ instanceId, instanceName, domain = "", serverMode = "BARE_METAL", domainStatus = "", sslStatus = "" }) {
+    activeDomainInstanceId = String(instanceId || "");
+    activeDomainCurrentValue = domain || "";
+    activeDomainServerMode = serverMode || "BARE_METAL";
+    $("domain-instance-name").textContent = instanceName || "";
+    $("domain-name-input").value = domain || "";
+    $("domain-status-summary").textContent = domainStatusSummary(domainStatus, sslStatus, domain);
+    $("domain-help-text").textContent = activeDomainServerMode === "DOCKER"
+      ? "Docker instances need a domain because Traefik terminates HTTPS for them."
+      : "Bare-metal instances keep direct port access and can optionally add domain routing on top.";
+    if (domain) {
+      show($("domain-detach-btn"));
+      show($("domain-retry-btn"));
+      $("domain-save-btn").textContent = "Update Domain";
+    } else {
+      hide($("domain-detach-btn"));
+      hide($("domain-retry-btn"));
+      $("domain-save-btn").textContent = "Attach Domain";
+    }
+    setMsg($("domain-modal-msg"), "");
+    show(domainModal);
+  }
+
   document.querySelectorAll(".open-ssh-keys-modal").forEach(btn => {
     btn.addEventListener("click", () => {
       sshKeysServerId = btn.dataset.serverId;
@@ -2000,7 +2765,39 @@
     });
   });
 
-  $("submit-add-ssh-key").addEventListener("click", async () => {
+  $("open-dns-account-modal")?.addEventListener("click", () => openDnsAccountModal());
+  $("dns-refresh-accounts")?.addEventListener("click", () => loadDnsDashboard());
+
+  $("submit-dns-account")?.addEventListener("click", async () => {
+    const msgEl = $("dns-account-msg");
+    const accountId = $("dns-account-id").value.trim();
+    const name = $("dns-account-name").value.trim();
+    const provider = $("dns-account-provider").value || "CLOUDFLARE";
+    const apiToken = $("dns-account-token").value.trim();
+    const isActive = $("dns-account-active").checked;
+    if (!name) {
+      setMsg(msgEl, "Account name is required.", true);
+      return;
+    }
+    setMsg(msgEl, accountId ? "Updating account…" : "Saving account…");
+    const endpoint = accountId ? `/api/dns/accounts/${accountId}/` : "/api/dns/accounts/";
+    const resp = await postForm(endpoint, {
+      name,
+      provider,
+      api_token: apiToken,
+      is_active: isActive,
+    });
+    if (!resp.ok) {
+      const error = resp.data.error || resp.data.name?.[0] || "Unable to save DNS account.";
+      setMsg(msgEl, error, true);
+      return;
+    }
+    hide(dnsAccountModal);
+    await loadDnsDashboard();
+    await loadDnsZoneOptions();
+  });
+
+  $("submit-add-ssh-key")?.addEventListener("click", async () => {
     const msgEl = $("ssh-keys-msg");
     const label = $("ssh-key-label").value.trim();
     const public_key = $("ssh-key-value").value.trim();
@@ -2014,7 +2811,7 @@
     loadSSHKeys(sshKeysServerId);
   });
 
-  $("ssh-keys-list").addEventListener("click", async (e) => {
+  $("ssh-keys-list")?.addEventListener("click", async (e) => {
     const btn = e.target.closest(".delete-ssh-key-btn");
     if (!btn) return;
     const keyId = btn.dataset.keyId;
@@ -2040,6 +2837,16 @@
   const versionLabel = $("version-label");
   const pyosVersionEl = $("pyos-version");
   const pyosDeploymentModeEl = $("pyos-deployment-mode");
+  const serverManagedDnsEl = $("server-managed-dns-enabled");
+  const serverManagedDnsZoneEl = $("server-managed-dns-zone");
+  const serverRoutingEl = $("server-domain-routing-enabled");
+  const serverDnsDomainEl = $("server-dns-domain");
+  const serverTlsEl = $("server-tls-mode");
+  const pyosManagedDnsEl = $("pyos-managed-dns-enabled");
+  const pyosManagedDnsZoneEl = $("pyos-managed-dns-zone");
+  const pyosRoutingEl = $("pyos-domain-routing-enabled");
+  const pyosDnsDomainEl = $("pyos-dns-domain");
+  const pyosTlsEl = $("pyos-tls-mode");
 
   versionEl.addEventListener("change", () => { versionLabel.textContent = versionEl.value; });
 
@@ -2053,6 +2860,7 @@
     show(cloudPanel); hide(pyosPanel);
     activateBtn(pickCloud, pickPyos);
     $("source-modal-msg").textContent = "";
+    updateDnsControls("server");
   }
   function showPyos() {
     mode = "pyos";
@@ -2071,10 +2879,25 @@
     $("pyos-key-path-field").classList.remove("hidden");
     $("pyos-key-path").value = "";
     $("pyos-password-field").classList.add("hidden");
+    if (pyosDnsDomainEl) pyosDnsDomainEl.value = "";
+    if (pyosManagedDnsEl) pyosManagedDnsEl.checked = false;
+    if (pyosManagedDnsZoneEl) pyosManagedDnsZoneEl.value = "";
+    if (pyosRoutingEl) pyosRoutingEl.checked = false;
+    if (pyosTlsEl) pyosTlsEl.value = defaultTlsMode;
+    updateDnsControls("pyos");
   }
 
   pickCloud.addEventListener("click", showCloud);
   pickPyos.addEventListener("click", showPyos);
+
+  [serverManagedDnsEl, serverManagedDnsZoneEl, serverRoutingEl, serverDnsDomainEl, serverTlsEl].filter(Boolean).forEach((el) => {
+    el.addEventListener("change", () => updateDnsControls("server"));
+    el.addEventListener("input", () => updateDnsControls("server"));
+  });
+  [pyosManagedDnsEl, pyosManagedDnsZoneEl, pyosRoutingEl, pyosDnsDomainEl, pyosTlsEl, pyosDeploymentModeEl].filter(Boolean).forEach((el) => {
+    el.addEventListener("change", () => updateDnsControls("pyos"));
+    el.addEventListener("input", () => updateDnsControls("pyos"));
+  });
 
   document.querySelectorAll(".provider-card").forEach(card => {
     card.addEventListener("click", () => {
@@ -2114,6 +2937,7 @@
     $("details-source-label").textContent = mode === "cloud"
       ? `Cloud account selected`
       : `VPS connection selected`;
+    updateDnsControls("server");
   }
 
   $("next-cloud-details").addEventListener("click", () => {
@@ -2132,9 +2956,14 @@
     const sshKeyPath = $("pyos-key-path") ? $("pyos-key-path").value.trim() : "";
     const odooVersion = pyosVersionEl.value || "19";
     const deployMode = pyosDeploymentModeEl.value || "BARE_METAL";
+    const dnsSettings = collectDnsSettings("pyos");
     if (!name) { setMsg(msgEl, "Server name is required.", true); return; }
     if (!host) { setMsg(msgEl, "IP / host is required.", true); return; }
     if (authType === "PASSWORD" && !password.trim()) { setMsg(msgEl, "Password is required.", true); return; }
+    if (dnsSettings.managed_dns_enabled && !dnsSettings.managed_dns_zone_id) {
+      setMsg(msgEl, "Select a managed zone or disable automatic DNS management.", true);
+      return;
+    }
     setMsg(msgEl, "Registering VPS…");
     const resp = await postForm("/api/deployments/odoo/servers/create/", {
       name,
@@ -2146,10 +2975,15 @@
       password,
       odoo_version: odooVersion,
       deployment_mode: deployMode,
+      dns_domain: dnsSettings.dns_domain,
+      managed_dns_enabled: dnsSettings.managed_dns_enabled,
+      managed_dns_zone_id: dnsSettings.managed_dns_zone_id,
+      domain_routing_enabled: dnsSettings.domain_routing_enabled,
+      tls_mode: dnsSettings.tls_mode,
     });
     if (!resp.ok) { setMsg(msgEl, resp.data.error || "Server provisioning failed.", true); return; }
     hide(sourceModal);
-    insertServerCard(resp.data, { name, odooVersion, deploymentMode: deployMode, isPyos: true });
+    insertServerCard(resp.data, { name, odooVersion, deployMode, isPyos: true });
   });
 
   // ─── deployment mode radio toggle styling ────────────────────────────────
@@ -2165,8 +2999,9 @@
       } else {
         if (bareLabel)   { bareLabel.classList.add("border-gray-900"); bareLabel.classList.remove("border-transparent"); }
         if (dockerLabel) { dockerLabel.classList.remove("border-gray-900"); dockerLabel.classList.add("border-transparent"); }
-        if (infoBox)     infoBox.textContent = "Bare-metal mode: Odoo runs as a systemd service. Each instance gets a dedicated port.";
+        if (infoBox)     infoBox.textContent = "Bare-metal mode: Odoo runs as a systemd service on its own port. You can also add an optional domain and let Traefik route HTTPS on top.";
       }
+      updateDnsControls("server");
     });
   });
 
@@ -2179,6 +3014,11 @@
 
     const deployModeEl = document.querySelector("input[name='server-deploy-mode']:checked");
     const deployMode = deployModeEl ? deployModeEl.value : "BARE_METAL";
+    const dnsSettings = collectDnsSettings("server");
+    if (dnsSettings.managed_dns_enabled && !dnsSettings.managed_dns_zone_id) {
+      setMsg(msgEl, "Select a managed zone or disable automatic DNS management.", true);
+      return;
+    }
 
     let payload = {
       name,
@@ -2186,6 +3026,11 @@
       region: regionEl.value,
       size: sizeEl.value,
       deployment_mode: deployMode,
+      dns_domain: dnsSettings.dns_domain,
+      managed_dns_enabled: dnsSettings.managed_dns_enabled,
+      managed_dns_zone_id: dnsSettings.managed_dns_zone_id,
+      domain_routing_enabled: dnsSettings.domain_routing_enabled,
+      tls_mode: dnsSettings.tls_mode,
     };
 
     if (mode === "cloud") {
@@ -2219,7 +3064,7 @@
       $("instance-port").value = "";
       if ($("instance-domain")) $("instance-domain").value = "";
       setMsg($("instance-modal-msg"), "");
-      // Toggle domain vs port field based on deployment mode
+      // Toggle domain and port guidance based on deployment mode
       const domainRow = $("instance-domain-row");
       const portRow   = $("instance-port-row");
       const modeBadge = $("instance-server-mode-badge");
@@ -2232,11 +3077,11 @@
         if (accessBox)   accessBox.className = "border rounded-lg px-3 py-2.5 bg-purple-50 border-purple-100";
         if (accessLabel) { accessLabel.textContent = "Access URL (Traefik HTTPS)"; accessLabel.className = "text-xs text-purple-600 mb-1"; }
       } else {
-        if (domainRow)   hide(domainRow);
+        if (domainRow)   show(domainRow);
         if (portRow)     show(portRow);
-        if (modeBadge)   hide(modeBadge);
+        if (modeBadge)   { modeBadge.textContent = "Bare-metal · Port + optional domain"; modeBadge.className = "ml-2 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-700"; show(modeBadge); }
         if (accessBox)   accessBox.className = "border rounded-lg px-3 py-2.5 bg-blue-50 border-blue-100";
-        if (accessLabel) { accessLabel.textContent = "Access URL (auto-assigned next port)"; accessLabel.className = "text-xs text-blue-600 mb-1"; }
+        if (accessLabel) { accessLabel.textContent = "Preferred access URL"; accessLabel.className = "text-xs text-blue-600 mb-1"; }
       }
       updateAccessPreview();
       show(instanceModal);
@@ -2252,11 +3097,12 @@
       el.href = $("instance-domain") && $("instance-domain").value.trim() ? url : "#";
       el.className = "text-xs font-mono text-purple-600 break-all hover:underline";
     } else {
+      const domain = $("instance-domain") ? $("instance-domain").value.trim() : "";
       const port = $("instance-port").value.trim() || selectedServerMinPort;
       const ip = selectedServerIp || "SERVER_IP";
-      const url = `http://${ip}:${port}`;
+      const url = domain ? `https://${domain}` : `http://${ip}:${port}`;
       el.textContent = url;
-      el.href = selectedServerIp ? url : "#";
+      el.href = (domain || selectedServerIp) ? url : "#";
       el.className = "text-xs font-mono text-blue-600 break-all hover:underline";
     }
   }
@@ -2278,6 +3124,7 @@
     if (isDocker) {
       payload.domain = domain;
     } else {
+      if (domain) payload.domain = domain;
       payload.http_port = $("instance-port").value.trim();
     }
 
@@ -2296,7 +3143,7 @@
       : `<span class="font-mono text-gray-600">${resp.data.http_port || ""}</span>`;
     const accessCell = isDocker
       ? `<a href="https://${domain}" target="_blank" class="text-xs font-mono text-purple-600 hover:underline">https://${domain}</a>`
-      : `<span class="text-xs text-gray-400">pending</span>`;
+      : `<span class="text-xs text-gray-400">${domain ? `https://${domain}` : "pending"}</span>`;
     newRow.innerHTML = `
       <td class="px-5 py-3"><div class="font-medium text-gray-900">${name}</div><div class="text-xs text-gray-500">${dbName}</div></td>
       <td class="px-5 py-3 text-gray-700 text-xs">${$("instance-server-name").textContent}</td>
@@ -2368,34 +3215,139 @@
   });
 
   // ─── delete instance ─────────────────────────────────────────────────────
-  let pendingDeleteEndpoint = "";
+  let pendingConfirmAction = null;
 
-  function showConfirm(title, body, endpoint) {
-    pendingDeleteEndpoint = endpoint;
+  function showConfirm(title, body, action, confirmLabel = "Delete") {
+    pendingConfirmAction = action;
     $("confirm-title").textContent = title;
     $("confirm-body").textContent = body;
+    $("confirm-ok").textContent = confirmLabel;
     show(confirmModal);
   }
 
   $("confirm-ok").addEventListener("click", async () => {
-    if (!pendingDeleteEndpoint) return;
+    if (!pendingConfirmAction) return;
     hide(confirmModal);
-    const resp = await postForm(pendingDeleteEndpoint, {});
-    if (resp.ok) {
+    const action = pendingConfirmAction;
+    pendingConfirmAction = null;
+    const resp = typeof action === "function" ? await action() : await postForm(action, {});
+    if (resp && resp.ok) {
       window.location.reload();
     } else {
-      alert(resp.data.error || "Delete failed.");
+      alert((resp && resp.data && (resp.data.error || resp.data.message)) || "Action failed.");
     }
   });
 
-  document.querySelectorAll(".delete-instance-btn").forEach(btn => {
-    btn.addEventListener("click", () => {
+  document.addEventListener("click", (e) => {
+    const domainBtn = e.target.closest(".manage-domain-btn");
+    if (domainBtn) {
+      openDomainModal({
+        instanceId: domainBtn.dataset.instanceId,
+        instanceName: domainBtn.dataset.instanceName,
+        domain: domainBtn.dataset.instanceDomain || "",
+        serverMode: domainBtn.dataset.serverMode || "BARE_METAL",
+        domainStatus: domainBtn.dataset.domainStatus || "",
+        sslStatus: domainBtn.dataset.sslStatus || "",
+      });
+      return;
+    }
+
+    const deleteInstanceBtn = e.target.closest(".delete-instance-btn");
+    if (deleteInstanceBtn) {
       showConfirm(
         "Delete Instance",
-        `Stop "${btn.dataset.instanceName}", drop its database, and free the port?`,
-        `/api/deployments/odoo/instances/${btn.dataset.instanceId}/delete/`
+        `Stop "${deleteInstanceBtn.dataset.instanceName}", drop its database, and free the port?`,
+        `/api/deployments/odoo/instances/${deleteInstanceBtn.dataset.instanceId}/delete/`
       );
-    });
+      return;
+    }
+
+    const editDnsBtn = e.target.closest(".edit-dns-account-btn");
+    if (editDnsBtn) {
+      const account = dnsAccountsCache.find((item) => String(item.id) === String(editDnsBtn.dataset.accountId));
+      openDnsAccountModal(account || null);
+      return;
+    }
+
+    const verifyDnsBtn = e.target.closest(".verify-dns-account-btn");
+    if (verifyDnsBtn) {
+      verifyDnsBtn.disabled = true;
+      const resp = await postForm(`/api/dns/accounts/${verifyDnsBtn.dataset.accountId}/verify/`, {});
+      verifyDnsBtn.disabled = false;
+      if (!resp.ok) {
+        alert(resp.data.error || "Verification failed.");
+      }
+      await loadDnsDashboard();
+      await loadDnsZoneOptions();
+      return;
+    }
+
+    const syncDnsBtn = e.target.closest(".sync-dns-account-btn");
+    if (syncDnsBtn) {
+      syncDnsBtn.disabled = true;
+      const resp = await postForm(`/api/dns/accounts/${syncDnsBtn.dataset.accountId}/sync-zones/`, {});
+      syncDnsBtn.disabled = false;
+      if (!resp.ok) {
+        alert(resp.data.error || "Zone sync failed.");
+      }
+      await loadDnsDashboard();
+      await loadDnsZoneOptions();
+      return;
+    }
+
+    const deleteDnsBtn = e.target.closest(".delete-dns-account-btn");
+    if (deleteDnsBtn) {
+      const accountId = deleteDnsBtn.dataset.accountId;
+      const accountName = deleteDnsBtn.dataset.accountName || "this account";
+      showConfirm(
+        "Delete DNS Account",
+        `Delete "${accountName}" and remove its synced zones from DafeApp?`,
+        () => requestJson(`/api/dns/accounts/${accountId}/`, { method: "DELETE" })
+      );
+      return;
+    }
+  });
+
+  async function finishDomainAction(resp, successMessage) {
+    if (!resp.ok) {
+      setMsg($("domain-modal-msg"), resp.data.error || "Domain action failed.", true);
+      return;
+    }
+    setMsg($("domain-modal-msg"), successMessage);
+    setTimeout(() => window.location.reload(), 500);
+  }
+
+  $("domain-save-btn")?.addEventListener("click", async () => {
+    const msgEl = $("domain-modal-msg");
+    const domain = $("domain-name-input").value.trim();
+    if (!activeDomainInstanceId) {
+      setMsg(msgEl, "Instance selection is missing.", true);
+      return;
+    }
+    if (!domain) {
+      setMsg(msgEl, "Domain is required.", true);
+      return;
+    }
+    setMsg(msgEl, activeDomainCurrentValue ? "Updating domain…" : "Attaching domain…");
+    const resp = await postForm(`/api/deployments/odoo/instances/${activeDomainInstanceId}/domain/attach/`, { domain });
+    await finishDomainAction(resp, activeDomainCurrentValue ? "Domain updated." : "Domain attach queued.");
+  });
+
+  $("domain-retry-btn")?.addEventListener("click", async () => {
+    if (!activeDomainInstanceId) return;
+    setMsg($("domain-modal-msg"), "Retrying provisioning…");
+    const resp = await postForm(`/api/deployments/odoo/instances/${activeDomainInstanceId}/domain/retry/`, {});
+    await finishDomainAction(resp, "Domain retry queued.");
+  });
+
+  $("domain-detach-btn")?.addEventListener("click", () => {
+    if (!activeDomainInstanceId || !activeDomainCurrentValue) return;
+    showConfirm(
+      "Detach Domain",
+      `Remove "${activeDomainCurrentValue}" from this instance?`,
+      () => postForm(`/api/deployments/odoo/instances/${activeDomainInstanceId}/domain/detach/`, {}),
+      "Detach"
+    );
   });
 
   document.addEventListener("click", async (e) => {

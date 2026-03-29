@@ -1,0 +1,34 @@
+---
+- name: Render one Traefik dynamic route for a bare-metal Odoo instance
+  hosts: all
+  become: true
+
+  vars:
+    domain: "{{ domain | default('') }}"
+    http_port: "{{ (http_port | default(8069)) | int }}"
+    route_name: "{{ route_name | default('odoo-route') }}"
+    route_file: "{{ route_file | default('/etc/traefik/dynamic/' ~ route_name ~ '.yml') }}"
+    traefik_dynamic_dir: "{{ traefik_dynamic_dir | default('/etc/traefik/dynamic') }}"
+    traefik_tls_mode: "{{ traefik_tls_mode | default('LETS_ENCRYPT') }}"
+
+  tasks:
+    - name: Ensure Traefik dynamic config directory exists
+      file:
+        path: "{{ traefik_dynamic_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Render Traefik route file
+      template:
+        src: templates/traefik-dynamic-instance.yml.j2
+        dest: "{{ route_file }}"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Ensure Traefik is running
+      systemd:
+        name: traefik
+        state: started

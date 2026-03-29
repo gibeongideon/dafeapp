@@ -1,0 +1,40 @@
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+
+api:
+  dashboard: false
+
+entryPoints:
+  web:
+    address: ":80"
+{% if traefik_tls_mode != 'DISABLED' %}
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+  websecure:
+    address: ":443"
+{% endif %}
+
+providers:
+  file:
+    directory: {{ traefik_dynamic_dir }}
+    watch: true
+
+{% if traefik_tls_mode != 'DISABLED' %}
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: {{ traefik_acme_email }}
+      storage: {{ traefik_acme_storage }}
+      httpChallenge:
+        entryPoint: web
+{% endif %}
+
+log:
+  level: {{ traefik_log_level }}
+
+accessLog: {}

@@ -22,6 +22,8 @@ from django.utils import timezone
 from audit.models import AuditLog
 from cloud.providers import get_provider
 from core.utils import log_audit
+from dns.models import DomainAssignment, DnsRecord, DnsZone, normalize_domain_name
+from dns.services.factory import get_dns_provider_service
 from deployments.models import (
     DeploymentJob,
     GitRepositoryCredential,
@@ -1145,6 +1147,514 @@ def _default_docker_instance_playbook() -> str:
     return str(Path(settings.BASE_DIR) / "infra" / "ansible" / "create_docker_odoo_instance.yml")
 
 
+def _default_bare_traefik_gateway_playbook() -> str:
+    return str(Path(settings.BASE_DIR) / "infra" / "ansible" / "setup_bare_traefik_gateway.yml")
+
+
+def _default_bare_traefik_route_playbook() -> str:
+    return str(Path(settings.BASE_DIR) / "infra" / "ansible" / "apply_bare_traefik_route.yml")
+
+
+def _default_bare_traefik_route_delete_playbook() -> str:
+    return str(Path(settings.BASE_DIR) / "infra" / "ansible" / "delete_bare_traefik_route.yml")
+
+
+def _traefik_dynamic_dir() -> str:
+    return getattr(settings, "TRAEFIK_DYNAMIC_CONFIG_DIR", "/etc/traefik/dynamic")
+
+
+def _traefik_acme_email() -> str:
+    return getattr(settings, "TRAEFIK_ACME_EMAIL", os.getenv("ODOO_ADMIN_EMAIL", "odoo@example.com").strip())
+
+
+def _effective_tls_mode(server: OdooServer) -> str:
+    value = getattr(server, "tls_mode", "") or getattr(settings, "TRAEFIK_DEFAULT_TLS_MODE", OdooServer.TLSMode.LETS_ENCRYPT)
+    valid = {choice for choice, _ in OdooServer.TLSMode.choices}
+    return value if value in valid else OdooServer.TLSMode.LETS_ENCRYPT
+
+
+def _route_slug(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", normalize_domain_name(value)).strip("-")
+    return slug or f"route-{int(time.time())}"
+
+
+def _route_file_path(domain: str) -> str:
+    return f"{_traefik_dynamic_dir().rstrip('/')}/dafeapp-{_route_slug(domain)}.yml"
+
+
+def _active_domain_assignment(instance: OdooInstance):
+    return instance.domain_assignments.exclude(status=DomainAssignment.Status.DELETED).order_by("-created_at", "-id").first()
+
+
+def _ensure_domain_assignment(instance: OdooInstance):
+    domain = normalize_domain_name(instance.domain)
+    if not domain:
+        return None
+
+    preferred_zone = instance.server.managed_dns_zone if instance.server_id else None
+    zone = DnsZone.match_for_domain(instance.organization, domain, preferred_zone=preferred_zone)
+    assignment = _active_domain_assignment(instance)
+    if assignment and assignment.domain != domain:
+        assignment.status = DomainAssignment.Status.DELETED
+        assignment.instance = None
+        assignment.last_error = ""
+        assignment.last_synced_at = timezone.now()
+        assignment.save(update_fields=["status", "instance", "last_error", "last_synced_at", "updated_at"])
+        assignment = None
+
+    if assignment is None:
+        assignment = DomainAssignment(
+            organization=instance.organization,
+            instance=instance,
+        )
+
+    assignment.zone = zone
+    assignment.domain = domain
+    assignment.hostname = zone.hostname_for_domain(domain) if zone else domain
+    assignment.proxied = bool(zone.default_proxied) if zone else False
+    assignment.is_managed = bool(
+        zone
+        and instance.server.managed_dns_enabled
+        and (instance.server.managed_dns_zone_id is None or instance.server.managed_dns_zone_id == zone.id)
+    )
+    assignment.status = DomainAssignment.Status.PENDING
+    assignment.last_error = ""
+    assignment.instance = instance
+    assignment.save()
+    return assignment
+
+
+def _save_instance_domain_state(
+    instance: OdooInstance,
+    *,
+    domain_status: str | None = None,
+    ssl_status: str | None = None,
+    ssl_enabled: bool | None = None,
+    ssl_error: str | None = None,
+    checked_at=None,
+):
+    update_fields = ["updated_at"]
+    if domain_status is not None:
+        instance.domain_status = domain_status
+        update_fields.append("domain_status")
+    if ssl_status is not None:
+        instance.ssl_status = ssl_status
+        update_fields.append("ssl_status")
+    if ssl_enabled is not None:
+        instance.ssl_enabled = ssl_enabled
+        update_fields.append("ssl_enabled")
+    if ssl_error is not None:
+        instance.ssl_error = ssl_error
+        update_fields.append("ssl_error")
+    if checked_at is not None:
+        instance.domain_last_checked_at = checked_at
+        update_fields.append("domain_last_checked_at")
+    instance.save(update_fields=list(dict.fromkeys(update_fields)))
+
+
+_DNS_RECORD_UNSET = object()
+
+
+def _save_assignment_state(
+    assignment: DomainAssignment | None,
+    *,
+    status: str | None = None,
+    last_error: str | None = None,
+    last_synced_at=None,
+    dns_record=_DNS_RECORD_UNSET,
+):
+    if assignment is None:
+        return
+    update_fields = ["updated_at"]
+    if status is not None:
+        assignment.status = status
+        update_fields.append("status")
+    if last_error is not None:
+        assignment.last_error = last_error
+        update_fields.append("last_error")
+    if last_synced_at is not None:
+        assignment.last_synced_at = last_synced_at
+        update_fields.append("last_synced_at")
+    if dns_record is not _DNS_RECORD_UNSET:
+        assignment.dns_record = dns_record
+        update_fields.append("dns_record")
+    assignment.save(update_fields=list(dict.fromkeys(update_fields)))
+
+
+def _mark_instance_domain_failed(instance: OdooInstance, assignment: DomainAssignment | None, message: str):
+    now = timezone.now()
+    ssl_status = (
+        OdooInstance.SSLStatus.NOT_CONFIGURED
+        if _effective_tls_mode(instance.server) == OdooServer.TLSMode.DISABLED
+        else OdooInstance.SSLStatus.FAILED
+    )
+    _save_instance_domain_state(
+        instance,
+        domain_status=OdooInstance.DomainStatus.FAILED,
+        ssl_status=ssl_status,
+        ssl_enabled=False,
+        ssl_error=message,
+        checked_at=now,
+    )
+    _save_assignment_state(
+        assignment,
+        status=DomainAssignment.Status.FAILED,
+        last_error=message,
+        last_synced_at=now,
+    )
+
+
+def _probe_domain_access(instance: OdooInstance) -> tuple[bool, bool, str]:
+    import ssl as ssl_lib
+    import urllib.error
+    import urllib.request
+
+    domain = normalize_domain_name(instance.domain)
+    if not domain:
+        return False, False, "No domain configured."
+
+    use_ssl = _effective_tls_mode(instance.server) != OdooServer.TLSMode.DISABLED
+    scheme = "https" if use_ssl else "http"
+    url = f"{scheme}://{domain}/web/health"
+    context = ssl_lib._create_unverified_context() if use_ssl else None
+    try:
+        with urllib.request.urlopen(url, timeout=8, context=context) as response:
+            ok = response.status == 200
+    except Exception as exc:
+        return False, use_ssl, str(exc)
+    if ok:
+        return True, use_ssl, f"Domain health check succeeded for {url}."
+    return False, use_ssl, f"Domain health check returned HTTP {response.status} for {url}."
+
+
+def _ensure_bare_traefik_gateway(server: OdooServer) -> tuple[bool, str]:
+    if server.deployment_mode != OdooServer.DeploymentMode.BARE_METAL:
+        return True, "Traefik gateway not required for this deployment mode."
+    if not server.ip_address:
+        return False, "Server IP is missing; cannot configure the Traefik gateway."
+    cache_key = f"deployments:server:{server.id}:traefik-gateway-ready"
+    if cache.get(cache_key):
+        return True, "Traefik gateway recently reconciled."
+
+    playbook = os.getenv("ANSIBLE_BARE_TRAEFIK_GATEWAY_PLAYBOOK", "").strip() or _default_bare_traefik_gateway_playbook()
+    if not Path(playbook).exists():
+        return False, f"Bare-metal Traefik playbook not found: {playbook}"
+
+    extra_vars = {
+        "traefik_dynamic_dir": _traefik_dynamic_dir(),
+        "traefik_tls_mode": _effective_tls_mode(server),
+        "traefik_acme_email": _traefik_acme_email(),
+        "traefik_acme_storage": getattr(settings, "TRAEFIK_ACME_STORAGE", "/var/lib/traefik/acme.json"),
+        "traefik_log_level": getattr(settings, "TRAEFIK_LOG_LEVEL", "INFO"),
+        "traefik_version": getattr(settings, "TRAEFIK_VERSION", "3.1.2"),
+    }
+    ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
+    try:
+        ok, log_blob = _run_ansible_playbook(
+            playbook,
+            str(server.ip_address),
+            extra_vars,
+            ssh_user=ssh_user,
+            ssh_key_path=ssh_key,
+            ssh_password=ssh_password,
+        )
+    finally:
+        if tmp_key:
+            os.unlink(tmp_key)
+    if ok:
+        cache.set(cache_key, True, 300)
+    return ok, log_blob
+
+
+def _apply_bare_traefik_route(instance: OdooInstance, server: OdooServer) -> tuple[bool, str]:
+    if not server.ip_address:
+        return False, "Server IP is missing; cannot apply the Traefik route."
+    playbook = os.getenv("ANSIBLE_BARE_TRAEFIK_ROUTE_PLAYBOOK", "").strip() or _default_bare_traefik_route_playbook()
+    if not Path(playbook).exists():
+        return False, f"Bare-metal Traefik route playbook not found: {playbook}"
+
+    ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
+    extra_vars = {
+        "domain": normalize_domain_name(instance.domain),
+        "http_port": instance.http_port,
+        "route_name": _route_slug(instance.domain),
+        "route_file": _route_file_path(instance.domain),
+        "traefik_dynamic_dir": _traefik_dynamic_dir(),
+        "traefik_tls_mode": _effective_tls_mode(server),
+    }
+    try:
+        ok, log_blob = _run_ansible_playbook(
+            playbook,
+            str(server.ip_address),
+            extra_vars,
+            ssh_user=ssh_user,
+            ssh_key_path=ssh_key,
+            ssh_password=ssh_password,
+        )
+    finally:
+        if tmp_key:
+            os.unlink(tmp_key)
+    return ok, log_blob
+
+
+def _delete_bare_traefik_route(instance: OdooInstance, server: OdooServer) -> tuple[bool, str]:
+    if not server.ip_address:
+        return False, "Server IP is missing; skipped Traefik route removal."
+    playbook = os.getenv("ANSIBLE_BARE_TRAEFIK_ROUTE_DELETE_PLAYBOOK", "").strip() or _default_bare_traefik_route_delete_playbook()
+    if not Path(playbook).exists():
+        return False, f"Bare-metal Traefik route delete playbook not found: {playbook}"
+
+    ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
+    extra_vars = {
+        "domain": normalize_domain_name(instance.domain),
+        "route_name": _route_slug(instance.domain),
+        "route_file": _route_file_path(instance.domain),
+        "traefik_dynamic_dir": _traefik_dynamic_dir(),
+    }
+    try:
+        ok, log_blob = _run_ansible_playbook(
+            playbook,
+            str(server.ip_address),
+            extra_vars,
+            ssh_user=ssh_user,
+            ssh_key_path=ssh_key,
+            ssh_password=ssh_password,
+        )
+    finally:
+        if tmp_key:
+            os.unlink(tmp_key)
+    return ok, log_blob
+
+
+def _upsert_managed_dns_record(instance: OdooInstance, assignment: DomainAssignment | None):
+    if assignment is None or not instance.server.managed_dns_enabled:
+        return None, "Managed DNS disabled for this server."
+
+    zone = assignment.zone or instance.server.managed_dns_zone
+    if zone is None:
+        raise RuntimeError("Managed DNS is enabled, but no matching DNS zone was found for this domain.")
+    if instance.server.managed_dns_zone_id and zone.id != instance.server.managed_dns_zone_id:
+        raise RuntimeError(f"{assignment.domain} does not belong to the server's configured DNS zone.")
+    if not zone.provider_zone_id:
+        raise RuntimeError(f"DNS zone {zone.name} is missing its provider zone id. Sync the zone first.")
+    if not instance.server.ip_address:
+        raise RuntimeError("Server IP is not available for DNS record provisioning.")
+
+    provider = get_dns_provider_service(zone.provider_account)
+    payload = provider.upsert_record(
+        zone.provider_zone_id,
+        record_type=DnsRecord.RecordType.A,
+        name=assignment.domain,
+        content=str(instance.server.ip_address),
+        proxied=assignment.proxied,
+        ttl=1,
+    )
+    now = timezone.now()
+    record, _ = DnsRecord.objects.update_or_create(
+        zone=zone,
+        record_type=DnsRecord.RecordType.A,
+        hostname=zone.hostname_for_domain(assignment.domain),
+        defaults={
+            "organization": instance.organization,
+            "value": str(instance.server.ip_address),
+            "ttl": 1,
+            "proxied": assignment.proxied,
+            "provider_record_id": str(payload.get("id") or ""),
+            "status": DnsRecord.Status.ACTIVE,
+            "last_error": "",
+            "last_synced_at": now,
+        },
+    )
+    assignment.zone = zone
+    assignment.is_managed = True
+    assignment.dns_record = record
+    assignment.last_error = ""
+    assignment.last_synced_at = now
+    assignment.save(update_fields=["zone", "is_managed", "dns_record", "last_error", "last_synced_at", "updated_at"])
+    return record, f"Managed DNS record ensured for {assignment.domain}."
+
+
+def _delete_managed_dns_record(assignment: DomainAssignment | None) -> tuple[bool, str]:
+    if assignment is None or not assignment.dns_record_id:
+        return True, "No managed DNS record to remove."
+
+    record = assignment.dns_record
+    if not record:
+        return True, "No managed DNS record to remove."
+
+    try:
+        if record.provider_record_id and assignment.zone_id and assignment.zone.provider_zone_id:
+            provider = get_dns_provider_service(assignment.zone.provider_account)
+            provider.delete_record(assignment.zone.provider_zone_id, record.provider_record_id)
+    except Exception as exc:
+        now = timezone.now()
+        record.status = DnsRecord.Status.FAILED
+        record.last_error = str(exc)
+        record.last_synced_at = now
+        record.save(update_fields=["status", "last_error", "last_synced_at", "updated_at"])
+        return False, str(exc)
+
+    now = timezone.now()
+    record.status = DnsRecord.Status.DELETED
+    record.last_error = ""
+    record.last_synced_at = now
+    record.save(update_fields=["status", "last_error", "last_synced_at", "updated_at"])
+    assignment.dns_record = None
+    assignment.is_managed = False
+    assignment.last_synced_at = now
+    assignment.save(update_fields=["dns_record", "is_managed", "last_synced_at", "updated_at"])
+    return True, f"Managed DNS record removed for {assignment.domain}."
+
+
+def _reconcile_instance_domain(instance: OdooInstance, *, skip_probe: bool = False) -> tuple[bool, str]:
+    now = timezone.now()
+    domain = normalize_domain_name(instance.domain)
+    if not domain:
+        _save_instance_domain_state(
+            instance,
+            domain_status=OdooInstance.DomainStatus.NOT_CONFIGURED,
+            ssl_status=OdooInstance.SSLStatus.NOT_CONFIGURED,
+            ssl_enabled=False,
+            ssl_error="",
+            checked_at=now,
+        )
+        return True, "No domain configured."
+
+    assignment = _ensure_domain_assignment(instance)
+    if assignment is None:
+        _mark_instance_domain_failed(instance, assignment, "Could not prepare a domain assignment.")
+        return False, "Could not prepare a domain assignment."
+
+    messages: list[str] = []
+    if instance.server.deployment_mode == OdooServer.DeploymentMode.BARE_METAL:
+        ok, route_log = _ensure_bare_traefik_gateway(instance.server)
+        if not ok:
+            _mark_instance_domain_failed(instance, assignment, route_log)
+            return False, route_log
+        if route_log:
+            messages.append(route_log)
+
+        ok, route_log = _apply_bare_traefik_route(instance, instance.server)
+        if not ok:
+            _mark_instance_domain_failed(instance, assignment, route_log)
+            return False, route_log
+        if route_log:
+            messages.append(route_log)
+
+    try:
+        _, dns_message = _upsert_managed_dns_record(instance, assignment)
+        if dns_message and "disabled" not in dns_message.lower():
+            messages.append(dns_message)
+    except Exception as exc:
+        _mark_instance_domain_failed(instance, assignment, str(exc))
+        return False, str(exc)
+
+    if skip_probe:
+        _save_instance_domain_state(
+            instance,
+            domain_status=OdooInstance.DomainStatus.PENDING,
+            ssl_status=(
+                OdooInstance.SSLStatus.NOT_CONFIGURED
+                if _effective_tls_mode(instance.server) == OdooServer.TLSMode.DISABLED
+                else OdooInstance.SSLStatus.PENDING
+            ),
+            ssl_enabled=False,
+            ssl_error="",
+            checked_at=now,
+        )
+        _save_assignment_state(
+            assignment,
+            status=DomainAssignment.Status.PENDING,
+            last_error="",
+            last_synced_at=now,
+        )
+        return True, " ".join(filter(None, messages)) or "Domain provisioning queued."
+
+    ok, ssl_active, probe_message = _probe_domain_access(instance)
+    if ok:
+        _save_instance_domain_state(
+            instance,
+            domain_status=OdooInstance.DomainStatus.ACTIVE,
+            ssl_status=OdooInstance.SSLStatus.ACTIVE if ssl_active else OdooInstance.SSLStatus.NOT_CONFIGURED,
+            ssl_enabled=ssl_active,
+            ssl_error="",
+            checked_at=now,
+        )
+        _save_assignment_state(
+            assignment,
+            status=DomainAssignment.Status.ACTIVE,
+            last_error="",
+            last_synced_at=now,
+        )
+        messages.append(probe_message)
+        return True, " ".join(filter(None, messages))
+
+    _save_instance_domain_state(
+        instance,
+        domain_status=OdooInstance.DomainStatus.PENDING,
+        ssl_status=(
+            OdooInstance.SSLStatus.NOT_CONFIGURED
+            if _effective_tls_mode(instance.server) == OdooServer.TLSMode.DISABLED
+            else OdooInstance.SSLStatus.PENDING
+        ),
+        ssl_enabled=False,
+        ssl_error=probe_message if ssl_active else "",
+        checked_at=now,
+    )
+    _save_assignment_state(
+        assignment,
+        status=DomainAssignment.Status.PENDING,
+        last_error=probe_message,
+        last_synced_at=now,
+    )
+    messages.append(probe_message)
+    return True, " ".join(filter(None, messages))
+
+
+def _detach_instance_domain_overlay(instance: OdooInstance) -> tuple[bool, str]:
+    now = timezone.now()
+    assignment = _active_domain_assignment(instance)
+    messages: list[str] = []
+    ok = True
+
+    if instance.domain and instance.server.deployment_mode == OdooServer.DeploymentMode.BARE_METAL:
+        route_ok, route_message = _delete_bare_traefik_route(instance, instance.server)
+        ok = ok and route_ok
+        if route_message:
+            messages.append(route_message)
+
+    record_ok, record_message = _delete_managed_dns_record(assignment)
+    ok = ok and record_ok
+    if record_message:
+        messages.append(record_message)
+
+    if assignment is not None:
+        assignment.status = DomainAssignment.Status.DELETED
+        assignment.instance = None
+        assignment.last_error = ""
+        assignment.last_synced_at = now
+        assignment.save(update_fields=["status", "instance", "last_error", "last_synced_at", "updated_at"])
+
+    instance.domain = ""
+    instance.domain_status = OdooInstance.DomainStatus.NOT_CONFIGURED
+    instance.domain_last_checked_at = now
+    instance.ssl_status = OdooInstance.SSLStatus.NOT_CONFIGURED
+    instance.ssl_enabled = False
+    instance.ssl_error = ""
+    instance.save(
+        update_fields=[
+            "domain",
+            "domain_status",
+            "domain_last_checked_at",
+            "ssl_status",
+            "ssl_enabled",
+            "ssl_error",
+            "updated_at",
+        ]
+    )
+    return ok, " ".join(filter(None, messages))
+
+
 def _pyos_ssh_creds(ext_server) -> tuple[str | None, str | None, str | None, str | None]:
     """
     Extract SSH creds from an ExternalServer for use with Ansible.
@@ -1618,6 +2128,15 @@ def configure_odoo_server(self, server_id: int, job_id: int | None = None):
             os.unlink(tmp_key)
 
     server.provisioning_log = _append_text(server.provisioning_log, f"[ansible server]\n{log_blob}".strip())
+    if ok and server.deployment_mode == OdooServer.DeploymentMode.BARE_METAL and (
+        server.domain_routing_enabled or server.managed_dns_enabled
+    ):
+        gateway_ok, gateway_log = _ensure_bare_traefik_gateway(server)
+        server.provisioning_log = _append_text(server.provisioning_log, f"[traefik gateway]\n{gateway_log}".strip())
+        if not gateway_ok:
+            ok = False
+            log_blob = _append_text(log_blob, gateway_log)
+
     server.status = OdooServer.Status.PROVISIONED if ok else OdooServer.Status.FAILED
     logger.info(
         "Server %s: configuration %s",
@@ -1719,9 +2238,8 @@ def create_odoo_instance(self, instance_id: int, job_id: int | None = None):
         return
 
     direct_playbook = os.getenv("ANSIBLE_ODOO_INSTANCE_DIRECT_PLAYBOOK", "").strip() or _default_odoo_instance_direct_playbook()
-    domain_playbook = os.getenv("ANSIBLE_ODOO_INSTANCE_PLAYBOOK", "").strip() or _default_odoo_instance_playbook()
-    use_direct = not instance.domain
-    playbook = direct_playbook if use_direct else domain_playbook
+    use_direct = True
+    playbook = direct_playbook
 
     if not Path(playbook).exists():
         logger.error("Instance %s: instance playbook not found: %s", instance.id, playbook)
@@ -1738,9 +2256,8 @@ def create_odoo_instance(self, instance_id: int, job_id: int | None = None):
         "instance_name": instance.name,
         "http_port": instance.http_port,
         "restart_policy": instance.restart_policy,
+        "proxy_mode": bool(instance.domain),
     }
-    if not use_direct:
-        extra_vars["domain"] = instance.domain
 
     ws_group = f"odoo.instance.{instance.id}"
     ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
@@ -1780,11 +2297,25 @@ def create_odoo_instance(self, instance_id: int, job_id: int | None = None):
     instance.provisioning_log = f"[ansible instance]\n{log_blob}".strip()
     summary = {}
     summary_text = ""
+    domain_message = ""
     if ok:
         instance.status = OdooInstance.Status.RUNNING
         instance.systemd_service = f"odoo-{instance.db_name}"
-        instance.nginx_site = "" if use_direct else (instance.domain or f"{instance.name}.local")
-        instance.ssl_enabled = False if use_direct else bool(instance.domain)
+        instance.nginx_site = ""
+        instance.ssl_enabled = False
+        if instance.domain:
+            domain_ok, domain_message = _reconcile_instance_domain(instance)
+            if not domain_ok:
+                logger.warning("Instance %s: domain overlay failed: %s", instance.id, domain_message)
+        else:
+            _save_instance_domain_state(
+                instance,
+                domain_status=OdooInstance.DomainStatus.NOT_CONFIGURED,
+                ssl_status=OdooInstance.SSLStatus.NOT_CONFIGURED,
+                ssl_enabled=False,
+                ssl_error="",
+                checked_at=timezone.now(),
+            )
         summary, summary_text = _store_instance_installation_summary(
             instance,
             server=server,
@@ -1802,12 +2333,18 @@ def create_odoo_instance(self, instance_id: int, job_id: int | None = None):
         instance.provisioning_log,
         "Instance created successfully — ready." if ok else "Instance creation failed.",
     )
+    if domain_message:
+        instance.provisioning_log = _append_text(instance.provisioning_log, domain_message)
     instance.save(
         update_fields=[
             "status",
             "systemd_service",
             "nginx_site",
             "ssl_enabled",
+            "domain_status",
+            "domain_last_checked_at",
+            "ssl_status",
+            "ssl_error",
             "provisioning_log",
             "addons_root_path",
             "addons_path_cache",
@@ -1816,7 +2353,7 @@ def create_odoo_instance(self, instance_id: int, job_id: int | None = None):
             "updated_at",
         ]
     )
-    access_url = f"http://{server.ip_address}:{instance.http_port}" if server.ip_address else ""
+    access_url = instance.access_url or (f"http://{server.ip_address}:{instance.http_port}" if server.ip_address else "")
     logger.info(
         "Instance %s: creation %s (access=%s)",
         instance.id,
@@ -1864,6 +2401,12 @@ def delete_odoo_instance(self, instance_id: int):
     server = instance.server
 
     try:
+        if instance.domain:
+            domain_ok, domain_log = _detach_instance_domain_overlay(instance)
+            if domain_log:
+                instance.provisioning_log = _append_text(instance.provisioning_log, f"[domain detach]\n{domain_log}")
+            if not domain_ok:
+                logger.warning("Instance %s domain cleanup completed with warnings: %s", instance_id, domain_log)
         if server.ip_address:
             if server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
                 _run_docker_instance_delete(instance, server)
@@ -1903,6 +2446,58 @@ def delete_odoo_instance(self, instance_id: int):
         _broadcast_instance_removed(instance.id, server.id)
         instance.delete()
         _broadcast_server_snapshot(server)
+
+
+@shared_task(bind=True, max_retries=0)
+def provision_instance_domain(self, instance_id: int):
+    instance = OdooInstance.objects.select_related("server").get(pk=instance_id)
+    if instance.status == OdooInstance.Status.DELETED:
+        return
+    ok, message = _reconcile_instance_domain(instance)
+    instance.provisioning_log = _append_text(instance.provisioning_log, f"[domain]\n{message}".strip())
+    instance.save(update_fields=["provisioning_log", "updated_at"])
+    _broadcast_instance(
+        instance.id,
+        message,
+        instance.status,
+        done=False,
+    )
+    if not ok:
+        logger.warning("Instance %s domain provisioning failed: %s", instance.id, message)
+
+
+@shared_task(bind=True, max_retries=0)
+def detach_instance_domain(self, instance_id: int):
+    instance = OdooInstance.objects.select_related("server").get(pk=instance_id)
+    if instance.status == OdooInstance.Status.DELETED:
+        return
+    ok, message = _detach_instance_domain_overlay(instance)
+    instance.provisioning_log = _append_text(instance.provisioning_log, f"[domain detach]\n{message}".strip())
+    instance.save(update_fields=["provisioning_log", "updated_at"])
+    _broadcast_instance(
+        instance.id,
+        "Domain detached." if ok else f"Domain detach completed with warnings: {message}",
+        instance.status,
+        done=False,
+    )
+
+
+@shared_task
+def reconcile_instance_domains():
+    instances = (
+        OdooInstance.objects.filter(domain__gt="")
+        .exclude(status=OdooInstance.Status.DELETED)
+        .select_related("server", "server__managed_dns_zone")
+    )
+    for instance in instances:
+        try:
+            ok, message = _reconcile_instance_domain(instance)
+            instance.provisioning_log = _append_text(instance.provisioning_log, f"[domain reconcile]\n{message}".strip())
+            instance.save(update_fields=["provisioning_log", "updated_at"])
+            if not ok:
+                logger.warning("Instance %s domain reconciliation failed: %s", instance.id, message)
+        except Exception:
+            logger.warning("Instance %s domain reconciliation crashed.", instance.id, exc_info=True)
 
 
 def _tcp_reachable(host: str, port: int, timeout: int = 5) -> bool:
@@ -2887,10 +3482,23 @@ def _run_docker_instance_create(instance: OdooInstance, server: OdooServer, job_
     instance.provisioning_log = f"[docker create]\n{log_blob}".strip()
     summary = {}
     summary_text = ""
+    domain_message = ""
     if ok:
         instance.container_name = container_name
         instance.status = OdooInstance.Status.RUNNING
-        instance.ssl_enabled = True
+        if instance.domain:
+            domain_ok, domain_message = _reconcile_instance_domain(instance)
+            if not domain_ok:
+                logger.warning("Docker instance %s domain setup failed: %s", instance.id, domain_message)
+        else:
+            _save_instance_domain_state(
+                instance,
+                domain_status=OdooInstance.DomainStatus.NOT_CONFIGURED,
+                ssl_status=OdooInstance.SSLStatus.NOT_CONFIGURED,
+                ssl_enabled=False,
+                ssl_error="",
+                checked_at=timezone.now(),
+            )
         summary, summary_text = _store_instance_installation_summary(
             instance,
             server=server,
@@ -2908,11 +3516,17 @@ def _run_docker_instance_create(instance: OdooInstance, server: OdooServer, job_
         instance.provisioning_log,
         "Docker instance created successfully — ready." if ok else "Docker instance creation failed.",
     )
+    if domain_message:
+        instance.provisioning_log = _append_text(instance.provisioning_log, domain_message)
     instance.save(
         update_fields=[
             "container_name",
             "status",
             "ssl_enabled",
+            "domain_status",
+            "domain_last_checked_at",
+            "ssl_status",
+            "ssl_error",
             "provisioning_log",
             "addons_root_path",
             "addons_path_cache",
@@ -2922,7 +3536,7 @@ def _run_docker_instance_create(instance: OdooInstance, server: OdooServer, job_
         ]
     )
 
-    access_url = f"https://{instance.domain}" if instance.domain else ""
+    access_url = instance.access_url or (f"https://{instance.domain}" if instance.domain else "")
     _broadcast_instance(
         instance.id,
         f"Docker instance running — {access_url}" if ok else "Docker instance creation failed.",
@@ -2945,7 +3559,7 @@ def _run_docker_instance_create(instance: OdooInstance, server: OdooServer, job_
             odoo_version=server.odoo_version,
             server_ip=server.ip_address,
             systemd_service="",
-            ssl_enabled=True,
+            ssl_enabled=instance.ssl_enabled,
             status=instance.status,
             note="Docker container created successfully.",
             deployed_by=instance.created_by,

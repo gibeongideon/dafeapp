@@ -1,0 +1,100 @@
+---
+- name: Install and configure Traefik for bare-metal domain routing
+  hosts: all
+  become: true
+
+  vars:
+    traefik_version: "{{ traefik_version | default('3.1.2') }}"
+    traefik_dynamic_dir: "{{ traefik_dynamic_dir | default('/etc/traefik/dynamic') }}"
+    traefik_static_config: "/etc/traefik/traefik.yml"
+    traefik_acme_storage: "{{ traefik_acme_storage | default('/var/lib/traefik/acme.json') }}"
+    traefik_acme_email: "{{ traefik_acme_email | default('odoo@example.com') }}"
+    traefik_log_level: "{{ traefik_log_level | default('INFO') }}"
+    traefik_tls_mode: "{{ traefik_tls_mode | default('LETS_ENCRYPT') }}"
+    traefik_download_url: "https://github.com/traefik/traefik/releases/download/v{{ traefik_version }}/traefik_v{{ traefik_version }}_linux_amd64.tar.gz"
+    traefik_download_path: "/tmp/traefik-{{ traefik_version }}.tar.gz"
+
+  tasks:
+    - name: Ensure Traefik configuration directories exist
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      loop:
+        - /etc/traefik
+        - "{{ traefik_dynamic_dir }}"
+        - "{{ traefik_acme_storage | dirname }}"
+
+    - name: Download Traefik archive
+      get_url:
+        url: "{{ traefik_download_url }}"
+        dest: "{{ traefik_download_path }}"
+        mode: "0644"
+
+    - name: Extract Traefik binary
+      unarchive:
+        src: "{{ traefik_download_path }}"
+        dest: /usr/local/bin
+        remote_src: true
+        include:
+          - traefik
+        mode: "0755"
+
+    - name: Ensure ACME storage file exists
+      file:
+        path: "{{ traefik_acme_storage }}"
+        state: touch
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Render Traefik static config
+      template:
+        src: templates/traefik-static.yml.j2
+        dest: "{{ traefik_static_config }}"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Install Traefik systemd unit
+      copy:
+        dest: /etc/systemd/system/traefik.service
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Traefik reverse proxy
+          Wants=network-online.target
+          After=network-online.target
+
+          [Service]
+          Type=simple
+          ExecStart=/usr/local/bin/traefik --configFile={{ traefik_static_config }}
+          Restart=always
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Open HTTP and HTTPS firewall ports when UFW exists
+      shell: |
+        if command -v ufw >/dev/null 2>&1; then
+          ufw allow 80/tcp || true
+          ufw allow 443/tcp || true
+        fi
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Reload systemd for Traefik service
+      systemd:
+        daemon_reload: true
+
+    - name: Enable and start Traefik
+      systemd:
+        name: traefik
+        enabled: true
+        state: started

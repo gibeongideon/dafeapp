@@ -13,7 +13,7 @@ db_filter     = ^{{ db_name }}$
 
 ; ── Network ───────────────────────────────────────────────────────────────────
 http_port     = {{ http_port }}
-proxy_mode    = False
+proxy_mode    = {{ 'True' if proxy_mode | default(false) else 'False' }}
 
 ; ── Isolated environment ──────────────────────────────────────────────────────
 ; Own filestore, sessions, and attachments directory

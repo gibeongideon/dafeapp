@@ -159,6 +159,10 @@ class OdooServer(models.Model):
         BARE_METAL = "BARE_METAL", "Bare-metal (systemd)"
         DOCKER = "DOCKER", "Docker (Traefik + containers)"
 
+    class TLSMode(models.TextChoices):
+        DISABLED = "DISABLED", "Disabled"
+        LETS_ENCRYPT = "LETS_ENCRYPT", "Let's Encrypt"
+
     class Status(models.TextChoices):
         PENDING = "PENDING", "Pending"
         PROVISIONING = "PROVISIONING", "Provisioning"
@@ -194,6 +198,20 @@ class OdooServer(models.Model):
     provider_server_id = models.CharField(max_length=120, blank=True, default="")
     ip_address = models.GenericIPAddressField(null=True, blank=True)
     dns_domain = models.CharField(max_length=255, blank=True, default="")
+    managed_dns_enabled = models.BooleanField(default=False)
+    managed_dns_zone = models.ForeignKey(
+        "dns.DnsZone",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="odoo_servers",
+    )
+    domain_routing_enabled = models.BooleanField(default=False)
+    tls_mode = models.CharField(
+        max_length=20,
+        choices=TLSMode.choices,
+        default=TLSMode.LETS_ENCRYPT,
+    )
     firewall_configured = models.BooleanField(default=False)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     max_instances = models.PositiveIntegerField(default=20)
@@ -269,6 +287,19 @@ class OdooInstance(models.Model):
         ON_FAILURE = "on-failure", "On Failure"
         NO = "no", "No"
 
+    class DomainStatus(models.TextChoices):
+        NOT_CONFIGURED = "NOT_CONFIGURED", "Not configured"
+        PENDING = "PENDING", "Pending"
+        ACTIVE = "ACTIVE", "Active"
+        FAILED = "FAILED", "Failed"
+        DELETED = "DELETED", "Deleted"
+
+    class SSLStatus(models.TextChoices):
+        NOT_CONFIGURED = "NOT_CONFIGURED", "Not configured"
+        PENDING = "PENDING", "Pending"
+        ACTIVE = "ACTIVE", "Active"
+        FAILED = "FAILED", "Failed"
+
     organization = models.ForeignKey(
         "organizations.Organization",
         on_delete=models.CASCADE,
@@ -289,6 +320,18 @@ class OdooInstance(models.Model):
     systemd_service = models.CharField(max_length=255, blank=True, default="")
     nginx_site = models.CharField(max_length=255, blank=True, default="")
     ssl_enabled = models.BooleanField(default=False)
+    domain_status = models.CharField(
+        max_length=20,
+        choices=DomainStatus.choices,
+        default=DomainStatus.NOT_CONFIGURED,
+    )
+    domain_last_checked_at = models.DateTimeField(null=True, blank=True)
+    ssl_status = models.CharField(
+        max_length=20,
+        choices=SSLStatus.choices,
+        default=SSLStatus.NOT_CONFIGURED,
+    )
+    ssl_error = models.TextField(blank=True, default="")
     restart_policy = models.CharField(
         max_length=15, choices=RestartPolicy.choices, default=RestartPolicy.ALWAYS
     )
@@ -326,11 +369,43 @@ class OdooInstance(models.Model):
 
     @property
     def access_url(self) -> str:
+        """Primary access URL, preferring a healthy domain path when available."""
+        return self.preferred_access_url or self.direct_access_url
+
+    @property
+    def direct_access_url(self) -> str:
         """Direct IP:PORT access URL — empty if server IP not yet assigned."""
         ip = self.server.ip_address if self.server_id else None
         if ip:
             return f"http://{ip}:{self.http_port}"
         return ""
+
+    @property
+    def domain_access_url(self) -> str:
+        if not self.domain:
+            return ""
+        tls_mode = self.server.tls_mode if self.server_id else OdooServer.TLSMode.LETS_ENCRYPT
+        scheme = "http" if tls_mode == OdooServer.TLSMode.DISABLED else "https"
+        return f"{scheme}://{self.domain}"
+
+    @property
+    def preferred_access_url(self) -> str:
+        if not self.domain:
+            return self.direct_access_url
+
+        if self.server_id and self.server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
+            return self.domain_access_url
+
+        if self.domain_status == self.DomainStatus.ACTIVE or self.ssl_status == self.SSLStatus.ACTIVE or self.ssl_enabled:
+            return self.domain_access_url
+        return self.direct_access_url
+
+    @property
+    def active_domain_assignment(self):
+        relation = getattr(self, "domain_assignments", None)
+        if relation is None:
+            return None
+        return relation.exclude(status="DELETED").order_by("-created_at", "-id").first()
 
     @property
     def storage_path(self) -> str:

@@ -29,6 +29,7 @@
     db_name:       "{{ db_name       | default('odoo_db') }}"
     instance_name: "{{ instance_name | default('instance') }}"
     http_port:     "{{ (http_port    | default(8069)) | int }}"
+    proxy_mode:    "{{ proxy_mode    | default(false) }}"
 
     # Shared Odoo installation (source + binary, created by odoo_install.sh)
     odoo_user:       "odoo"

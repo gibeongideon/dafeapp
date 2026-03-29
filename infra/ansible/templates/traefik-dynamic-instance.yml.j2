@@ -1,0 +1,31 @@
+http:
+  routers:
+    {{ route_name }}:
+      rule: Host(`{{ domain }}`)
+{% if traefik_tls_mode == 'DISABLED' %}
+      entryPoints:
+        - web
+{% else %}
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+{% endif %}
+      service: {{ route_name }}
+    {{ route_name }}-websocket:
+      rule: Host(`{{ domain }}`) && PathPrefix(`/websocket`)
+{% if traefik_tls_mode == 'DISABLED' %}
+      entryPoints:
+        - web
+{% else %}
+      entryPoints:
+        - websecure
+      tls:
+        certResolver: letsencrypt
+{% endif %}
+      service: {{ route_name }}
+  services:
+    {{ route_name }}:
+      loadBalancer:
+        servers:
+          - url: http://127.0.0.1:{{ http_port }}
