@@ -16,7 +16,6 @@ from django.http import JsonResponse
 from django.urls import reverse
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
-from django.utils.text import slugify
 from django.views import View
 from django.views.generic import TemplateView
 from asgiref.sync import async_to_sync
@@ -41,6 +40,8 @@ from deployments.models import (
 )
 from deployments.domain_utils import (
     build_platform_domain_label,
+    is_platform_domain_label_valid,
+    normalize_platform_domain_label,
     platform_base_domain,
     platform_domain_for_label,
     platform_domains_enabled,
@@ -146,16 +147,16 @@ def _domain_in_use(_org, domain: str, *, exclude_instance_id: int | None = None)
     return instances.exists()
 
 
-def _generate_platform_domain(instance_name: str) -> str:
+def _generate_platform_domain(_instance_name: str = "") -> str:
     if not platform_domains_enabled():
         return ""
     for attempt in range(0, 200):
-        label = build_platform_domain_label(instance_name, attempt)
+        label = build_platform_domain_label("", attempt)
         domain = platform_domain_for_label(label)
         if domain and not _domain_in_use(None, domain):
             return domain
-    fallback = slugify(instance_name or "", allow_unicode=False).strip("-") or "app"
-    return platform_domain_for_label(f"{fallback[:36]}-{timezone.now().strftime('%H%M%S')}")
+    fallback = build_platform_domain_label("", 999)
+    return platform_domain_for_label(fallback)
 
 
 def _sync_instance_domain_assignment(
@@ -1099,6 +1100,9 @@ class OdooInstanceCreateAPIView(LoginRequiredMixin, View):
         name = (payload.get("name") or "").strip()
         db_name = (payload.get("db_name") or "").strip()
         custom_domain = normalize_domain_name(payload.get("custom_domain") or payload.get("domain") or "")
+        requested_platform_label = normalize_platform_domain_label(
+            payload.get("platform_domain_label") or payload.get("platform_label") or ""
+        )
         req_cpu = int(payload.get("requested_cpu_cores") or 1)
         req_ram = int(payload.get("requested_ram_mb") or 1024)
         port_raw = payload.get("http_port")
@@ -1119,11 +1123,17 @@ class OdooInstanceCreateAPIView(LoginRequiredMixin, View):
         if not ok:
             return JsonResponse({"error": capacity_msg}, status=400)
 
-        platform_domain = _generate_platform_domain(name)
+        if requested_platform_label and not is_platform_domain_label_valid(requested_platform_label):
+            return JsonResponse(
+                {"error": "DafeApp domain prefix must be 6-63 characters, use only lowercase letters, numbers, or hyphens, and cannot start or end with a hyphen."},
+                status=400,
+            )
+
+        platform_domain = platform_domain_for_label(requested_platform_label) if requested_platform_label else _generate_platform_domain(name)
         if not platform_domain:
             return JsonResponse({"error": f"Platform base domain is not configured. Set {platform_base_domain() or 'PLATFORM_BASE_DOMAIN'} first."}, status=400)
         if _domain_in_use(org, platform_domain):
-            return JsonResponse({"error": "Generated platform domain is already used. Please retry."}, status=400)
+            return JsonResponse({"error": "That DafeApp domain prefix is already used. Choose another one or regenerate."}, status=400)
 
         logger.info(
             "Instance create requested by %s: server=%s name=%s db_name=%s mode=%s port=%s platform_domain=%s custom_domain=%s",

@@ -128,7 +128,7 @@
           <div class="grid md:grid-cols-3 gap-3">
             <div class="rounded-xl border border-gray-200 bg-gray-50 px-4 py-4">
               <p class="text-xs uppercase tracking-wide text-gray-400">Primary URL</p>
-              <p class="mt-2 text-sm text-gray-700">Auto-created for each instance, for example <span class="font-mono">crm.{{ PLATFORM_BASE_DOMAIN|default:"dafeapp.com" }}</span>.</p>
+              <p class="mt-2 text-sm text-gray-700">Auto-created for each instance with an editable random prefix, for example <span class="font-mono">talvexa4821.{{ PLATFORM_BASE_DOMAIN|default:"dafeapp.com" }}</span>.</p>
             </div>
             <div class="rounded-xl border border-gray-200 bg-gray-50 px-4 py-4">
               <p class="text-xs uppercase tracking-wide text-gray-400">Custom URL</p>
@@ -817,8 +817,24 @@
         </div>
         <div class="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2.5">
           <p class="text-xs font-medium text-emerald-700">Default DafeApp Domain</p>
-          <p id="instance-platform-domain-preview" class="mt-1 font-mono text-sm text-emerald-800 break-all">app.dafeapp.com</p>
-          <p class="mt-1 text-[11px] text-emerald-700">This hostname is auto-created for every instance. You can also add your own domain below as an extra alias.</p>
+          <div class="mt-2 flex items-center gap-2">
+            <input id="instance-platform-label"
+                   class="w-full px-3 py-2 text-sm border border-emerald-200 rounded-lg font-mono bg-white text-emerald-900"
+                   minlength="6"
+                   maxlength="63"
+                   autocapitalize="none"
+                   autocomplete="off"
+                   spellcheck="false"
+                   placeholder="random prefix" />
+            <button id="instance-platform-randomize"
+                    type="button"
+                    class="px-3 py-2 text-xs font-medium rounded-lg border border-emerald-200 text-emerald-800 bg-white hover:bg-emerald-100">
+              Randomize
+            </button>
+            <span class="text-sm font-mono text-emerald-800 whitespace-nowrap">.{{ PLATFORM_BASE_DOMAIN|default:"dafeapp.com" }}</span>
+          </div>
+          <p id="instance-platform-domain-preview" class="mt-2 font-mono text-sm text-emerald-800 break-all">talvexa4821.dafeapp.com</p>
+          <p class="mt-1 text-[11px] text-emerald-700">This is the default primary hostname for the instance. It starts with a random unique prefix, and you can edit the prefix before creating the instance.</p>
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div>
@@ -1400,6 +1416,23 @@
   let dnsRecordsCache = [];
   let dnsAssignmentsCache = [];
   let dnsInstancesCache = [];
+
+  const platformSyllables = ["da", "fe", "lo", "ra", "mi", "ko", "zen", "tri", "vel", "nor", "qua", "sol", "tal", "ver", "nex", "luna", "cora", "vexa", "mero", "sira"];
+
+  function randomPlatformLabel() {
+    const body = Array.from({ length: 3 }, () => platformSyllables[Math.floor(Math.random() * platformSyllables.length)]).join("");
+    const digits = String(Math.floor(Math.random() * 9000) + 1000);
+    return `${body}${digits}`.toLowerCase();
+  }
+
+  function normalizePlatformLabel(value) {
+    return String(value || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, "-")
+      .replace(/-{2,}/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 63);
+  }
 
   function formatDate(value) {
     if (!value) return "Never";
@@ -2843,6 +2876,7 @@
       $("instance-db-name").value = "";
       $("instance-port").value = "";
       if ($("instance-domain")) $("instance-domain").value = "";
+      if ($("instance-platform-label")) $("instance-platform-label").value = randomPlatformLabel();
       setMsg($("instance-modal-msg"), "");
       // Toggle domain and port guidance based on deployment mode
       const domainRow = $("instance-domain-row");
@@ -2871,13 +2905,14 @@
   function updateAccessPreview() {
     const el = $("instance-access-preview");
     const platformEl = $("instance-platform-domain-preview");
-    const rawName = $("instance-name") ? $("instance-name").value.trim() : "";
-    const slug = (rawName || "app").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "app";
-    const platformDomain = platformBaseDomain ? `${slug}.${platformBaseDomain}` : slug;
+    const labelInput = $("instance-platform-label");
+    const normalizedLabel = normalizePlatformLabel(labelInput ? labelInput.value : "") || randomPlatformLabel();
+    if (labelInput && labelInput.value !== normalizedLabel) labelInput.value = normalizedLabel;
+    const platformDomain = platformBaseDomain ? `${normalizedLabel}.${platformBaseDomain}` : normalizedLabel;
     if (platformEl) platformEl.textContent = platformDomain;
     if (selectedServerMode === "DOCKER") {
       const customDomain = $("instance-domain") ? $("instance-domain").value.trim() : "";
-      const url = `https://${customDomain || platformDomain}`;
+      const url = platformDomain ? `https://${platformDomain}` : (customDomain ? `https://${customDomain}` : "#");
       el.textContent = url;
       el.href = url;
       el.className = "text-xs font-mono text-purple-600 break-all hover:underline";
@@ -2893,6 +2928,11 @@
   }
   $("instance-port")?.addEventListener("input", updateAccessPreview);
   $("instance-name")?.addEventListener("input", updateAccessPreview);
+  $("instance-platform-label")?.addEventListener("input", updateAccessPreview);
+  $("instance-platform-randomize")?.addEventListener("click", () => {
+    if ($("instance-platform-label")) $("instance-platform-label").value = randomPlatformLabel();
+    updateAccessPreview();
+  });
   if ($("instance-domain")) $("instance-domain").addEventListener("input", updateAccessPreview);
 
   $("submit-create-instance")?.addEventListener("click", async () => {
@@ -2903,9 +2943,11 @@
     if (!name || !dbName)  { setMsg(msgEl, "Instance name and database name are required.", true); return; }
     const isDocker = selectedServerMode === "DOCKER";
     const domain = $("instance-domain") ? $("instance-domain").value.trim() : "";
+    const platformLabel = normalizePlatformLabel($("instance-platform-label") ? $("instance-platform-label").value.trim() : "");
     setMsg(msgEl, "Creating instance…");
 
     const payload = { server_id: selectedServerId, name, db_name: dbName };
+    if (platformLabel) payload.platform_domain_label = platformLabel;
     if (domain) payload.custom_domain = domain;
     if (!isDocker) payload.http_port = $("instance-port").value.trim();
 
@@ -2919,12 +2961,13 @@
     if (emptyRow) emptyRow.remove();
     const newRow = document.createElement("tr");
     newRow.id = `instance-row-${iid}`;
+    const primaryDomain = (resp.data && resp.data.domain) || (platformLabel && platformBaseDomain ? `${platformLabel}.${platformBaseDomain}` : "");
     const portModeCell = isDocker
       ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-100 text-purple-700">Docker</span>`
       : `<span class="font-mono text-gray-600">${resp.data.http_port || ""}</span>`;
     const accessCell = isDocker
-      ? `<a href="https://${domain}" target="_blank" class="text-xs font-mono text-purple-600 hover:underline">https://${domain}</a>`
-      : `<span class="text-xs text-gray-400">${domain ? `https://${domain}` : "pending"}</span>`;
+      ? `<a href="https://${primaryDomain || domain}" target="_blank" class="text-xs font-mono text-purple-600 hover:underline">https://${primaryDomain || domain}</a>`
+      : `<span class="text-xs text-gray-400">${primaryDomain ? `https://${primaryDomain}` : "pending"}</span>`;
     newRow.innerHTML = `
       <td class="px-5 py-3"><div class="font-medium text-gray-900">${name}</div><div class="text-xs text-gray-500">${dbName}</div></td>
       <td class="px-5 py-3 text-gray-700 text-xs">${$("instance-server-name").textContent}</td>

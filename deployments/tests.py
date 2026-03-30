@@ -1029,6 +1029,7 @@ class DnsSslDeploymentFlowTests(TestCase):
     @override_settings(PLATFORM_BASE_DOMAIN="dafeapp.com")
     @patch("deployments.views._dispatch")
     def test_create_instance_reserves_domain_assignment(self, mock_dispatch):
+        platform_label = "nexora4821"
         server = OdooServer.objects.create(
             organization=self.org,
             infrastructure=self.infrastructure,
@@ -1052,6 +1053,7 @@ class DnsSslDeploymentFlowTests(TestCase):
                 "server_id": server.id,
                 "name": "crm",
                 "db_name": "crm_db",
+                "platform_domain_label": platform_label,
                 "custom_domain": "crm.example.com",
                 "http_port": 8072,
             },
@@ -1062,10 +1064,72 @@ class DnsSslDeploymentFlowTests(TestCase):
         custom = DomainAssignment.objects.get(instance=instance, domain="crm.example.com", status=DomainAssignment.Status.PENDING)
         self.assertEqual(instance.domain_status, OdooInstance.DomainStatus.PENDING)
         self.assertEqual(instance.ssl_status, OdooInstance.SSLStatus.PENDING)
-        self.assertEqual(instance.domain, "crm.dafeapp.com")
-        self.assertEqual(primary.domain, "crm.dafeapp.com")
+        self.assertEqual(instance.domain, f"{platform_label}.dafeapp.com")
+        self.assertEqual(primary.domain, f"{platform_label}.dafeapp.com")
+        self.assertEqual(primary.source, DomainAssignment.Source.PLATFORM)
         self.assertEqual(custom.zone_id, self.zone.id)
         mock_dispatch.assert_called_once()
+
+    @override_settings(PLATFORM_BASE_DOMAIN="dafeapp.com")
+    @patch("deployments.views._dispatch")
+    def test_create_instance_rejects_reused_platform_domain_label(self, mock_dispatch):
+        existing_server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            domain_routing_enabled=True,
+            tls_mode=OdooServer.TLSMode.LETS_ENCRYPT,
+            name="existing-host",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            ip_address="203.0.113.55",
+            status=OdooServer.Status.PROVISIONED,
+            created_by=self.user,
+        )
+        OdooInstance.objects.create(
+            organization=self.org,
+            server=existing_server,
+            name="existing-app",
+            db_name="existing_db",
+            domain="nexora4821.dafeapp.com",
+            http_port=8071,
+            status=OdooInstance.Status.RUNNING,
+            created_by=self.user,
+        )
+
+        target_server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            domain_routing_enabled=True,
+            tls_mode=OdooServer.TLSMode.LETS_ENCRYPT,
+            name="target-host",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            ip_address="203.0.113.56",
+            status=OdooServer.Status.PROVISIONED,
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            reverse("deployments:odoo-instance-create"),
+            data={
+                "server_id": target_server.id,
+                "name": "new-app",
+                "db_name": "new_app_db",
+                "platform_domain_label": "nexora4821",
+                "http_port": 8072,
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json()["error"],
+            "That DafeApp domain prefix is already used. Choose another one or regenerate.",
+        )
+        mock_dispatch.assert_not_called()
 
     @override_settings(PLATFORM_BASE_DOMAIN="dafeapp.com")
     @patch("deployments.views._dispatch")
