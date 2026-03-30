@@ -22,6 +22,7 @@ urlpatterns = [
     path("odoo/instances/<int:instance_id>/repos/create-github/", views.OdooInstanceGitRepoCreateGitHubAPIView.as_view(), name="odoo-instance-repo-create-github"),
     path("odoo/instances/<int:instance_id>/repos/upload-to-github/", views.OdooInstanceGitRepoUploadToGitHubAPIView.as_view(), name="odoo-instance-repo-upload-github"),
     path("odoo/instances/<int:instance_id>/repos/<int:repo_id>/", views.OdooInstanceGitRepoDetailAPIView.as_view(), name="odoo-instance-repo-detail"),
+    path("odoo/instances/<int:instance_id>/repos/<int:repo_id>/status/", views.OdooInstanceGitRepoStatusAPIView.as_view(), name="odoo-instance-repo-status"),
     path("odoo/instances/<int:instance_id>/repos/<int:repo_id>/sync/", views.OdooInstanceGitRepoSyncAPIView.as_view(), name="odoo-instance-repo-sync"),
     path("odoo/instances/<int:instance_id>/repos/<int:repo_id>/rollback/", views.OdooInstanceGitRepoRollbackAPIView.as_view(), name="odoo-instance-repo-rollback"),
     path("odoo/instances/<int:instance_id>/repos/<int:repo_id>/delete/", views.OdooInstanceGitRepoDeleteAPIView.as_view(), name="odoo-instance-repo-delete"),

@@ -93,11 +93,13 @@ class OdooInstanceGitRepoAdmin(admin.ModelAdmin):
         "branch",
         "auth_type",
         "auto_update",
+        "install_requirements_on_update",
+        "auto_upgrade_modules_on_update",
         "status",
         "last_pulled_at",
         "created_at",
     ]
-    list_filter = ["auth_type", "auto_update", "status", "is_enabled"]
+    list_filter = ["auth_type", "auto_update", "install_requirements_on_update", "auto_upgrade_modules_on_update", "status", "is_enabled"]
     search_fields = ["repo_name", "git_url", "instance__name", "instance__organization__name"]
 
 

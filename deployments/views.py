@@ -79,6 +79,7 @@ from deployments.tasks import (
     remove_instance_repo,
     rollback_odoo_instance,
     rollback_instance_repo,
+    sync_instance_repo_status,
     terraform_apply_instance,
     update_instance_repo,
 )
@@ -499,6 +500,8 @@ def _create_instance_repo_and_dispatch(
     auth_type: str,
     credential,
     auto_update: bool = False,
+    install_requirements_on_update: bool = False,
+    auto_upgrade_modules_on_update: bool = True,
     is_enabled: bool = True,
     display_order=None,
 ):
@@ -518,6 +521,8 @@ def _create_instance_repo_and_dispatch(
         auth_type=auth_type,
         local_path=_build_repo_local_path(instance, repo_name),
         auto_update=auto_update,
+        install_requirements_on_update=install_requirements_on_update,
+        auto_upgrade_modules_on_update=auto_upgrade_modules_on_update,
         is_enabled=is_enabled,
         display_order=int(display_order or 0),
         default_branch=(branch or "main").strip() or "main",
@@ -595,6 +600,57 @@ def _run_local_git(args, *, cwd: Path):
         output = (result.stdout or "") + ("\n" + result.stderr if result.stderr else "")
         raise RuntimeError(output.strip() or f"Git command failed: {' '.join(args)}")
     return result
+
+
+def _github_full_name_from_git_url(git_url: str) -> str:
+    text = (git_url or "").strip()
+    if not text:
+        return ""
+
+    if text.startswith("git@github.com:"):
+        path = text.split("git@github.com:", 1)[1]
+    else:
+        parsed = urlparse(text)
+        if (parsed.hostname or "").strip().lower() != "github.com":
+            return ""
+        path = parsed.path.lstrip("/")
+
+    parts = [segment for segment in path.removesuffix(".git").split("/") if segment]
+    if len(parts) < 2:
+        return ""
+    return f"{parts[0]}/{parts[1]}"
+
+
+def _github_clone_url_for_full_name(full_name: str) -> str:
+    normalized = (full_name or "").strip().strip("/")
+    return f"https://github.com/{normalized}.git" if normalized else ""
+
+
+def _github_publish_actor_from_linked_repo(linked_repo: OdooInstanceGitRepo):
+    credential = linked_repo.credential
+    if linked_repo.auth_type == OdooInstanceGitRepo.AuthType.GITHUB_OAUTH:
+        if credential is None or not credential.github_account_id or not credential.github_account.is_active:
+            raise ValueError("The linked GitHub repository is missing an active connected GitHub account.")
+        return SimpleNamespace(
+            auth_type=linked_repo.auth_type,
+            access_token=credential.access_token,
+            username=(credential.git_username or credential.github_account.username or "").strip(),
+            account=credential.github_account,
+            credential=credential,
+        )
+
+    if linked_repo.auth_type == OdooInstanceGitRepo.AuthType.TOKEN:
+        if credential is None:
+            raise ValueError("The linked GitHub repository is missing its saved personal access token credential.")
+        return SimpleNamespace(
+            auth_type=linked_repo.auth_type,
+            access_token=credential.access_token,
+            username=(credential.git_username or "").strip(),
+            account=None,
+            credential=credential,
+        )
+
+    raise ValueError("Only GitHub OAuth and personal access token repositories support zip publishing.")
 
 
 def _github_publish_actor_from_payload(*, user, payload):
@@ -1681,6 +1737,8 @@ class OdooInstanceGitRepoListAPIView(LoginRequiredMixin, View):
                 auth_type=auth_type,
                 credential=credential,
                 auto_update=str(payload.get("auto_update", "")).lower() in ("1", "true", "yes", "on"),
+                install_requirements_on_update=str(payload.get("install_requirements_on_update", "")).lower() in ("1", "true", "yes", "on"),
+                auto_upgrade_modules_on_update=str(payload.get("auto_upgrade_modules_on_update", "true")).lower() not in ("0", "false", "no", "off"),
                 is_enabled=str(payload.get("is_enabled", "true")).lower() not in ("0", "false", "no", "off"),
                 display_order=payload.get("display_order"),
             )
@@ -1720,6 +1778,10 @@ class OdooInstanceGitRepoDetailAPIView(LoginRequiredMixin, View):
             branch_changed = True
         if "auto_update" in payload:
             repo.auto_update = str(payload.get("auto_update")).lower() in ("1", "true", "yes", "on")
+        if "install_requirements_on_update" in payload:
+            repo.install_requirements_on_update = str(payload.get("install_requirements_on_update")).lower() in ("1", "true", "yes", "on")
+        if "auto_upgrade_modules_on_update" in payload:
+            repo.auto_upgrade_modules_on_update = str(payload.get("auto_upgrade_modules_on_update")).lower() in ("1", "true", "yes", "on")
         if "is_enabled" in payload:
             new_enabled = str(payload.get("is_enabled")).lower() in ("1", "true", "yes", "on")
             if new_enabled != repo.is_enabled:
@@ -1794,6 +1856,30 @@ class OdooInstanceGitRepoSyncAPIView(LoginRequiredMixin, View):
         )
         _dispatch(update_instance_repo, repo.id, job.id)
         return JsonResponse({"ok": True, "job_id": job.id})
+
+
+class OdooInstanceGitRepoStatusAPIView(LoginRequiredMixin, View):
+    def post(self, request, instance_id, repo_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if _repo_permission_denied(request):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        repo = get_object_or_404(
+            OdooInstanceGitRepo,
+            pk=repo_id,
+            instance_id=instance_id,
+            instance__organization=org,
+        )
+        try:
+            sync_instance_repo_status(repo.id)
+        except Exception as exc:
+            logger.exception("Repo status refresh failed for repo %s", repo.id)
+            return JsonResponse({"error": str(exc)}, status=400)
+
+        repo.refresh_from_db()
+        return JsonResponse(OdooInstanceGitRepoSerializer(repo).data)
 
 
 class OdooInstanceGitRepoRollbackAPIView(LoginRequiredMixin, View):
@@ -2140,12 +2226,6 @@ class OdooInstanceGitRepoUploadToGitHubAPIView(LoginRequiredMixin, View):
         full_name = (request.POST.get("full_name") or "").strip()
         clone_url = (request.POST.get("clone_url") or "").strip()
         repo_id = request.POST.get("repo_id")
-        repo_name = _derive_repo_name(request.POST.get("repo_name"), clone_url or full_name)
-        if not full_name:
-            return JsonResponse({"error": "full_name is required."}, status=400)
-        if not zip_file:
-            return JsonResponse({"error": "zip_file is required."}, status=400)
-
         linked_repo = None
         if repo_id:
             linked_repo = get_object_or_404(
@@ -2154,11 +2234,31 @@ class OdooInstanceGitRepoUploadToGitHubAPIView(LoginRequiredMixin, View):
                 instance=instance,
             )
 
+        if linked_repo is not None:
+            full_name = full_name or _github_full_name_from_git_url(linked_repo.git_url)
+            clone_url = clone_url or linked_repo.git_url or _github_clone_url_for_full_name(full_name)
+
+        repo_name = _derive_repo_name(
+            request.POST.get("repo_name") or (linked_repo.repo_name if linked_repo is not None else ""),
+            clone_url or full_name,
+        )
+        if not full_name:
+            return JsonResponse({"error": "full_name is required."}, status=400)
+        if not zip_file:
+            return JsonResponse({"error": "zip_file is required."}, status=400)
+
         try:
-            actor = _github_publish_actor_from_payload(
-                user=request.user,
-                payload=request.POST,
+            has_explicit_auth = any(
+                (request.POST.get(key) or "").strip()
+                for key in ("auth_type", "github_account_id", "access_token")
             )
+            if linked_repo is not None and not has_explicit_auth:
+                actor = _github_publish_actor_from_linked_repo(linked_repo)
+            else:
+                actor = _github_publish_actor_from_payload(
+                    user=request.user,
+                    payload=request.POST,
+                )
         except ValueError as exc:
             return JsonResponse(
                 {
@@ -2224,7 +2324,7 @@ class OdooInstanceGitRepoUploadToGitHubAPIView(LoginRequiredMixin, View):
                     user=request.user,
                     instance=instance,
                     repo_name=repo_name,
-                    git_url=clone_url or f"https://github.com/{full_name}.git",
+                    git_url=clone_url or _github_clone_url_for_full_name(full_name),
                     branch=branch,
                     auth_type=actor.auth_type,
                     credential=credential,
@@ -2242,7 +2342,7 @@ class OdooInstanceGitRepoUploadToGitHubAPIView(LoginRequiredMixin, View):
                     user=request.user,
                     instance=instance,
                     repo_name=repo_name,
-                    git_url=clone_url or f"https://github.com/{full_name}.git",
+                    git_url=clone_url or _github_clone_url_for_full_name(full_name),
                     branch=branch,
                     auth_type=actor.auth_type,
                     credential=credential,

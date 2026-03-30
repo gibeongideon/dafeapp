@@ -278,6 +278,8 @@ class OdooInstanceGitRepoSerializer(serializers.ModelSerializer):
             "auth_type",
             "local_path",
             "auto_update",
+            "install_requirements_on_update",
+            "auto_upgrade_modules_on_update",
             "is_enabled",
             "display_order",
             "default_branch",

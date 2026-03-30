@@ -517,3 +517,5 @@ Current status:
 - [ ] One-click Odoo configuration templates (CRM, eCommerce, etc.)
 - [ ] API documentation (DRF Spectacular / Swagger)
 - [ ] Production email backend
+
+

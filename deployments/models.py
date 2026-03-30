@@ -638,6 +638,8 @@ class OdooInstanceGitRepo(models.Model):
     )
     local_path = models.CharField(max_length=500, blank=True, default="")
     auto_update = models.BooleanField(default=False)
+    install_requirements_on_update = models.BooleanField(default=False)
+    auto_upgrade_modules_on_update = models.BooleanField(default=True)
     is_enabled = models.BooleanField(default=True)
     display_order = models.PositiveIntegerField(default=0)
     default_branch = models.CharField(max_length=120, blank=True, default="")

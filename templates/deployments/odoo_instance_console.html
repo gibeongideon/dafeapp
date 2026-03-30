@@ -1,4 +1,7 @@
 {% extends "dashboard/layout.html" %}
+{% load socialaccount %}
+
+{% provider_login_url "github" process="connect" as github_connect_base_url %}
 
 {% block page_title %}{{ odoo_instance.name }} · Console{% endblock %}
 
@@ -157,37 +160,46 @@
       <div class="rounded-2xl border border-gray-200 bg-gradient-to-br from-gray-50 via-white to-emerald-50/60 p-4">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div class="space-y-3 min-w-0">
-            <div class="flex flex-wrap items-center gap-2">
-              <p class="text-sm font-medium text-gray-800">Enterprise Addons</p>
-              <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
-                    :class="enterpriseStatusClass()"
-                    x-text="enterpriseStatusText()"></span>
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div class="flex flex-wrap items-center gap-2">
+                <p class="text-sm font-medium text-gray-800">Enterprise Addons</p>
+                <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                      :class="enterpriseStatusClass()"
+                      x-text="enterpriseStatusText()"></span>
+              </div>
+              <button type="button"
+                      @click="showEnterpriseDetails = !showEnterpriseDetails"
+                      class="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                      x-text="showEnterpriseDetails ? 'Hide Details' : 'Show Details'"></button>
             </div>
-            <p class="text-xs text-gray-500">
-              Instances start on Community. Activate Enterprise later to copy the platform package to this server, extend the addons path, and refresh apps.
-            </p>
-            <div class="grid gap-3 md:grid-cols-2">
-              <div class="rounded-xl border border-gray-200 bg-white px-3 py-3">
-                <p class="text-[11px] uppercase tracking-wide text-gray-400">Platform Source</p>
-                <p class="mt-1 text-sm font-medium text-gray-900 break-all"
-                   x-text="enterpriseActiveSourceName || 'No active Enterprise package uploaded yet'"></p>
+
+            <div x-show="showEnterpriseDetails" class="space-y-3">
+              <p class="text-xs text-gray-500">
+                Instances start on Community. Activate Enterprise later to copy the platform package to this server, extend the addons path, and refresh apps.
+              </p>
+              <div class="grid gap-3 md:grid-cols-2">
+                <div class="rounded-xl border border-gray-200 bg-white px-3 py-3">
+                  <p class="text-[11px] uppercase tracking-wide text-gray-400">Platform Source</p>
+                  <p class="mt-1 text-sm font-medium text-gray-900 break-all"
+                     x-text="enterpriseActiveSourceName || 'No active Enterprise package uploaded yet'"></p>
+                </div>
+                <div class="rounded-xl border border-gray-200 bg-white px-3 py-3">
+                  <p class="text-[11px] uppercase tracking-wide text-gray-400">Instance Path</p>
+                  <p class="mt-1 text-sm font-mono text-gray-800 break-all"
+                     x-text="enterpriseRemotePath || 'Will be created during activation'"></p>
+                </div>
               </div>
-              <div class="rounded-xl border border-gray-200 bg-white px-3 py-3">
-                <p class="text-[11px] uppercase tracking-wide text-gray-400">Instance Path</p>
-                <p class="mt-1 text-sm font-mono text-gray-800 break-all"
-                   x-text="enterpriseRemotePath || 'Will be created during activation'"></p>
-              </div>
-            </div>
-            <div class="grid gap-3 md:grid-cols-2">
-              <div class="rounded-xl border border-gray-200 bg-white px-3 py-3">
-                <p class="text-[11px] uppercase tracking-wide text-gray-400">Linked Package</p>
-                <p class="mt-1 text-sm text-gray-800 break-all"
-                   x-text="enterpriseSourceName || 'Not linked yet'"></p>
-              </div>
-              <div class="rounded-xl border border-gray-200 bg-white px-3 py-3">
-                <p class="text-[11px] uppercase tracking-wide text-gray-400">Last Enterprise Sync</p>
-                <p class="mt-1 text-sm text-gray-800"
-                   x-text="enterpriseLastSyncedAt ? fmtDate(enterpriseLastSyncedAt) : '—'"></p>
+              <div class="grid gap-3 md:grid-cols-2">
+                <div class="rounded-xl border border-gray-200 bg-white px-3 py-3">
+                  <p class="text-[11px] uppercase tracking-wide text-gray-400">Linked Package</p>
+                  <p class="mt-1 text-sm text-gray-800 break-all"
+                     x-text="enterpriseSourceName || 'Not linked yet'"></p>
+                </div>
+                <div class="rounded-xl border border-gray-200 bg-white px-3 py-3">
+                  <p class="text-[11px] uppercase tracking-wide text-gray-400">Last Enterprise Sync</p>
+                  <p class="mt-1 text-sm text-gray-800"
+                     x-text="enterpriseLastSyncedAt ? fmtDate(enterpriseLastSyncedAt) : '—'"></p>
+                </div>
               </div>
             </div>
             <div x-show="enterpriseError"
@@ -198,21 +210,42 @@
                  class="rounded-xl border px-3 py-3 text-sm"
                  x-text="enterpriseMessage"></div>
           </div>
-          <div class="flex w-full flex-col gap-2 lg:w-auto">
+          <div class="flex w-full flex-col gap-2 lg:w-auto lg:min-w-[17rem]">
             <button type="button"
+                    role="switch"
                     @click="activateEnterprise()"
-                    :disabled="enterpriseBusy || !enterpriseSourceAvailable"
-                    class="inline-flex items-center justify-center rounded-lg bg-gray-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
-                    x-text="enterprisePrimaryActionLabel()">
+                    :aria-checked="enterpriseToggleOn ? 'true' : 'false'"
+                    :disabled="enterpriseToggleDisabled()"
+                    class="flex items-center justify-between gap-4 rounded-2xl border px-4 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-70"
+                    :class="enterpriseToggleCardClass()">
+              <div class="min-w-0">
+                <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">Enterprise</p>
+                <p class="mt-1 text-sm font-medium text-gray-900"
+                   x-text="enterpriseToggleLabel()"></p>
+              </div>
+              <span class="relative inline-flex h-7 w-12 shrink-0 rounded-full transition-colors duration-200 ease-out"
+                    :class="enterpriseToggleTrackClass()">
+                <span class="absolute top-1 left-1 inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform duration-200 ease-out"
+                      :class="enterpriseToggleOn ? 'translate-x-5' : 'translate-x-0'"></span>
+              </span>
             </button>
-            <a href="/deployments/create/?section=enterprise"
-               class="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
-              Manage Platform Sources
-            </a>
-            <p class="text-xs text-gray-500 lg:max-w-[16rem]">
-              <span x-show="enterpriseSourceAvailable">This instance can use the currently active package for Odoo {{ odoo_server.odoo_version }}.</span>
-              <span x-show="!enterpriseSourceAvailable">A platform admin needs to upload and activate an Enterprise package for Odoo {{ odoo_server.odoo_version }} first.</span>
-            </p>
+            <button type="button"
+                    x-show="enterpriseEnabled && enterpriseSourceAvailable && enterpriseStatusCode !== 'PENDING'"
+                    @click="activateEnterprise()"
+                    :disabled="enterpriseBusy"
+                    class="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50">
+              Re-sync Enterprise
+            </button>
+            <div x-show="showEnterpriseDetails" class="contents">
+              <a href="/deployments/create/?section=enterprise"
+                 class="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                Manage Platform Sources
+              </a>
+              <p class="text-xs text-gray-500 lg:max-w-[16rem]">
+                <span x-show="enterpriseSourceAvailable">This instance can use the currently active package for Odoo {{ odoo_server.odoo_version }}.</span>
+                <span x-show="!enterpriseSourceAvailable">A platform admin needs to upload and activate an Enterprise package for Odoo {{ odoo_server.odoo_version }} first.</span>
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -278,14 +311,77 @@
               </td>
               <td class="px-4 py-3 align-top text-gray-700">
                 <p x-text="repo.branch"></p>
-                <p class="mt-1 text-[11px] text-gray-400" x-text="repo.auto_update ? 'Auto update on' : 'Auto update off'"></p>
+                <p class="mt-1 text-[11px] text-gray-400" x-text="repo.auto_update ? 'Auto update when pushed' : 'Manual updates only'"></p>
               </td>
               <td class="px-4 py-3 align-top">
                 <div class="flex flex-wrap gap-2 text-xs">
+                  <button x-show="repoNeedsGithubUpload(repo)"
+                          @click="prepareGithubUpload(repo)"
+                          class="text-emerald-700 hover:underline">Upload Zip</button>
                   <button @click="openRepoModal('edit', repo)"
                           class="text-blue-600 hover:underline">Settings</button>
                   <button @click="openRepoLog(repo)"
                           class="text-gray-600 hover:underline">Details</button>
+                </div>
+              </td>
+            </tr>
+            <tr x-show="githubUploadTarget && String(githubUploadTarget.id) === String(repo.id)">
+              <td colspan="3" class="bg-emerald-50/60 px-4 pb-4">
+                <div :id="`github-upload-inline-${repo.id}`" class="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 space-y-4">
+                  <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div>
+                      <p class="text-xs font-semibold uppercase tracking-wide text-emerald-700">Upload Zip</p>
+                      <p class="mt-1 text-sm font-medium text-emerald-950" x-text="githubUploadTarget?.full_name || ''"></p>
+                    </div>
+                    <a x-show="githubUploadTarget?.html_url"
+                       :href="githubUploadTarget?.html_url"
+                       target="_blank"
+                       class="inline-flex items-center rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-medium text-emerald-800 hover:bg-emerald-100">
+                      Open on GitHub
+                    </a>
+                  </div>
+
+                  <div>
+                    <label class="block text-xs font-medium text-emerald-900 mb-1">Zip File</label>
+                    <input type="file"
+                           x-ref="inlineUploadZipInput"
+                           accept=".zip,application/zip"
+                           @change="setInlineUploadZip($event)"
+                           :disabled="githubUploadSaving"
+                           class="block w-full rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm text-gray-700 file:mr-3 file:rounded-md file:border-0 file:bg-gray-900 file:px-3 file:py-2 file:text-xs file:font-medium file:text-white hover:file:bg-gray-800">
+                    <p class="mt-2 text-xs text-emerald-800" x-text="githubUploadFileName || 'Choose a .zip file with your addon code.'"></p>
+                    <p x-show="githubUploadFile" class="mt-1 text-[11px] text-emerald-700" x-text="`Size: ${formatBytes(githubUploadFile?.size || 0)}`"></p>
+                  </div>
+
+                  <div x-show="githubUploadSaving || githubUploadProgress > 0" class="space-y-2 rounded-xl border border-emerald-200 bg-white/80 p-3">
+                    <div class="flex items-center justify-between gap-3 text-xs">
+                      <p class="font-medium text-emerald-950" x-text="githubUploadStatusLabel()"></p>
+                      <p class="text-emerald-800" x-text="githubUploadPhase === 'uploading' ? `${githubUploadProgress}%` : (githubUploadPhase === 'publishing' ? 'Finalizing…' : '')"></p>
+                    </div>
+                    <div class="h-2 overflow-hidden rounded-full bg-emerald-100">
+                      <div class="h-full rounded-full bg-emerald-600 transition-all duration-200"
+                           :class="githubUploadPhase === 'publishing' ? 'animate-pulse' : ''"
+                           :style="`width:${githubUploadPhase === 'publishing' ? 100 : githubUploadProgress}%`"></div>
+                    </div>
+                    <p x-show="githubUploadBytesTotal > 0" class="text-[11px] text-emerald-700"
+                       x-text="githubUploadPhase === 'uploading'
+                         ? `${formatBytes(githubUploadBytesSent)} of ${formatBytes(githubUploadBytesTotal)} uploaded`
+                         : `Uploaded ${formatBytes(githubUploadBytesTotal)}. Waiting for GitHub publish to finish.`"></p>
+                  </div>
+
+                  <div class="flex flex-wrap items-center gap-3">
+                    <button type="button"
+                            @click="submitLinkedGithubUpload()"
+                            :disabled="githubUploadSaving"
+                            class="inline-flex items-center rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+                            x-text="githubUploadButtonLabel()"></button>
+                    <button type="button"
+                            @click="clearGithubUpload()"
+                            :disabled="githubUploadSaving"
+                            class="inline-flex items-center rounded-lg border border-emerald-300 bg-white px-4 py-2 text-sm font-medium text-emerald-900 hover:bg-emerald-100 disabled:opacity-50">
+                      Cancel
+                    </button>
+                  </div>
                 </div>
               </td>
             </tr>
@@ -344,18 +440,11 @@
       <div x-show="showRepoModal" class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/50 px-4" x-cloak>
         <div class="w-full max-w-2xl rounded-2xl bg-white shadow-2xl border border-gray-200">
           <div class="flex items-center justify-between px-5 py-4 border-b border-gray-200">
-            <div>
-              <h3 class="text-base font-semibold text-gray-900" x-text="repoModalTitle()"></h3>
-              <p class="text-xs text-gray-500 mt-1" x-text="repoModalSubtitle()"></p>
-            </div>
+            <h3 class="text-base font-semibold text-gray-900" x-text="repoModalTitle()"></h3>
             <button @click="closeRepoModal()" class="text-sm text-gray-500 hover:text-gray-700">Close</button>
           </div>
           <div class="p-5 space-y-5">
             <div x-show="repoForm.mode === 'manual'" class="space-y-4">
-              <div class="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Add Git Repo</p>
-                <p class="mt-1 text-sm text-gray-600">Paste the repository URL and branch. We will clone it into this instance.</p>
-              </div>
               <div>
                 <label class="block text-xs font-medium text-gray-600 mb-1">Git Repository URL</label>
                 <input x-model="repoForm.git_url" type="text" placeholder="https://github.com/org/repo.git"
@@ -369,23 +458,11 @@
             </div>
 
             <div x-show="repoForm.mode === 'github'" class="space-y-4">
-              <div class="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Add From GitHub</p>
-                <template x-if="hasGitHubAccount()">
-                  <div>
-                    <p class="mt-1 text-sm text-gray-600">Connected GitHub account</p>
-                    <p class="mt-1 text-sm font-medium text-gray-900" x-text="connectedGitHubLabel()"></p>
-                  </div>
-                </template>
-                <template x-if="!hasGitHubAccount()">
-                  <div>
-                    <p class="mt-1 text-sm text-gray-600">Connect GitHub first so we can list your repositories here.</p>
-                    <a href="/accounts/3rdparty/" class="mt-3 inline-flex rounded-lg bg-gray-900 px-3 py-2 text-xs font-medium text-white hover:bg-gray-800">
-                      Connect GitHub
-                    </a>
-                  </div>
-                </template>
-              </div>
+              <template x-if="!hasGitHubAccount()">
+                <a :href="githubConnectUrl('github')" class="inline-flex rounded-lg bg-gray-900 px-3 py-2 text-xs font-medium text-white hover:bg-gray-800">
+                  Connect GitHub
+                </a>
+              </template>
 
               <template x-if="hasGitHubAccount()">
                 <div class="space-y-4">
@@ -413,7 +490,7 @@
                             :disabled="githubReposLoading || githubBranchesLoading || !repoForm.github_repo_full_name"
                             class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
                       <option value="" x-text="githubBranchesLoading ? 'Loading branches...' : (repoForm.github_repo_full_name ? 'Select branch' : 'Choose a repository first')"></option>
-                      <template x-for="branch in githubBranches" :key="branch.name">
+                      <template x-for="branch in repoBranchOptions()" :key="branch.name">
                         <option :value="branch.name" x-text="branch.name"></option>
                       </template>
                     </select>
@@ -423,11 +500,6 @@
             </div>
 
             <div x-show="repoForm.mode === 'upload'" class="space-y-4">
-              <div class="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Upload To GitHub</p>
-                <p class="mt-1 text-sm text-gray-600">Create an empty GitHub repository first, then upload your Odoo zip module into it.</p>
-              </div>
-
               <div class="space-y-4">
                 <div>
                   <label class="block text-xs font-medium text-gray-600 mb-2">GitHub Publish Auth</label>
@@ -454,8 +526,7 @@
                 </div>
 
                 <div x-show="repoForm.upload_auth_type === 'GITHUB_OAUTH' && !hasGitHubAccount()" class="rounded-xl border border-amber-200 bg-amber-50 p-4">
-                  <p class="text-sm text-amber-800">Connect GitHub first to use the connected-account flow.</p>
-                  <a href="/accounts/3rdparty/" class="mt-3 inline-flex rounded-lg bg-gray-900 px-3 py-2 text-xs font-medium text-white hover:bg-gray-800">
+                  <a :href="githubConnectUrl('upload')" class="mt-3 inline-flex rounded-lg bg-gray-900 px-3 py-2 text-xs font-medium text-white hover:bg-gray-800">
                     Connect GitHub
                   </a>
                 </div>
@@ -472,7 +543,15 @@
                            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
                   </div>
                   <div class="md:col-span-2">
-                    <label class="block text-xs font-medium text-gray-600 mb-1">Personal Access Token</label>
+                    <div class="mb-1 flex items-center justify-between gap-3">
+                      <label class="block text-xs font-medium text-gray-600">Personal Access Token</label>
+                      <a href="https://github.com/settings/tokens"
+                         target="_blank"
+                         rel="noopener noreferrer"
+                         class="text-xs font-medium text-blue-600 hover:underline">
+                        Create token
+                      </a>
+                    </div>
                     <input x-model="repoForm.upload_access_token" type="password" placeholder="github_pat_..."
                            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono">
                     <p class="mt-2 text-xs text-gray-500">Use a GitHub token with repository create and contents write access.</p>
@@ -494,43 +573,71 @@
                     Open on GitHub
                   </a>
                 </div>
-                <div x-show="repoForm.upload_created_repo">
-                  <label class="block text-xs font-medium text-gray-600 mb-1">Zip File</label>
-                  <input type="file"
-                         x-ref="uploadZipInput"
-                         accept=".zip,application/zip"
-                         @change="setUploadZip($event)"
-                         class="block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 file:mr-3 file:rounded-md file:border-0 file:bg-gray-900 file:px-3 file:py-2 file:text-xs file:font-medium file:text-white hover:file:bg-gray-800">
-                  <p class="mt-2 text-xs text-gray-500" x-text="repoForm.upload_file_name || 'Choose a .zip file with your addon code.'"></p>
-                </div>
-                <p x-show="!repoForm.upload_created_repo" class="text-xs text-gray-500">
-                  Step 1: create the empty GitHub repository. Step 2: upload the zip file into that repository.
-                </p>
-                <p class="text-xs text-amber-700">
-                  If a saved PAT already exists for this GitHub username, DafeApp can reuse it automatically when the connected-account flow is denied. Otherwise, switch to <span class="font-medium">Personal Access Token</span> and try again.
-                </p>
               </div>
             </div>
 
             <div x-show="repoForm.id" class="space-y-4">
-              <div class="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Repository Settings</p>
-                <p class="mt-1 text-sm text-gray-600">Keep this view focused on branch and sync behavior. Use Details for the rest of the repo information.</p>
+              <div x-show="repoFormUsesGitHubBranchSelector()" class="space-y-4">
+                <div>
+                  <label class="block text-xs font-medium text-gray-600 mb-1">Repository</label>
+                  <div class="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800">
+                    <p class="font-medium break-all" x-text="repoForm.github_repo_full_name || repoForm.repo_name || 'Linked GitHub repository'"></p>
+                  </div>
+                </div>
               </div>
-              <div>
+
+              <div x-show="!repoFormUsesGitHubBranchSelector()">
                 <label class="block text-xs font-medium text-gray-600 mb-1">Repository Name</label>
                 <input x-model="repoForm.repo_name" type="text"
                        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
               </div>
-              <div>
+
+              <div x-show="repoFormUsesGitHubBranchSelector()">
+                <label class="block text-xs font-medium text-gray-600 mb-1">Branch</label>
+                <div x-show="githubBranchesLoading" class="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                  Loading branches...
+                </div>
+                <select x-model="repoForm.branch"
+                        :disabled="githubBranchesLoading || !repoForm.github_repo_full_name"
+                        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
+                  <option value="" x-text="githubBranchesLoading ? 'Loading branches...' : (repoForm.github_repo_full_name ? 'Select branch' : 'Choose a repository first')"></option>
+                  <template x-for="branch in repoBranchOptions()" :key="branch.name">
+                    <option :value="branch.name" x-text="branch.name"></option>
+                  </template>
+                </select>
+              </div>
+
+              <div x-show="!repoFormUsesGitHubBranchSelector()">
                 <label class="block text-xs font-medium text-gray-600 mb-1">Branch</label>
                 <input x-model="repoForm.branch" type="text"
                        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
               </div>
-              <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-6">
+
+              <div class="rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-xs font-mono text-gray-700 space-y-1">
+                <p x-show="repoRemoteStatusLoading" class="font-sans text-[11px] text-gray-500">Checking latest remote commit…</p>
+                <p x-text="`LOCAL=${repoForm.last_pulled_commit || '—'}`"></p>
+                <p x-text="`REMOTE=${repoForm.last_remote_commit || '—'}`"></p>
+                <a x-show="repoFormCompareUrl()"
+                   :href="repoFormCompareUrl()"
+                   target="_blank"
+                   rel="noopener noreferrer"
+                   class="inline-flex font-medium text-blue-600 hover:underline not-italic">
+                  Show differences on GitHub
+                </a>
+              </div>
+
+              <div class="grid gap-3">
                 <label class="inline-flex items-center gap-2 text-sm text-gray-600">
                   <input x-model="repoForm.auto_update" type="checkbox" class="rounded border-gray-300 text-gray-900 focus:ring-gray-900">
-                  <span>Auto update</span>
+                  <span>Auto update when pushed</span>
+                </label>
+                <label class="inline-flex items-center gap-2 text-sm text-gray-600">
+                  <input x-model="repoForm.install_requirements_on_update" type="checkbox" class="rounded border-gray-300 text-gray-900 focus:ring-gray-900">
+                  <span>Install Python requirements on update</span>
+                </label>
+                <label class="inline-flex items-center gap-2 text-sm text-gray-600">
+                  <input x-model="repoForm.auto_upgrade_modules_on_update" type="checkbox" class="rounded border-gray-300 text-gray-900 focus:ring-gray-900">
+                  <span>Auto upgrade module(s) on update</span>
                 </label>
                 <label class="inline-flex items-center gap-2 text-sm text-gray-600">
                   <input x-model="repoForm.is_enabled" type="checkbox" class="rounded border-gray-300 text-gray-900 focus:ring-gray-900">
@@ -782,6 +889,7 @@ function instanceConsole(instanceId) {
     addonsLastSyncAt: '{{ odoo_instance.addons_last_sync_at|date:"c"|default:"" }}',
     showRepoModal: false,
     repoFormSaving: false,
+    repoRemoteStatusLoading: false,
     credentials: [],
     githubAccounts: [],
     githubRepos: [],
@@ -790,6 +898,16 @@ function instanceConsole(instanceId) {
     githubBranchesLoading: false,
     githubReposLoaded: false,
     githubRepoLoadPromise: null,
+    githubRepoSourceKey: '',
+    pendingRepoFlow: '',
+    githubUploadTarget: null,
+    githubUploadFile: null,
+    githubUploadFileName: '',
+    githubUploadSaving: false,
+    githubUploadPhase: 'idle',
+    githubUploadProgress: 0,
+    githubUploadBytesSent: 0,
+    githubUploadBytesTotal: 0,
     repoForm: null,
     enterpriseEnabled: {% if odoo_instance.enterprise_enabled %}true{% else %}false{% endif %},
     enterpriseStatusCode: '{{ odoo_instance.enterprise_status|escapejs }}',
@@ -802,14 +920,18 @@ function instanceConsole(instanceId) {
     enterpriseMessage: null,
     enterpriseMessageOk: false,
     enterpriseBusy: false,
+    enterpriseToggleOn: false,
+    showEnterpriseDetails: false,
 
     // ── Init ──
     init() {
       this.resetRepoForm();
+      this.applyInitialRouteState();
+      this.syncEnterpriseToggle();
       this.connectWS();
       this.loadJobs();
       this.loadRepos();
-      this.loadCredentials();
+      this.loadCredentials().then(() => this.resumeGitHubFlowFromRedirect());
     },
 
     get repoHealth() {
@@ -865,6 +987,7 @@ function instanceConsole(instanceId) {
             this.enterpriseSourceName = msg.summary.enterprise_source || this.enterpriseSourceName;
             this.enterpriseRemotePath = msg.summary.enterprise_remote_path || this.enterpriseRemotePath;
             this.enterpriseError = msg.summary.enterprise_error || '';
+            this.syncEnterpriseToggle();
             if (!this.enterpriseError && this.enterpriseEnabled) {
               this.enterpriseLastSyncedAt = new Date().toISOString();
               this.enterpriseMessageOk = true;
@@ -899,6 +1022,112 @@ function instanceConsole(instanceId) {
       this.logLines = [];
     },
 
+    formatBytes(bytes) {
+      const size = Number(bytes || 0);
+      if (!size) return '0 B';
+      const units = ['B', 'KB', 'MB', 'GB'];
+      let value = size;
+      let unitIndex = 0;
+      while (value >= 1024 && unitIndex < units.length - 1) {
+        value /= 1024;
+        unitIndex += 1;
+      }
+      return `${value >= 10 || unitIndex === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unitIndex]}`;
+    },
+
+    githubUploadButtonLabel() {
+      if (!this.githubUploadSaving) return 'Upload Zip To GitHub';
+      if (this.githubUploadPhase === 'uploading') return `Uploading… ${this.githubUploadProgress}%`;
+      if (this.githubUploadPhase === 'publishing') return 'Publishing To GitHub…';
+      return 'Uploading…';
+    },
+
+    githubUploadStatusLabel() {
+      if (this.githubUploadPhase === 'uploading') return 'Uploading zip to DafeApp…';
+      if (this.githubUploadPhase === 'publishing') return 'Upload received. Publishing to GitHub…';
+      if (this.githubUploadProgress >= 100) return 'Upload complete.';
+      return 'Preparing upload…';
+    },
+
+    resetGithubUploadProgress() {
+      this.githubUploadPhase = 'idle';
+      this.githubUploadProgress = 0;
+      this.githubUploadBytesSent = 0;
+      this.githubUploadBytesTotal = 0;
+    },
+
+    applyInitialRouteState() {
+      const params = new URLSearchParams(window.location.search);
+      const tab = (params.get('tab') || '').trim();
+      if (tab && this.tabs.some(item => item.id === tab)) {
+        this.activeTab = tab;
+      }
+      this.pendingRepoFlow = (params.get('repo_flow') || '').trim();
+    },
+
+    clearRepoFlowFromUrl() {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('repo_flow');
+      if (!url.searchParams.get('tab')) {
+        url.searchParams.delete('tab');
+      }
+      const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+      window.history.replaceState({}, '', nextUrl);
+      this.pendingRepoFlow = '';
+    },
+
+    resumeGitHubFlowFromRedirect() {
+      if (!this.pendingRepoFlow || !this.hasGitHubAccount()) return;
+      if (this.pendingRepoFlow === 'github' || this.pendingRepoFlow === 'upload') {
+        this.activeTab = 'addons';
+        this.openRepoModal(this.pendingRepoFlow);
+        this.clearRepoFlowFromUrl();
+      }
+    },
+
+    githubConnectUrl(flow = 'github') {
+      const url = new URL('{{ github_connect_base_url|escapejs }}', window.location.origin);
+      url.searchParams.set('next', `${window.location.pathname}?tab=addons&repo_flow=${encodeURIComponent(flow)}`);
+      return `${url.pathname}${url.search}`;
+    },
+
+    repoFormUsesGitHubBranchSelector() {
+      if (!this.repoForm?.id) return false;
+      const authType = (this.repoForm.auth_type || '').trim();
+      return !!this.repoForm.credential_id
+        && (authType === 'GITHUB_OAUTH' || authType === 'TOKEN')
+        && !!this.githubRepoFullName({ git_url: this.repoForm.git_url });
+    },
+
+    githubRepoQueryParams() {
+      if (!this.repoForm) return '';
+      const params = new URLSearchParams();
+      if (this.repoForm.credential_id) {
+        params.set('credential_id', this.repoForm.credential_id);
+      } else if (this.repoForm.github_account_id) {
+        params.set('github_account_id', this.repoForm.github_account_id);
+      }
+      return params.toString();
+    },
+
+    githubRepoRequestSuffix(extra = {}) {
+      const params = new URLSearchParams(this.githubRepoQueryParams());
+      Object.entries(extra).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+          params.set(key, value);
+        }
+      });
+      const query = params.toString();
+      return query ? `?${query}` : '';
+    },
+
+    currentGitHubRepoSourceKey() {
+      if (!this.repoForm) return '';
+      if (this.repoForm.credential_id) return `credential:${this.repoForm.credential_id}`;
+      if (this.repoForm.github_account_id) return `account:${this.repoForm.github_account_id}`;
+      return '';
+    },
+
     // ── Repo manager ──
     resetRepoForm(mode = 'github') {
       const githubAccount = this.githubAccounts[0] || null;
@@ -909,9 +1138,15 @@ function instanceConsole(instanceId) {
         git_url: '',
         branch: 'main',
         auto_update: false,
+        install_requirements_on_update: false,
+        auto_upgrade_modules_on_update: true,
         is_enabled: true,
+        auth_type: '',
+        credential_id: '',
         github_account_id: githubAccount ? String(githubAccount.id) : '',
         github_repo_full_name: '',
+        last_pulled_commit: '',
+        last_remote_commit: '',
         upload_repo_name: '',
         upload_auth_type: githubAccount ? 'GITHUB_OAUTH' : 'TOKEN',
         upload_git_username: githubAccount?.username || '',
@@ -919,8 +1154,6 @@ function instanceConsole(instanceId) {
         upload_credential_name: '',
         upload_repo_id: '',
         upload_created_repo: null,
-        upload_file: null,
-        upload_file_name: '',
       };
       this.githubBranches = [];
       this.githubBranchesLoading = false;
@@ -932,6 +1165,14 @@ function instanceConsole(instanceId) {
         const res = await fetch(`/deployments/odoo/instances/${this.instanceId}/repos/`);
         const data = await res.json();
         this.repos = data.results ?? [];
+        if (this.githubUploadTarget) {
+          const currentUploadRepo = this.repos.find(repo => String(repo.id) === String(this.githubUploadTarget.id)) || null;
+          if (!currentUploadRepo) {
+            this.clearGithubUpload();
+          } else if (!this.repoNeedsGithubUpload(currentUploadRepo) && !this.githubUploadSaving) {
+            this.clearGithubUpload();
+          }
+        }
         if (this.selectedRepo) {
           this.selectedRepo = this.repos.find(r => r.id === this.selectedRepo.id) || null;
         }
@@ -956,6 +1197,7 @@ function instanceConsole(instanceId) {
           this.githubBranches = [];
           this.githubReposLoaded = false;
           this.githubRepoLoadPromise = null;
+          this.githubRepoSourceKey = '';
         }
         if (!this.repoForm?.id && this.githubAccounts.length && !this.repoForm?.github_account_id) {
           this.repoForm.github_account_id = String(this.githubAccounts[0].id);
@@ -973,6 +1215,7 @@ function instanceConsole(instanceId) {
         this.githubBranches = [];
         this.githubReposLoaded = false;
         this.githubRepoLoadPromise = null;
+        this.githubRepoSourceKey = '';
       }
     },
 
@@ -990,39 +1233,53 @@ function instanceConsole(instanceId) {
       return this.repos.find(repo => repo.id === id) || null;
     },
 
-    openRepoModal(mode = 'github', repo = null) {
+    async openRepoModal(mode = 'github', repo = null) {
       this.repoMessage = null;
       if (repo) {
         mode = 'edit';
       }
       this.resetRepoForm(mode);
+      this.showRepoModal = true;
       if (repo) {
+        const selectedBranch = (repo.branch || repo.default_branch || 'main').trim() || 'main';
         this.repoForm = {
           id: repo.id,
           mode: 'edit',
           repo_name: repo.repo_name || '',
           git_url: repo.git_url || '',
-          branch: repo.branch || 'main',
+          branch: selectedBranch,
           auto_update: !!repo.auto_update,
+          install_requirements_on_update: !!repo.install_requirements_on_update,
+          auto_upgrade_modules_on_update: repo.auto_upgrade_modules_on_update !== false,
           is_enabled: !!repo.is_enabled,
+          auth_type: repo.auth_type || '',
+          credential_id: repo.credential ? String(repo.credential) : '',
           github_account_id: '',
-          github_repo_full_name: '',
+          github_repo_full_name: this.githubRepoFullName(repo),
+          last_pulled_commit: repo.last_pulled_commit || '',
+          last_remote_commit: repo.last_remote_commit || '',
           upload_repo_name: '',
           upload_created_repo: null,
-          upload_file: null,
-          upload_file_name: '',
         };
+        if (this.repoFormUsesGitHubBranchSelector() && this.repoForm.github_repo_full_name) {
+          await this.loadGitHubBranchesForCurrentRepo();
+        }
+        this.refreshRepoRemoteStatus(repo.id);
       } else if (mode === 'github' && this.hasGitHubAccount()) {
         this.ensureGitHubReposLoaded();
       }
-      this.showRepoModal = true;
     },
 
     closeRepoModal() {
       this.showRepoModal = false;
       this.repoFormSaving = false;
-      if (this.$refs.uploadZipInput) this.$refs.uploadZipInput.value = '';
+      this.repoRemoteStatusLoading = false;
       this.resetRepoForm();
+      this.githubRepos = [];
+      this.githubBranches = [];
+      this.githubReposLoaded = false;
+      this.githubRepoLoadPromise = null;
+      this.githubRepoSourceKey = '';
     },
 
     switchRepoMode(mode) {
@@ -1041,44 +1298,248 @@ function instanceConsole(instanceId) {
       }[this.repoForm.mode] ?? 'Add Repository';
     },
 
-    repoModalSubtitle() {
-      if (this.repoForm.id) {
-        return 'Update the branch or behavior for a repository already linked to this instance.';
-      }
-      return {
-        manual: 'Simple manual form: repository URL and branch.',
-        github: 'Pick a connected GitHub repository, then choose the branch to clone.',
-        upload: 'Create an empty GitHub repo first, then upload your zip into it.',
-      }[this.repoForm.mode] ?? '';
-    },
-
     repoPrimaryActionLabel() {
       if (this.repoFormSaving) return 'Saving…';
       if (this.repoForm.id) return 'Save Changes';
       return {
         manual: 'Add Repository',
         github: 'Add From GitHub',
-        upload: this.repoForm.upload_created_repo ? 'Upload Zip To Repo' : 'Create GitHub Repo',
+        upload: 'Create And Link GitHub Repo',
       }[this.repoForm.mode] ?? 'Create Repo';
     },
 
     repoPrimaryActionDisabled() {
       if (this.repoFormSaving) return true;
-      if (!this.repoForm || this.repoForm.id) return false;
+      if (!this.repoForm) return true;
+      if (this.repoForm.id) {
+        return this.repoFormUsesGitHubBranchSelector()
+          ? this.githubBranchesLoading || !this.repoForm.github_repo_full_name
+          : false;
+      }
       if (this.repoForm.mode === 'github') {
         return this.githubReposLoading || this.githubBranchesLoading || !this.repoForm.github_repo_full_name;
       }
       return false;
     },
 
-    setUploadZip(event) {
+    repoNeedsGithubUpload(repo) {
+      if (!repo) return false;
+      const gitUrl = (repo.git_url || '').toLowerCase();
+      const lastError = (repo.last_error || '').toLowerCase();
+      return repo.status === 'DISCONNECTED'
+        && (gitUrl.includes('github.com') || gitUrl.startsWith('git@github.com:'))
+        && lastError.includes('upload a zip');
+    },
+
+    githubRepoFullName(repo) {
+      const gitUrl = (repo?.git_url || '').trim();
+      if (!gitUrl) return '';
+      if (gitUrl.startsWith('git@github.com:')) {
+        return gitUrl.split('git@github.com:', 2)[1].replace(/\.git$/, '').replace(/^\/+|\/+$/g, '');
+      }
+      try {
+        const url = new URL(gitUrl);
+        if ((url.hostname || '').toLowerCase() !== 'github.com') return '';
+        return url.pathname.replace(/\.git$/, '').replace(/^\/+|\/+$/g, '');
+      } catch (_) {
+        return '';
+      }
+    },
+
+    repoFormCompareUrl() {
+      if (!this.repoForm?.git_url || !this.repoForm?.last_pulled_commit || !this.repoForm?.last_remote_commit) return '';
+      const fullName = this.githubRepoFullName({ git_url: this.repoForm.git_url });
+      if (!fullName || this.repoForm.last_pulled_commit === this.repoForm.last_remote_commit) return '';
+      return `https://github.com/${fullName}/compare/${this.repoForm.last_pulled_commit}...${this.repoForm.last_remote_commit}`;
+    },
+
+    repoBranchOptions() {
+      const branches = Array.isArray(this.githubBranches) ? [...this.githubBranches] : [];
+      const currentBranch = (this.repoForm?.branch || '').trim();
+      if (!currentBranch) return branches;
+      if (branches.some(branch => (branch?.name || '').trim() === currentBranch)) return branches;
+      return [{ name: currentBranch }, ...branches];
+    },
+
+    replaceRepoRecord(repo) {
+      if (!repo?.id) return;
+      const index = this.repos.findIndex(item => String(item.id) === String(repo.id));
+      if (index >= 0) {
+        this.repos.splice(index, 1, repo);
+      }
+      if (this.selectedRepo && String(this.selectedRepo.id) === String(repo.id)) {
+        this.selectedRepo = repo;
+      }
+      if (this.repoForm?.id && String(this.repoForm.id) === String(repo.id)) {
+        this.repoForm.last_pulled_commit = repo.last_pulled_commit || '';
+        this.repoForm.last_remote_commit = repo.last_remote_commit || '';
+      }
+    },
+
+    async refreshRepoRemoteStatus(repoId) {
+      if (!repoId) return;
+      this.repoRemoteStatusLoading = true;
+      try {
+        const res = await fetch(`/deployments/odoo/instances/${this.instanceId}/repos/${repoId}/status/`, {
+          method: 'POST',
+          headers: { 'X-CSRFToken': this.getCsrf() },
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          this.repoMessageOk = false;
+          this.repoMessage = data.error || 'Could not refresh the latest remote commit.';
+          return;
+        }
+        this.replaceRepoRecord(data);
+      } catch (err) {
+        this.repoMessageOk = false;
+        this.repoMessage = err?.message || 'Could not refresh the latest remote commit.';
+      } finally {
+        this.repoRemoteStatusLoading = false;
+      }
+    },
+
+    prepareGithubUpload(repo) {
+      const fullName = this.githubRepoFullName(repo);
+      if (!fullName) {
+        this.repoMessageOk = false;
+        this.repoMessage = 'This linked repository is missing a usable GitHub URL.';
+        return;
+      }
+      this.githubUploadTarget = {
+        id: String(repo.id),
+        repo_name: repo.repo_name,
+        full_name: fullName,
+        html_url: `https://github.com/${fullName}`,
+      };
+      this.githubUploadFile = null;
+      this.githubUploadFileName = '';
+      this.resetGithubUploadProgress();
+      if (this.$refs.inlineUploadZipInput) this.$refs.inlineUploadZipInput.value = '';
+      this.activeTab = 'addons';
+      this.$nextTick(() => {
+        document.getElementById(`github-upload-inline-${repo.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      });
+    },
+
+    clearGithubUpload() {
+      this.githubUploadTarget = null;
+      this.githubUploadFile = null;
+      this.githubUploadFileName = '';
+      this.resetGithubUploadProgress();
+      if (this.$refs.inlineUploadZipInput) this.$refs.inlineUploadZipInput.value = '';
+    },
+
+    setInlineUploadZip(event) {
       const [file] = event.target.files || [];
-      this.repoForm.upload_file = file || null;
-      this.repoForm.upload_file_name = file ? file.name : '';
+      this.githubUploadFile = file || null;
+      this.githubUploadFileName = file ? file.name : '';
+      this.resetGithubUploadProgress();
+    },
+
+    uploadGithubZipWithProgress(formData) {
+      this.githubUploadPhase = 'uploading';
+      this.githubUploadProgress = 0;
+      this.githubUploadBytesSent = 0;
+      this.githubUploadBytesTotal = this.githubUploadFile?.size || 0;
+
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `/deployments/odoo/instances/${this.instanceId}/repos/upload-to-github/`, true);
+        xhr.responseType = 'json';
+        xhr.setRequestHeader('X-CSRFToken', this.getCsrf());
+
+        xhr.upload.onprogress = (event) => {
+          this.githubUploadPhase = 'uploading';
+          if (event.lengthComputable) {
+            this.githubUploadBytesSent = event.loaded;
+            this.githubUploadBytesTotal = event.total;
+            this.githubUploadProgress = Math.min(100, Math.max(1, Math.round((event.loaded / event.total) * 100)));
+          }
+        };
+
+        xhr.upload.onload = () => {
+          this.githubUploadPhase = 'publishing';
+          this.githubUploadProgress = 100;
+          this.githubUploadBytesSent = this.githubUploadBytesTotal || this.githubUploadFile?.size || 0;
+        };
+
+        xhr.onerror = () => reject(new Error('Network error while uploading the zip.'));
+        xhr.onabort = () => reject(new Error('Zip upload was canceled.'));
+
+        xhr.onload = () => {
+          if (this.githubUploadPhase === 'uploading') {
+            this.githubUploadPhase = 'publishing';
+            this.githubUploadProgress = 100;
+            this.githubUploadBytesSent = this.githubUploadBytesTotal || this.githubUploadFile?.size || 0;
+          }
+          let data = xhr.response;
+          if (data === null || data === undefined) {
+            try {
+              data = JSON.parse(xhr.responseText || '{}');
+            } catch (_) {
+              data = {};
+            }
+          }
+          resolve({
+            ok: xhr.status >= 200 && xhr.status < 300,
+            status: xhr.status,
+            data,
+          });
+        };
+
+        xhr.send(formData);
+      });
+    },
+
+    async submitLinkedGithubUpload() {
+      if (!this.githubUploadTarget) {
+        this.repoMessageOk = false;
+        this.repoMessage = 'Choose a linked GitHub repository first.';
+        return;
+      }
+      if (!this.githubUploadFile) {
+        this.repoMessageOk = false;
+        this.repoMessage = 'Choose a zip file to upload.';
+        return;
+      }
+
+      this.githubUploadSaving = true;
+      try {
+        const formData = new FormData();
+        formData.append('repo_id', this.githubUploadTarget.id);
+        formData.append('zip_file', this.githubUploadFile);
+
+        const result = await this.uploadGithubZipWithProgress(formData);
+        this.repoMessageOk = result.ok;
+        this.repoMessage = result.data.error || (result.ok ? 'Zip uploaded and repository queued for clone.' : 'Could not upload the zip to GitHub.');
+        if (result.ok) {
+          this.clearGithubUpload();
+          this.loadRepos();
+          this.loadJobs();
+          this.activeTab = 'addons';
+        }
+      } catch (err) {
+        this.repoMessageOk = false;
+        this.repoMessage = err?.message || 'Something went wrong while uploading the zip.';
+      } finally {
+        this.githubUploadSaving = false;
+        if (this.githubUploadTarget) {
+          this.githubUploadPhase = 'idle';
+        }
+      }
     },
 
     async ensureGitHubReposLoaded({ preselectFirst = true, force = false } = {}) {
-      if (!this.repoForm?.github_account_id) return;
+      const sourceKey = this.currentGitHubRepoSourceKey();
+      const requestSuffix = this.githubRepoRequestSuffix();
+      if (!sourceKey || !requestSuffix) return;
+      if (this.githubRepoSourceKey && this.githubRepoSourceKey !== sourceKey) {
+        this.githubRepos = [];
+        this.githubBranches = [];
+        this.githubReposLoaded = false;
+        this.githubRepoLoadPromise = null;
+      }
       if (this.githubReposLoaded && !force) {
         if (preselectFirst && !this.repoForm.github_repo_full_name && this.githubRepos.length) {
           this.repoForm.github_repo_full_name = this.githubRepos[0].full_name;
@@ -1098,7 +1559,7 @@ function instanceConsole(instanceId) {
       this.githubReposLoading = true;
       this.githubRepoLoadPromise = (async () => {
         try {
-          const res = await fetch(`/deployments/github/repos/?github_account_id=${this.repoForm.github_account_id}`);
+          const res = await fetch(`/deployments/github/repos/${requestSuffix}`);
           const data = await res.json();
           this.githubRepos = data.results ?? [];
           if (!res.ok) {
@@ -1108,6 +1569,7 @@ function instanceConsole(instanceId) {
             return;
           }
           this.githubReposLoaded = true;
+          this.githubRepoSourceKey = sourceKey;
           if (preselectFirst && !this.repoForm.github_repo_full_name && this.githubRepos.length) {
             this.repoForm.github_repo_full_name = this.githubRepos[0].full_name;
             await this.applySelectedGitHubRepo();
@@ -1132,18 +1594,39 @@ function instanceConsole(instanceId) {
       }
       this.repoForm.repo_name = selected.name;
       this.repoForm.git_url = selected.clone_url;
-      this.repoForm.branch = this.repoForm.branch || selected.default_branch || 'main';
+      this.repoForm.branch = (this.repoForm.branch || selected.default_branch || 'main').trim() || 'main';
       this.githubBranchesLoading = true;
       this.githubBranches = [];
       try {
-        const res = await fetch(`/deployments/github/branches/?github_account_id=${this.repoForm.github_account_id}&full_name=${encodeURIComponent(selected.full_name)}`);
+        const res = await fetch(`/deployments/github/branches/${this.githubRepoRequestSuffix({ full_name: selected.full_name })}`);
         const data = await res.json();
         this.githubBranches = data.results ?? [];
-        if (res.ok && this.githubBranches.length) {
-          const branchExists = this.githubBranches.some(branch => branch.name === this.repoForm.branch);
-          if (!branchExists) {
-            this.repoForm.branch = selected.default_branch || this.githubBranches[0].name;
-          }
+        if (res.ok && !this.repoForm.branch && this.githubBranches.length) {
+          this.repoForm.branch = selected.default_branch || this.githubBranches[0].name;
+        }
+      } catch (_) {
+        this.githubBranches = [];
+      } finally {
+        this.githubBranchesLoading = false;
+      }
+    },
+
+    async loadGitHubBranchesForCurrentRepo() {
+      if (!this.repoForm?.github_repo_full_name) {
+        this.githubBranches = [];
+        return;
+      }
+      const selectedBranch = (this.repoForm.branch || '').trim();
+      this.githubBranchesLoading = true;
+      this.githubBranches = [];
+      try {
+        const res = await fetch(`/deployments/github/branches/${this.githubRepoRequestSuffix({ full_name: this.repoForm.github_repo_full_name })}`);
+        const data = await res.json();
+        this.githubBranches = data.results ?? [];
+        if (selectedBranch) {
+          this.repoForm.branch = selectedBranch;
+        } else if (res.ok && this.githubBranches.length) {
+          this.repoForm.branch = this.githubBranches[0].name;
         }
       } catch (_) {
         this.githubBranches = [];
@@ -1154,12 +1637,18 @@ function instanceConsole(instanceId) {
 
     buildRepoPayload() {
       if (this.repoForm.id) {
-        return {
+        const payload = {
           repo_name: this.repoForm.repo_name,
           branch: this.repoForm.branch,
           auto_update: this.repoForm.auto_update,
+          install_requirements_on_update: this.repoForm.install_requirements_on_update,
+          auto_upgrade_modules_on_update: this.repoForm.auto_upgrade_modules_on_update,
           is_enabled: this.repoForm.is_enabled,
         };
+        if (this.repoFormUsesGitHubBranchSelector()) {
+          payload.branch = this.repoForm.branch || 'main';
+        }
+        return payload;
       }
       if (this.repoForm.mode === 'manual') {
         return {
@@ -1218,51 +1707,17 @@ function instanceConsole(instanceId) {
       });
       const data = await res.json();
       this.repoMessageOk = res.ok;
-      this.repoMessage = data.error || (res.ok ? 'GitHub repository created and linked to this instance. You can upload the zip now.' : 'Could not create the GitHub repository.');
+      this.repoMessage = data.error || (res.ok ? 'GitHub repository created and linked to this instance. Upload the zip from the Addons tab.' : 'Could not create the GitHub repository.');
       if (res.ok) {
         this.repoForm.upload_created_repo = data.github_repo;
         this.repoForm.upload_repo_id = data.linked_repo?.id ? String(data.linked_repo.id) : '';
-        this.loadRepos(false);
-      }
-      return { res, data };
-    },
-
-    async saveUploadRepo() {
-      if (!this.hasGitHubAccount()) {
-        if (this.repoForm.upload_auth_type === 'GITHUB_OAUTH') {
-          this.repoMessageOk = false;
-          this.repoMessage = 'Connect GitHub first or switch this upload to Personal Access Token.';
-          return null;
+        this.closeRepoModal();
+        await this.loadRepos(false);
+        if (data.linked_repo) {
+          this.prepareGithubUpload(data.linked_repo);
         }
       }
-      if (!this.repoForm.upload_created_repo) {
-        return await this.createGitHubRepo();
-      }
-      if (!this.repoForm.upload_file) {
-        this.repoMessageOk = false;
-        this.repoMessage = 'Choose a zip file to upload.';
-        return null;
-      }
-
-      const formData = new FormData();
-      formData.append('branch', 'main');
-      formData.append('auth_type', this.repoForm.upload_auth_type);
-      formData.append('github_account_id', this.repoForm.github_account_id);
-      formData.append('repo_name', this.repoForm.upload_created_repo.name || this.repoForm.upload_repo_name.trim());
-      formData.append('full_name', this.repoForm.upload_created_repo.full_name);
-      formData.append('clone_url', this.repoForm.upload_created_repo.clone_url || '');
-      if (this.repoForm.upload_repo_id) formData.append('repo_id', this.repoForm.upload_repo_id);
-      formData.append('git_username', this.repoForm.upload_git_username.trim());
-      formData.append('access_token', this.repoForm.upload_access_token.trim());
-      formData.append('credential_name', this.repoForm.upload_credential_name.trim());
-      formData.append('zip_file', this.repoForm.upload_file);
-
-      const res = await fetch(`/deployments/odoo/instances/${this.instanceId}/repos/upload-to-github/`, {
-        method: 'POST',
-        headers: { 'X-CSRFToken': this.getCsrf() },
-        body: formData,
-      });
-      return await res.json().then(data => ({ res, data }));
+      return { res, data };
     },
 
     async saveRepo() {
@@ -1271,10 +1726,12 @@ function instanceConsole(instanceId) {
       try {
         let res;
         let data;
+        const existingRepo = this.repoForm.id ? this.repoById(this.repoForm.id) : null;
+        const requestedBranch = (this.repoForm.branch || '').trim();
+        const branchChanged = !!(existingRepo && requestedBranch && requestedBranch !== ((existingRepo.branch || '').trim()));
         if (this.repoForm.mode === 'upload' && !this.repoForm.id) {
-          const uploadResult = await this.saveUploadRepo();
-          if (!uploadResult) return;
-          ({ res, data } = uploadResult);
+          await this.createGitHubRepo();
+          return;
         } else {
           const payload = this.buildRepoPayload();
           const url = this.repoForm.id
@@ -1293,20 +1750,14 @@ function instanceConsole(instanceId) {
         this.repoMessageOk = res.ok;
         if (data.error) {
           this.repoMessage = data.error;
+        } else if (branchChanged) {
+          this.repoMessage = 'Branch change queued. Repository code will update to the selected branch.';
         } else if (this.repoForm.id) {
           this.repoMessage = 'Repository updated.';
-        } else if (this.repoForm.mode === 'upload' && !data.job_id) {
-          this.repoMessage = 'GitHub repository created and linked to this instance. Upload the zip file to continue.';
-        } else if (this.repoForm.mode === 'upload') {
-          this.repoMessage = 'Zip uploaded and repository queued for clone.';
         } else {
           this.repoMessage = 'Repository queued for clone.';
         }
         if (res.ok) {
-          const uploadStepCompleted = this.repoForm.mode === 'upload' && !this.repoForm.id && !data.job_id;
-          if (uploadStepCompleted) {
-            return;
-          }
           this.closeRepoModal();
           this.loadRepos();
           this.loadJobs();
@@ -1453,20 +1904,49 @@ function instanceConsole(instanceId) {
       }[this.enterpriseStatusCode] ?? this.enterpriseStatusCode;
     },
 
-    enterprisePrimaryActionLabel() {
-      if (this.enterpriseBusy) return 'Queueing…';
-      if (!this.enterpriseSourceAvailable) return 'No Platform Source';
-      return this.enterpriseEnabled ? 'Re-sync Enterprise' : 'Activate Enterprise';
+    syncEnterpriseToggle() {
+      this.enterpriseToggleOn = this.enterpriseEnabled || this.enterpriseStatusCode === 'PENDING';
+    },
+
+    enterpriseToggleDisabled() {
+      return this.enterpriseBusy || !this.enterpriseSourceAvailable || this.enterpriseStatusCode === 'PENDING' || this.enterpriseEnabled;
+    },
+
+    enterpriseToggleCardClass() {
+      if (!this.enterpriseSourceAvailable) {
+        return 'border-gray-200 bg-gray-100';
+      }
+      if (this.enterpriseToggleOn) {
+        return this.enterpriseStatusCode === 'PENDING'
+          ? 'border-amber-200 bg-amber-50'
+          : 'border-emerald-200 bg-emerald-50';
+      }
+      return 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50';
+    },
+
+    enterpriseToggleTrackClass() {
+      if (this.enterpriseStatusCode === 'PENDING') return 'bg-amber-400';
+      if (this.enterpriseToggleOn) return 'bg-emerald-500';
+      return this.enterpriseSourceAvailable ? 'bg-gray-300' : 'bg-gray-200';
+    },
+
+    enterpriseToggleLabel() {
+      if (!this.enterpriseSourceAvailable) return 'No platform source available';
+      if (this.enterpriseStatusCode === 'PENDING') return 'Activating Enterprise…';
+      if (this.enterpriseEnabled) return 'Enterprise is active';
+      return 'Slide to activate';
     },
 
     async activateEnterprise() {
       if (!this.enterpriseSourceAvailable) {
         this.enterpriseMessageOk = false;
         this.enterpriseMessage = 'No active Enterprise source is available for this Odoo version yet.';
+        this.syncEnterpriseToggle();
         return;
       }
       this.enterpriseBusy = true;
       this.enterpriseMessage = null;
+      this.enterpriseToggleOn = true;
       try {
         const res = await fetch(`/deployments/odoo/instances/${this.instanceId}/enterprise/activate/`, {
           method: 'POST',
@@ -1483,12 +1963,15 @@ function instanceConsole(instanceId) {
           this.enterpriseStatusCode = data.enterprise_status || 'PENDING';
           this.enterpriseSourceName = data.enterprise_source_name || this.enterpriseSourceName;
           this.enterpriseError = '';
+          this.syncEnterpriseToggle();
           this.loadJobs();
-          this.activeTab = 'jobs';
+        } else {
+          this.syncEnterpriseToggle();
         }
       } catch (err) {
         this.enterpriseMessageOk = false;
         this.enterpriseMessage = 'Network error: ' + err.message;
+        this.syncEnterpriseToggle();
       } finally {
         this.enterpriseBusy = false;
       }

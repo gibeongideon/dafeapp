@@ -609,6 +609,68 @@ PY
         return []
 
 
+def _detect_repo_requirement_files(instance: OdooInstance, repo: OdooInstanceGitRepo) -> list[str]:
+    runtime = _instance_runtime_context(instance)
+    repo_path = _repo_config_path(instance, repo) if runtime["mode"] == "docker" else repo.local_path
+    script = f"""
+python3 - <<'PY'
+import json
+from pathlib import Path
+repo = Path({repo_path!r})
+if not repo.exists():
+    print("[]")
+    raise SystemExit(0)
+files = []
+for path in repo.rglob("requirements*.txt"):
+    parts = set(path.parts)
+    if ".git" in parts or ".venv" in parts or "node_modules" in parts:
+        continue
+    if path.is_file():
+        files.append(str(path))
+print(json.dumps(sorted(set(files))))
+PY
+"""
+    code, output = _ssh_run(instance.server, script)
+    if code != 0:
+        return []
+    try:
+        return json.loads(output or "[]")
+    except json.JSONDecodeError:
+        return []
+
+
+def _install_repo_python_requirements(repo: OdooInstanceGitRepo, *, on_line=None) -> str:
+    instance = repo.instance
+    runtime = _instance_runtime_context(instance)
+    requirement_files = _detect_repo_requirement_files(instance, repo)
+    if not requirement_files:
+        return "No requirements files found. Skipping Python dependency install."
+
+    commands: list[str] = []
+    if runtime["mode"] == "docker":
+        container = shlex.quote(runtime["container_name"])
+        for requirement_file in requirement_files:
+            commands.append(
+                f"docker exec {container} python3 -m pip install -r {shlex.quote(requirement_file)}"
+            )
+    else:
+        summary = instance.installation_summary or {}
+        default_venv = (
+            f"/odoo/instances/{instance.db_name}/venv"
+            if runtime["mode"] == "bare_direct"
+            else f"/opt/odoo{instance.server.odoo_version}/venv"
+        )
+        pip_bin = f"{summary.get('venv_dir') or default_venv}/bin/pip"
+        for requirement_file in requirement_files:
+            commands.append(f"{shlex.quote(pip_bin)} install -r {shlex.quote(requirement_file)}")
+
+    log_lines = [f"Installing Python requirements from {len(requirement_files)} file(s)…", *requirement_files]
+    code, output = _ssh_run(instance.server, " && ".join(commands), on_line=on_line)
+    if code != 0:
+        raise RuntimeError(output or "Failed to install Python requirements for the updated repository.")
+    return _append_text("\n".join(log_lines), output)
+
+
 def _restart_and_refresh_instance_addons(
     instance: OdooInstance,
     *,
@@ -3009,8 +3071,17 @@ def _repo_follow_up_success(
 ):
     _append_repo_log(repo, log_blob, reset=False)
     sync_log = _sync_instance_addons_config(repo.instance, on_line=on_line)
-    refresh_log = _restart_and_refresh_instance_addons(repo.instance, modules=modules, on_line=on_line)
+    requirements_log = ""
+    if repo.install_requirements_on_update:
+        requirements_log = _install_repo_python_requirements(repo, on_line=on_line)
+    refresh_log = _restart_and_refresh_instance_addons(
+        repo.instance,
+        modules=modules if repo.auto_upgrade_modules_on_update else None,
+        on_line=on_line,
+    )
     _append_repo_log(repo, sync_log)
+    if requirements_log:
+        _append_repo_log(repo, requirements_log)
     _append_repo_log(repo, refresh_log)
     repo.last_error = ""
     repo.status = OdooInstanceGitRepo.Status.CONNECTED
@@ -3635,15 +3706,20 @@ def sync_instance_repo_status(repo_id: int):
     server = repo.instance.server
     if not repo.local_path:
         return
-    code, output = _ssh_run(
-        server,
-        (
-            f"cd {shlex.quote(repo.local_path)}"
-            f" && git fetch origin {shlex.quote(repo.branch)}"
-            f" && printf 'LOCAL=%s\n' \"$(git rev-parse HEAD)\""
-            f" && printf 'REMOTE=%s\n' \"$(git rev-parse FETCH_HEAD)\""
-        ),
+    git_setup = ""
+    remote_key_path = ""
+    if repo.auth_type == OdooInstanceGitRepo.AuthType.SSH_KEY:
+        remote_key_path, git_setup = _prepare_remote_git_key(server, repo)
+    command = (
+        f"cd {shlex.quote(repo.local_path)}"
+        f" && {git_setup + ' && ' if git_setup else ''}"
+        f"git fetch origin {shlex.quote(repo.branch)}"
+        f" && printf 'LOCAL=%s\n' \"$(git rev-parse HEAD)\""
+        f" && printf 'REMOTE=%s\n' \"$(git rev-parse FETCH_HEAD)\""
     )
+    if remote_key_path:
+        command = f"{command} ; rm -f {shlex.quote(remote_key_path)}"
+    code, output = _ssh_run(server, command)
     if code != 0:
         repo.status = OdooInstanceGitRepo.Status.ERROR
         repo.last_error = output or "Status sync failed."

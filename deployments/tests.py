@@ -289,7 +289,8 @@ class OdooVersionedFlowTests(TestCase):
         self.assertContains(resp, "Setting")
         self.assertContains(resp, "Installation Summary")
         self.assertContains(resp, "Server IP")
-        self.assertContains(resp, "Activate Enterprise")
+        self.assertContains(resp, "Slide to activate")
+        self.assertContains(resp, 'role="switch"')
         self.assertContains(resp, "odoo_19.0+e.20260327")
 
     def test_all_instances_view_hides_instance_summary_and_extra_header_copy(self):
@@ -1295,12 +1296,7 @@ class OdooVersionedFlowTests(TestCase):
         resp = self.client.post(
             reverse("deployments:odoo-instance-repo-upload-github", kwargs={"instance_id": instance.id}),
             data={
-                "auth_type": "GITHUB_OAUTH",
-                "github_account_id": vcs.id,
                 "repo_id": linked_repo.id,
-                "repo_name": "addon-bundle",
-                "full_name": "octocat/addon-bundle",
-                "clone_url": "https://github.com/octocat/addon-bundle.git",
                 "zip_file": SimpleUploadedFile("addon-bundle.zip", b"PK\x03\x04fake-zip"),
             },
         )
@@ -1309,6 +1305,67 @@ class OdooVersionedFlowTests(TestCase):
         linked_repo.refresh_from_db()
         self.assertEqual(OdooInstanceGitRepo.objects.filter(instance=instance, repo_name="addon-bundle").count(), 1)
         self.assertEqual(linked_repo.auth_type, OdooInstanceGitRepo.AuthType.GITHUB_OAUTH)
+        mock_publish.assert_called_once()
+        mock_dispatch.assert_called_once()
+
+    @patch("deployments.views._push_zip_to_github_repo")
+    @patch("deployments.views._dispatch")
+    def test_upload_to_github_uses_existing_linked_token_credential_when_repo_id_is_provided(self, mock_dispatch, mock_publish):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-upload-linked-token",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            status=OdooServer.Status.PROVISIONED,
+            ip_address="203.0.113.35",
+            created_by=self.user,
+        )
+        instance = OdooInstance.objects.create(
+            organization=self.org,
+            server=server,
+            name="warehouse",
+            db_name="warehouse_db",
+            status=OdooInstance.Status.RUNNING,
+            created_by=self.user,
+        )
+        credential = GitRepositoryCredential.objects.create(
+            organization=self.org,
+            name="octocat-pat",
+            auth_type=GitRepositoryCredential.AuthType.TOKEN,
+            git_username="octocat",
+            created_by=self.user,
+        )
+        credential._raw_access_token = "github_pat_saved_333"
+        credential.save()
+        linked_repo = OdooInstanceGitRepo.objects.create(
+            instance=instance,
+            credential=credential,
+            repo_name="addon-bundle",
+            git_url="https://github.com/octocat/addon-bundle.git",
+            branch="main",
+            default_branch="main",
+            auth_type=OdooInstanceGitRepo.AuthType.TOKEN,
+            local_path="/odoo/instances/warehouse_db/addons/addon-bundle",
+            status=OdooInstanceGitRepo.Status.DISCONNECTED,
+            last_error="Repository created on GitHub. Upload a zip or sync content to finish linking it to this instance.",
+            created_by=self.user,
+        )
+
+        resp = self.client.post(
+            reverse("deployments:odoo-instance-repo-upload-github", kwargs={"instance_id": instance.id}),
+            data={
+                "repo_id": linked_repo.id,
+                "zip_file": SimpleUploadedFile("addon-bundle.zip", b"PK\x03\x04fake-zip"),
+            },
+        )
+
+        self.assertEqual(resp.status_code, 201)
+        linked_repo.refresh_from_db()
+        self.assertEqual(linked_repo.auth_type, OdooInstanceGitRepo.AuthType.TOKEN)
+        self.assertEqual(linked_repo.credential_id, credential.id)
         mock_publish.assert_called_once()
         mock_dispatch.assert_called_once()
 
