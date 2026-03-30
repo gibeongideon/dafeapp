@@ -1005,8 +1005,9 @@ class DnsSslDeploymentFlowTests(TestCase):
         session["current_org_id"] = self.org.id
         session.save()
 
+    @override_settings(PLATFORM_BASE_DOMAIN="dafeapp.com")
     @patch("deployments.views._dispatch")
-    def test_create_server_accepts_managed_dns_fields(self, mock_dispatch):
+    def test_create_server_uses_global_platform_domain_settings(self, mock_dispatch):
         response = self.client.post(
             reverse("deployments:odoo-server-create"),
             data={
@@ -1015,18 +1016,14 @@ class DnsSslDeploymentFlowTests(TestCase):
                 "odoo_version": "19",
                 "region": "nyc3",
                 "size": "s-2vcpu-4gb",
-                "managed_dns_enabled": "true",
-                "managed_dns_zone_id": self.zone.id,
-                "domain_routing_enabled": "true",
-                "tls_mode": OdooServer.TLSMode.LETS_ENCRYPT,
             },
         )
         self.assertEqual(response.status_code, 201)
         server = OdooServer.objects.get(name="dns-enabled")
-        self.assertTrue(server.managed_dns_enabled)
+        self.assertFalse(server.managed_dns_enabled)
         self.assertTrue(server.domain_routing_enabled)
-        self.assertEqual(server.managed_dns_zone_id, self.zone.id)
-        self.assertEqual(server.dns_domain, "example.com")
+        self.assertIsNone(server.managed_dns_zone_id)
+        self.assertEqual(server.dns_domain, "dafeapp.com")
         mock_dispatch.assert_called_once()
 
     @override_settings(PLATFORM_BASE_DOMAIN="dafeapp.com")

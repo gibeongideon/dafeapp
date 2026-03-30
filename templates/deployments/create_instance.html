@@ -989,52 +989,12 @@
             <input id="pyos-password" type="password" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" placeholder="SSH password" />
           </div>
 
-          <div class="rounded-xl border border-gray-200 bg-gray-50 px-4 py-4 space-y-3">
-            <div class="flex items-start justify-between gap-4">
-              <div>
-                <p class="text-xs uppercase tracking-wide text-gray-400">DNS &amp; SSL</p>
-                <h4 class="mt-1 text-sm font-semibold text-gray-900">Optional routing for this server</h4>
-              </div>
-              <label class="inline-flex items-center gap-2 text-xs font-medium text-gray-700">
-                <input id="pyos-domain-routing-enabled" type="checkbox" class="accent-gray-900" />
-                Enable domain routing
-              </label>
-            </div>
-
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <label class="block text-xs font-medium text-gray-600 mb-1">Primary Domain / Base Domain</label>
-                <input id="pyos-dns-domain"
-                       class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg font-mono"
-                       placeholder="apps.example.com" />
-              </div>
-              <div>
-                <label class="block text-xs font-medium text-gray-600 mb-1">TLS Mode</label>
-                <select id="pyos-tls-mode" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white">
-                  <option value="LETS_ENCRYPT" {% if default_tls_mode == 'LETS_ENCRYPT' %}selected{% endif %}>Let's Encrypt</option>
-                  <option value="DISABLED" {% if default_tls_mode == 'DISABLED' %}selected{% endif %}>Disabled</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <label class="flex items-start gap-2.5 rounded-lg border border-gray-200 bg-white px-3 py-2.5 cursor-pointer">
-                <input id="pyos-managed-dns-enabled" type="checkbox" class="mt-0.5 accent-gray-900" />
-                <span>
-                  <span class="block text-xs font-medium text-gray-800">Manage DNS automatically</span>
-                  <span class="block text-[11px] text-gray-500 mt-0.5">Create and reconcile records through DafeApp.</span>
-                </span>
-              </label>
-              <div>
-                <label class="block text-xs font-medium text-gray-600 mb-1">Managed Zone</label>
-                <select id="pyos-managed-dns-zone" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white">
-                  <option value="">Select zone…</option>
-                </select>
-              </div>
-            </div>
-
-            <p id="pyos-dns-help" class="text-[11px] text-gray-500">
-              Bare-metal servers can keep direct IP:PORT access and optionally add domain routing on top.
+          <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4 space-y-2">
+            <p class="text-xs uppercase tracking-wide text-emerald-600">Domains &amp; SSL</p>
+            <h4 class="text-sm font-semibold text-emerald-900">Managed Globally By DafeApp</h4>
+            <p class="text-[11px] text-emerald-800">
+              This server will use the shared DafeApp platform domain configuration. Each instance gets a default hostname under
+              <span class="font-mono">{{ PLATFORM_BASE_DOMAIN|default:"dafeapp.com" }}</span>, and optional customer domains can be added later per instance.
             </p>
           </div>
 
@@ -1114,57 +1074,18 @@
           </div>
         </div>
 
-        <div class="rounded-xl border border-gray-200 bg-gray-50 px-4 py-4 space-y-3">
-          <div class="flex items-start justify-between gap-4">
-            <div>
-              <p class="text-xs uppercase tracking-wide text-gray-400">DNS &amp; SSL</p>
-              <h4 class="mt-1 text-sm font-semibold text-gray-900">Server routing settings</h4>
-            </div>
-            <label class="inline-flex items-center gap-2 text-xs font-medium text-gray-700">
-              <input id="server-domain-routing-enabled" type="checkbox" class="accent-gray-900" />
-              Enable domain routing
-            </label>
-          </div>
-
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label class="block text-xs font-medium text-gray-600 mb-1">Primary Domain / Base Domain</label>
-              <input id="server-dns-domain"
-                     class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg font-mono"
-                     placeholder="apps.example.com" />
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-gray-600 mb-1">TLS Mode</label>
-              <select id="server-tls-mode" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white">
-                <option value="LETS_ENCRYPT" {% if default_tls_mode == 'LETS_ENCRYPT' %}selected{% endif %}>Let's Encrypt</option>
-                <option value="DISABLED" {% if default_tls_mode == 'DISABLED' %}selected{% endif %}>Disabled</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <label class="flex items-start gap-2.5 rounded-lg border border-gray-200 bg-white px-3 py-2.5 cursor-pointer">
-              <input id="server-managed-dns-enabled" type="checkbox" class="mt-0.5 accent-gray-900" />
-              <span>
-                <span class="block text-xs font-medium text-gray-800">Manage DNS automatically</span>
-                <span class="block text-[11px] text-gray-500 mt-0.5">Create records for instance domains in your synced zone.</span>
-              </span>
-            </label>
-            <div>
-              <label class="block text-xs font-medium text-gray-600 mb-1">Managed Zone</label>
-              <select id="server-managed-dns-zone" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white">
-                <option value="">Select zone…</option>
-              </select>
-            </div>
-          </div>
-
-          <p id="server-dns-help" class="text-[11px] text-gray-500">
-            Docker servers always use domain routing. Bare-metal servers can expose direct ports and optional HTTPS domains together.
+        <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4 space-y-2">
+          <p class="text-xs uppercase tracking-wide text-emerald-600">Domains &amp; SSL</p>
+          <h4 class="text-sm font-semibold text-emerald-900">Managed Globally By DafeApp</h4>
+          <p class="text-[11px] text-emerald-800">
+            Server-level DNS settings are no longer configured here. New instances will automatically use the shared platform domain under
+            <span class="font-mono">{{ PLATFORM_BASE_DOMAIN|default:"dafeapp.com" }}</span>, with HTTPS handled globally by DafeApp.
           </p>
         </div>
 
         <div id="server-info-box" class="rounded-lg px-3 py-2 text-xs bg-blue-50 border border-blue-100 text-blue-700">
           Instances will be accessible via <strong>http://SERVER_IP:PORT</strong> (ports 8069–8100).
+          They also get a default hostname under <strong>{{ PLATFORM_BASE_DOMAIN|default:"dafeapp.com" }}</strong>.
           This server will be dedicated to Odoo <span id="version-label">19</span> only.
         </div>
       </div>
@@ -1506,87 +1427,7 @@
     return `${zone.name}${zone.provider_account_name ? ` · ${zone.provider_account_name}` : ""}`;
   }
 
-  function populateDnsZoneSelect(selectEl) {
-    if (!selectEl) return;
-    const current = selectEl.value;
-    selectEl.innerHTML = '<option value="">Select zone…</option>';
-    dnsZonesCache.forEach((zone) => {
-      const option = document.createElement("option");
-      option.value = zone.id;
-      option.textContent = zoneOptionLabel(zone);
-      selectEl.appendChild(option);
-    });
-    if (dnsZonesCache.some((zone) => String(zone.id) === String(current))) {
-      selectEl.value = current;
-    }
-  }
-
-  function populateAllDnsZoneSelects() {
-    populateDnsZoneSelect($("server-managed-dns-zone"));
-    populateDnsZoneSelect($("pyos-managed-dns-zone"));
-  }
-
-  function selectedZoneName(selectEl) {
-    const selectedId = selectEl ? String(selectEl.value || "") : "";
-    const zone = dnsZonesCache.find((item) => String(item.id) === selectedId);
-    return zone ? zone.name : "";
-  }
-
-  function updateDnsControls(prefix) {
-    const routingEl = $(`${prefix}-domain-routing-enabled`);
-    const managedEl = $(`${prefix}-managed-dns-enabled`);
-    const zoneEl = $(`${prefix}-managed-dns-zone`);
-    const domainEl = $(`${prefix}-dns-domain`);
-    const tlsEl = $(`${prefix}-tls-mode`);
-    const helpEl = $(`${prefix}-dns-help`);
-    const isDocker = String(($(`${prefix}-deployment-mode`) && $(`${prefix}-deployment-mode`).value) || "").toUpperCase() === "DOCKER"
-      || (prefix === "server" && $("mode-docker") && $("mode-docker").checked);
-
-    if (routingEl) {
-      routingEl.checked = isDocker ? true : routingEl.checked;
-      routingEl.disabled = isDocker;
-    }
-    if (zoneEl) {
-      zoneEl.disabled = !managedEl || !managedEl.checked;
-      if (managedEl && managedEl.checked && !zoneEl.value && dnsZonesCache.length === 1) {
-        zoneEl.value = String(dnsZonesCache[0].id);
-      }
-    }
-    if (managedEl && zoneEl && managedEl.checked && zoneEl.value && domainEl && !domainEl.value.trim()) {
-      domainEl.value = selectedZoneName(zoneEl);
-    }
-    if (helpEl) {
-      const routingText = isDocker
-        ? "Docker mode always enables Traefik routing for HTTPS domains."
-        : (routingEl && routingEl.checked
-            ? "Bare-metal keeps direct ports and also enables hostname routing."
-            : "Bare-metal can stay on direct ports only until you enable domain routing.");
-      const managedText = managedEl && managedEl.checked
-        ? (zoneEl && zoneEl.value ? ` Managed DNS will target ${selectedZoneName(zoneEl)}.` : " Choose a synced zone to manage records automatically.")
-        : " DNS records can still be created manually if needed.";
-      const tlsText = tlsEl && tlsEl.value === "DISABLED"
-        ? " TLS is disabled, so hostnames will resolve over HTTP only."
-        : " HTTPS will use Let's Encrypt.";
-      helpEl.textContent = `${routingText}${managedText}${tlsText}`;
-    }
-  }
-
-  function collectDnsSettings(prefix) {
-    const zoneEl = $(`${prefix}-managed-dns-zone`);
-    const managedEl = $(`${prefix}-managed-dns-enabled`);
-    const routingEl = $(`${prefix}-domain-routing-enabled`);
-    const tlsEl = $(`${prefix}-tls-mode`);
-    const domainEl = $(`${prefix}-dns-domain`);
-    const managedEnabled = Boolean(managedEl && managedEl.checked);
-    const zoneId = managedEnabled && zoneEl ? zoneEl.value.trim() : "";
-    return {
-      dns_domain: domainEl ? domainEl.value.trim() : "",
-      managed_dns_enabled: managedEnabled,
-      managed_dns_zone_id: zoneId,
-      domain_routing_enabled: Boolean(routingEl && routingEl.checked),
-      tls_mode: tlsEl ? (tlsEl.value || defaultTlsMode) : defaultTlsMode,
-    };
-  }
+  function updateDnsControls() {}
 
   function setDnsStats() {
     const customCount = dnsAssignmentsCache.filter((item) => !item.is_primary).length;
@@ -1732,20 +1573,6 @@
     renderDnsRecords();
   }
 
-  async function loadDnsZoneOptions() {
-    try {
-      const resp = await fetch("/api/dns/zones/");
-      if (!resp.ok) return;
-      const data = await resp.json().catch(() => ({}));
-      dnsZonesCache = data.results || [];
-      populateAllDnsZoneSelects();
-      updateDnsControls("server");
-      updateDnsControls("pyos");
-    } catch (err) {
-      // DNS setup is optional for the server modals; keep the forms usable.
-    }
-  }
-
   async function loadDnsDashboard() {
     try {
       const [accountsResp, zonesResp, recordsResp, assignmentsResp, instancesResp] = await Promise.all([
@@ -1761,10 +1588,6 @@
       dnsRecordsCache = recordsResp.ok ? ((await recordsResp.json().catch(() => ({}))).results || []) : [];
       dnsAssignmentsCache = assignmentsResp.ok ? ((await assignmentsResp.json().catch(() => ({}))).results || []) : [];
       dnsInstancesCache = instancesResp.ok ? ((await instancesResp.json().catch(() => ({}))).results || []) : [];
-
-      populateAllDnsZoneSelects();
-      updateDnsControls("server");
-      updateDnsControls("pyos");
       renderDnsDashboard();
     } catch (err) {
       const fallback = '<div class="px-5 py-6 text-sm text-red-500 text-center">DNS data could not be loaded right now.</div>';
@@ -2204,7 +2027,7 @@
     if (exampleAccessEl) {
       const mode = (server.deployment_mode || "").toUpperCase();
       if (mode === "DOCKER") {
-        exampleAccessEl.textContent = server.dns_domain ? `https://${server.dns_domain}` : "https://domain.example.com";
+        exampleAccessEl.textContent = platformBaseDomain ? `https://app.${platformBaseDomain}` : "https://domain.example.com";
         exampleAccessEl.className = "font-mono text-[11px] text-purple-600";
       } else if (server.ip_address) {
         const port = server.min_port || 8069;
@@ -2471,7 +2294,7 @@
     const connMsgText = connMessageLabel(server) || (isPyos ? "Reachability is being verified..." : "Reachability has not been checked yet.");
     const isBusy = isBusyStatus(server.status);
     const exampleAccessText = server.deployment_mode === "DOCKER"
-      ? (server.dns_domain ? `https://${server.dns_domain}` : "https://domain.example.com")
+      ? (platformBaseDomain ? `https://app.${platformBaseDomain}` : "https://domain.example.com")
       : (server.ip_address ? `http://${server.ip_address}:${server.min_port || 8069}` : "pending");
     const exampleAccessClass = server.deployment_mode === "DOCKER"
       ? "font-mono text-[11px] text-purple-600"
@@ -2637,7 +2460,6 @@
   setInterval(autoCheckVisibleServers, 60000);
   refreshInstanceRows();
   setInterval(refreshInstanceRows, 60000);
-  loadDnsZoneOptions();
   if (dnsDashboardEnabled) {
     loadDnsDashboard();
     setInterval(loadDnsDashboard, 60000);
@@ -2665,12 +2487,6 @@
     selectedAccountId = "";
     if ($("server-name")) $("server-name").value = "";
     if ($("server-version")) $("server-version").value = "19";
-    if (serverDnsDomainEl) serverDnsDomainEl.value = "";
-    if (serverManagedDnsEl) serverManagedDnsEl.checked = false;
-    if (serverManagedDnsZoneEl) serverManagedDnsZoneEl.value = "";
-    if (serverRoutingEl) serverRoutingEl.checked = false;
-    if (serverTlsEl) serverTlsEl.value = defaultTlsMode;
-    updateDnsControls("server");
     if ($("source-modal-msg")) $("source-modal-msg").textContent = "";
   });
 
@@ -2806,7 +2622,6 @@
     }
     hide(dnsAccountModal);
     await loadDnsDashboard();
-    await loadDnsZoneOptions();
   });
 
   $("submit-add-ssh-key")?.addEventListener("click", async () => {
@@ -2849,20 +2664,12 @@
   const versionLabel = $("version-label");
   const pyosVersionEl = $("pyos-version");
   const pyosDeploymentModeEl = $("pyos-deployment-mode");
-  const serverManagedDnsEl = $("server-managed-dns-enabled");
-  const serverManagedDnsZoneEl = $("server-managed-dns-zone");
-  const serverRoutingEl = $("server-domain-routing-enabled");
-  const serverDnsDomainEl = $("server-dns-domain");
-  const serverTlsEl = $("server-tls-mode");
-  const pyosManagedDnsEl = $("pyos-managed-dns-enabled");
-  const pyosManagedDnsZoneEl = $("pyos-managed-dns-zone");
-  const pyosRoutingEl = $("pyos-domain-routing-enabled");
-  const pyosDnsDomainEl = $("pyos-dns-domain");
-  const pyosTlsEl = $("pyos-tls-mode");
-
-  versionEl.addEventListener("change", () => { versionLabel.textContent = versionEl.value; });
+  versionEl?.addEventListener("change", () => {
+    if (versionLabel) versionLabel.textContent = versionEl.value;
+  });
 
   function activateBtn(active, inactive) {
+    if (!active || !inactive) return;
     active.classList.add("bg-gray-900", "text-white", "border-gray-900");
     inactive.classList.remove("bg-gray-900", "text-white", "border-gray-900");
   }
@@ -2871,45 +2678,29 @@
     mode = "cloud";
     show(cloudPanel); hide(pyosPanel);
     activateBtn(pickCloud, pickPyos);
-    $("source-modal-msg").textContent = "";
-    updateDnsControls("server");
+    if ($("source-modal-msg")) $("source-modal-msg").textContent = "";
   }
   function showPyos() {
     mode = "pyos";
     show(pyosPanel); hide(cloudPanel);
     hide(detailsModal);
     activateBtn(pickPyos, pickCloud);
-    $("source-modal-msg").textContent = "";
-    $("pyos-server-name").value = "";
-    $("pyos-host").value = "";
-    $("pyos-port").value = "22";
-    $("pyos-username").value = "root";
-    $("pyos-auth-key").checked = true;
-    pyosVersionEl.value = "19";
-    pyosDeploymentModeEl.value = "BARE_METAL";
-    $("pyos-key-info").classList.remove("hidden");
-    $("pyos-key-path-field").classList.remove("hidden");
-    $("pyos-key-path").value = "";
-    $("pyos-password-field").classList.add("hidden");
-    if (pyosDnsDomainEl) pyosDnsDomainEl.value = "";
-    if (pyosManagedDnsEl) pyosManagedDnsEl.checked = false;
-    if (pyosManagedDnsZoneEl) pyosManagedDnsZoneEl.value = "";
-    if (pyosRoutingEl) pyosRoutingEl.checked = false;
-    if (pyosTlsEl) pyosTlsEl.value = defaultTlsMode;
-    updateDnsControls("pyos");
+    if ($("source-modal-msg")) $("source-modal-msg").textContent = "";
+    if ($("pyos-server-name")) $("pyos-server-name").value = "";
+    if ($("pyos-host")) $("pyos-host").value = "";
+    if ($("pyos-port")) $("pyos-port").value = "22";
+    if ($("pyos-username")) $("pyos-username").value = "root";
+    if ($("pyos-auth-key")) $("pyos-auth-key").checked = true;
+    if (pyosVersionEl) pyosVersionEl.value = "19";
+    if (pyosDeploymentModeEl) pyosDeploymentModeEl.value = "BARE_METAL";
+    $("pyos-key-info")?.classList.remove("hidden");
+    $("pyos-key-path-field")?.classList.remove("hidden");
+    if ($("pyos-key-path")) $("pyos-key-path").value = "";
+    $("pyos-password-field")?.classList.add("hidden");
   }
 
-  pickCloud.addEventListener("click", showCloud);
-  pickPyos.addEventListener("click", showPyos);
-
-  [serverManagedDnsEl, serverManagedDnsZoneEl, serverRoutingEl, serverDnsDomainEl, serverTlsEl].filter(Boolean).forEach((el) => {
-    el.addEventListener("change", () => updateDnsControls("server"));
-    el.addEventListener("input", () => updateDnsControls("server"));
-  });
-  [pyosManagedDnsEl, pyosManagedDnsZoneEl, pyosRoutingEl, pyosDnsDomainEl, pyosTlsEl, pyosDeploymentModeEl].filter(Boolean).forEach((el) => {
-    el.addEventListener("change", () => updateDnsControls("pyos"));
-    el.addEventListener("input", () => updateDnsControls("pyos"));
-  });
+  pickCloud?.addEventListener("click", showCloud);
+  pickPyos?.addEventListener("click", showPyos);
 
   document.querySelectorAll(".provider-card").forEach(card => {
     card.addEventListener("click", () => {
@@ -2924,7 +2715,7 @@
     });
   });
 
-  accountEl.addEventListener("change", async () => {
+  accountEl?.addEventListener("change", async () => {
     selectedAccountId = accountEl.value;
     if (!selectedAccountId) return;
     const res = await fetch(`/cloud/accounts/${selectedAccountId}/options/`);
@@ -2949,15 +2740,14 @@
     $("details-source-label").textContent = mode === "cloud"
       ? `Cloud account selected`
       : `VPS connection selected`;
-    updateDnsControls("server");
   }
 
-  $("next-cloud-details").addEventListener("click", () => {
+  $("next-cloud-details")?.addEventListener("click", () => {
     selectedAccountId = accountEl.value;
     if (!selectedAccountId) { $("source-modal-msg").textContent = "Select a cloud account first."; return; }
     openDetailsModal();
   });
-  $("submit-create-pyos-server").addEventListener("click", async () => {
+  $("submit-create-pyos-server")?.addEventListener("click", async () => {
     const msgEl = $("source-modal-msg");
     const name = ($("pyos-server-name").value || "").trim();
     const host = ($("pyos-host").value || "").trim();
@@ -2968,14 +2758,9 @@
     const sshKeyPath = $("pyos-key-path") ? $("pyos-key-path").value.trim() : "";
     const odooVersion = pyosVersionEl.value || "19";
     const deployMode = pyosDeploymentModeEl.value || "BARE_METAL";
-    const dnsSettings = collectDnsSettings("pyos");
     if (!name) { setMsg(msgEl, "Server name is required.", true); return; }
     if (!host) { setMsg(msgEl, "IP / host is required.", true); return; }
     if (authType === "PASSWORD" && !password.trim()) { setMsg(msgEl, "Password is required.", true); return; }
-    if (dnsSettings.managed_dns_enabled && !dnsSettings.managed_dns_zone_id) {
-      setMsg(msgEl, "Select a managed zone or disable automatic DNS management.", true);
-      return;
-    }
     setMsg(msgEl, "Registering VPS…");
     const resp = await postForm("/api/deployments/odoo/servers/create/", {
       name,
@@ -2987,11 +2772,6 @@
       password,
       odoo_version: odooVersion,
       deployment_mode: deployMode,
-      dns_domain: dnsSettings.dns_domain,
-      managed_dns_enabled: dnsSettings.managed_dns_enabled,
-      managed_dns_zone_id: dnsSettings.managed_dns_zone_id,
-      domain_routing_enabled: dnsSettings.domain_routing_enabled,
-      tls_mode: dnsSettings.tls_mode,
     });
     if (!resp.ok) { setMsg(msgEl, resp.data.error || "Server provisioning failed.", true); return; }
     hide(sourceModal);
@@ -3004,21 +2784,20 @@
       const bareLabel   = $("mode-bare-label");
       const dockerLabel = $("mode-docker-label");
       const infoBox     = $("server-info-box");
-      if ($("mode-docker").checked) {
-        if (bareLabel)   { bareLabel.classList.remove("border-gray-900"); bareLabel.classList.add("border-transparent"); }
-        if (dockerLabel) { dockerLabel.classList.add("border-gray-900"); dockerLabel.classList.remove("border-transparent"); }
-        if (infoBox)     infoBox.textContent = "Docker mode: Traefik will handle HTTPS. Each instance gets its own domain. Ports 80 and 443 must be open.";
+        if ($("mode-docker").checked) {
+          if (bareLabel)   { bareLabel.classList.remove("border-gray-900"); bareLabel.classList.add("border-transparent"); }
+          if (dockerLabel) { dockerLabel.classList.add("border-gray-900"); dockerLabel.classList.remove("border-transparent"); }
+        if (infoBox)     infoBox.textContent = `Docker mode: Traefik handles HTTPS and each instance gets a default hostname under ${platformBaseDomain || "*.dafeapp.com"}. Ports 80 and 443 must be open.`;
       } else {
         if (bareLabel)   { bareLabel.classList.add("border-gray-900"); bareLabel.classList.remove("border-transparent"); }
         if (dockerLabel) { dockerLabel.classList.remove("border-gray-900"); dockerLabel.classList.add("border-transparent"); }
-        if (infoBox)     infoBox.textContent = "Bare-metal mode: Odoo runs as a systemd service on its own port. You can also add an optional domain and let Traefik route HTTPS on top.";
+        if (infoBox)     infoBox.textContent = `Bare-metal mode: Odoo runs as a systemd service on its own port. Each instance still gets a default hostname under ${platformBaseDomain || "*.dafeapp.com"} with DafeApp managing HTTPS globally.`;
       }
-      updateDnsControls("server");
     });
   });
 
   // ─── create server ───────────────────────────────────────────────────────
-  $("submit-create-server").addEventListener("click", async () => {
+  $("submit-create-server")?.addEventListener("click", async () => {
     const msgEl = $("details-modal-msg");
     const name = $("server-name").value.trim();
     if (!name) { setMsg(msgEl, "Server name is required.", true); return; }
@@ -3026,23 +2805,12 @@
 
     const deployModeEl = document.querySelector("input[name='server-deploy-mode']:checked");
     const deployMode = deployModeEl ? deployModeEl.value : "BARE_METAL";
-    const dnsSettings = collectDnsSettings("server");
-    if (dnsSettings.managed_dns_enabled && !dnsSettings.managed_dns_zone_id) {
-      setMsg(msgEl, "Select a managed zone or disable automatic DNS management.", true);
-      return;
-    }
-
     let payload = {
       name,
       odoo_version: versionEl.value,
       region: regionEl.value,
       size: sizeEl.value,
       deployment_mode: deployMode,
-      dns_domain: dnsSettings.dns_domain,
-      managed_dns_enabled: dnsSettings.managed_dns_enabled,
-      managed_dns_zone_id: dnsSettings.managed_dns_zone_id,
-      domain_routing_enabled: dnsSettings.domain_routing_enabled,
-      tls_mode: dnsSettings.tls_mode,
     };
 
     if (mode === "cloud") {
@@ -3123,11 +2891,11 @@
       el.className = "text-xs font-mono text-blue-600 break-all hover:underline";
     }
   }
-  $("instance-port").addEventListener("input", updateAccessPreview);
-  $("instance-name").addEventListener("input", updateAccessPreview);
+  $("instance-port")?.addEventListener("input", updateAccessPreview);
+  $("instance-name")?.addEventListener("input", updateAccessPreview);
   if ($("instance-domain")) $("instance-domain").addEventListener("input", updateAccessPreview);
 
-  $("submit-create-instance").addEventListener("click", async () => {
+  $("submit-create-instance")?.addEventListener("click", async () => {
     const msgEl = $("instance-modal-msg");
     const name   = $("instance-name").value.trim();
     const dbName = $("instance-db-name").value.trim();
@@ -3197,7 +2965,7 @@
     }
   });
 
-  document.addEventListener("click", (e) => {
+  document.addEventListener("click", async (e) => {
     const btn = e.target.closest(".open-server-instances-btn");
     if (!btn) return;
     if (btn.disabled) return;
@@ -3238,7 +3006,7 @@
     show(confirmModal);
   }
 
-  $("confirm-ok").addEventListener("click", async () => {
+  $("confirm-ok")?.addEventListener("click", async () => {
     if (!pendingConfirmAction) return;
     hide(confirmModal);
     const action = pendingConfirmAction;
@@ -3251,7 +3019,7 @@
     }
   });
 
-  document.addEventListener("click", (e) => {
+  document.addEventListener("click", async (e) => {
     const domainBtn = e.target.closest(".manage-domain-btn");
     if (domainBtn) {
       openDomainModal({
@@ -3292,7 +3060,6 @@
         alert(resp.data.error || "Verification failed.");
       }
       await loadDnsDashboard();
-      await loadDnsZoneOptions();
       return;
     }
 
@@ -3305,7 +3072,6 @@
         alert(resp.data.error || "Zone sync failed.");
       }
       await loadDnsDashboard();
-      await loadDnsZoneOptions();
       return;
     }
 
@@ -3396,7 +3162,7 @@
   });
 
   // init
-  showCloud();
+  if (pickCloud && pickPyos && cloudPanel && pyosPanel) showCloud();
 })();
 </script>
 {% endblock %}

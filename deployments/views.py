@@ -774,24 +774,16 @@ class OdooServerCreateAPIView(LoginRequiredMixin, View):
             return JsonResponse({"error": "odoo_version must be '17', '18', or '19'."}, status=400)
 
         name = (payload.get("name") or "").strip()
-        dns_domain = normalize_domain_name(payload.get("dns_domain") or "")
         deployment_mode = (payload.get("deployment_mode") or "").strip()
         if deployment_mode not in (OdooServer.DeploymentMode.BARE_METAL, OdooServer.DeploymentMode.DOCKER):
             deployment_mode = OdooServer.DeploymentMode.BARE_METAL
-        managed_zone = _resolve_managed_dns_zone(org, str(payload.get("managed_dns_zone_id") or "").strip())
-        managed_dns_enabled = _parse_bool(payload.get("managed_dns_enabled"), default=bool(managed_zone))
-        domain_routing_enabled = _parse_bool(
-            payload.get("domain_routing_enabled"),
-            default=(deployment_mode == OdooServer.DeploymentMode.DOCKER or bool(dns_domain or managed_zone)),
-        )
-        tls_mode = (payload.get("tls_mode") or "").strip() or _default_tls_mode()
+        dns_domain = platform_base_domain() if platform_domains_enabled() else ""
+        managed_zone = None
+        managed_dns_enabled = False
+        domain_routing_enabled = deployment_mode == OdooServer.DeploymentMode.DOCKER or platform_domains_enabled()
+        tls_mode = _default_tls_mode()
         if tls_mode not in {choice for choice, _ in OdooServer.TLSMode.choices}:
             tls_mode = _default_tls_mode()
-
-        if managed_dns_enabled and not managed_zone:
-            return JsonResponse({"error": "managed_dns_zone_id is required when managed DNS is enabled."}, status=400)
-        if managed_zone and not dns_domain:
-            dns_domain = managed_zone.name
         if deployment_mode == OdooServer.DeploymentMode.DOCKER:
             domain_routing_enabled = True
 
