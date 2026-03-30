@@ -16,6 +16,7 @@ from django.http import JsonResponse
 from django.urls import reverse
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
+from django.utils.text import slugify
 from django.views import View
 from django.views.generic import TemplateView
 from asgiref.sync import async_to_sync
@@ -37,6 +38,14 @@ from deployments.models import (
     OdooServerHistory,
     ServerSSHKey,
     TerraformRun,
+)
+from deployments.domain_utils import (
+    build_platform_domain_label,
+    platform_base_domain,
+    platform_domain_for_label,
+    platform_domains_enabled,
+    platform_dns_default_proxied,
+    platform_dns_is_configured,
 )
 from deployments.serializers import (
     DeploymentJobSerializer,
@@ -114,16 +123,14 @@ def _resolve_managed_dns_zone(org, zone_id):
 
 
 def _active_assignment_for_instance(instance: OdooInstance):
-    return instance.domain_assignments.exclude(status=DomainAssignment.Status.DELETED).order_by("-created_at", "-id").first()
+    return instance.domain_assignments.exclude(status=DomainAssignment.Status.DELETED).order_by("-is_primary", "-created_at", "-id").first()
 
-
-def _domain_in_use(org, domain: str, *, exclude_instance_id: int | None = None) -> bool:
+def _domain_in_use(_org, domain: str, *, exclude_instance_id: int | None = None) -> bool:
     normalized = normalize_domain_name(domain)
     if not normalized:
         return False
 
     assignments = DomainAssignment.objects.filter(
-        organization=org,
         domain=normalized,
     ).exclude(status=DomainAssignment.Status.DELETED)
     if exclude_instance_id is not None:
@@ -132,7 +139,6 @@ def _domain_in_use(org, domain: str, *, exclude_instance_id: int | None = None) 
         return True
 
     instances = OdooInstance.objects.filter(
-        organization=org,
         domain=normalized,
     ).exclude(status=OdooInstance.Status.DELETED)
     if exclude_instance_id is not None:
@@ -140,12 +146,32 @@ def _domain_in_use(org, domain: str, *, exclude_instance_id: int | None = None) 
     return instances.exists()
 
 
-def _sync_instance_domain_assignment(instance: OdooInstance, domain: str) -> DomainAssignment:
+def _generate_platform_domain(instance_name: str) -> str:
+    if not platform_domains_enabled():
+        return ""
+    for attempt in range(0, 200):
+        label = build_platform_domain_label(instance_name, attempt)
+        domain = platform_domain_for_label(label)
+        if domain and not _domain_in_use(None, domain):
+            return domain
+    fallback = slugify(instance_name or "", allow_unicode=False).strip("-") or "app"
+    return platform_domain_for_label(f"{fallback[:36]}-{timezone.now().strftime('%H%M%S')}")
+
+
+def _sync_instance_domain_assignment(
+    instance: OdooInstance,
+    domain: str,
+    *,
+    source: str = DomainAssignment.Source.CUSTOM,
+    is_primary: bool = False,
+) -> DomainAssignment:
     normalized = normalize_domain_name(domain)
-    preferred_zone = instance.server.managed_dns_zone if instance.server_id else None
+    preferred_zone = instance.server.managed_dns_zone if instance.server_id and source == DomainAssignment.Source.CUSTOM else None
     zone = DnsZone.match_for_domain(instance.organization, normalized, preferred_zone=preferred_zone)
 
-    assignment = _active_assignment_for_instance(instance)
+    assignment = instance.domain_assignments.exclude(status=DomainAssignment.Status.DELETED).filter(domain=normalized).first()
+    if assignment is None and is_primary:
+        assignment = instance.domain_assignments.exclude(status=DomainAssignment.Status.DELETED).filter(is_primary=True).first()
     if assignment and assignment.domain != normalized:
         assignment.status = DomainAssignment.Status.DELETED
         assignment.instance = None
@@ -162,6 +188,8 @@ def _sync_instance_domain_assignment(instance: OdooInstance, domain: str) -> Dom
 
     assignment.zone = zone
     assignment.domain = normalized
+    assignment.source = source
+    assignment.is_primary = is_primary
     assignment.hostname = zone.hostname_for_domain(normalized) if zone else normalized
     assignment.proxied = bool(zone.default_proxied) if zone else False
     assignment.is_managed = bool(
@@ -169,10 +197,22 @@ def _sync_instance_domain_assignment(instance: OdooInstance, domain: str) -> Dom
         and instance.server.managed_dns_enabled
         and (instance.server.managed_dns_zone_id is None or instance.server.managed_dns_zone_id == zone.id)
     )
+    if source == DomainAssignment.Source.PLATFORM:
+        assignment.zone = None
+        assignment.hostname = normalized
+        assignment.proxied = False
+        assignment.is_managed = True
     assignment.status = DomainAssignment.Status.PENDING
     assignment.last_error = ""
     assignment.instance = instance
     assignment.save()
+
+    if is_primary:
+        instance.domain_assignments.exclude(pk=assignment.pk).filter(status__in=[
+            DomainAssignment.Status.PENDING,
+            DomainAssignment.Status.ACTIVE,
+            DomainAssignment.Status.FAILED,
+        ]).update(is_primary=False)
     return assignment
 
 
@@ -596,6 +636,10 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
         ctx["show_dns_view"] = section == "dns"
         ctx["show_instances_view"] = section == "instances"
         ctx["default_tls_mode"] = _default_tls_mode()
+        ctx["PLATFORM_BASE_DOMAIN"] = platform_base_domain()
+        ctx["platform_domains_enabled"] = platform_domains_enabled()
+        ctx["platform_dns_configured"] = platform_dns_is_configured()
+        ctx["platform_dns_proxied"] = platform_dns_default_proxied()
         from cloud.models import ExternalServer
 
         ctx["external_servers"] = ExternalServer.objects.filter(
@@ -1062,14 +1106,14 @@ class OdooInstanceCreateAPIView(LoginRequiredMixin, View):
 
         name = (payload.get("name") or "").strip()
         db_name = (payload.get("db_name") or "").strip()
-        domain = normalize_domain_name(payload.get("domain") or "")
+        custom_domain = normalize_domain_name(payload.get("custom_domain") or payload.get("domain") or "")
         req_cpu = int(payload.get("requested_cpu_cores") or 1)
         req_ram = int(payload.get("requested_ram_mb") or 1024)
         port_raw = payload.get("http_port")
         if not name or not db_name:
             return JsonResponse({"error": "name and db_name are required."}, status=400)
-        if domain and _domain_in_use(org, domain):
-            return JsonResponse({"error": "Domain is already used by another instance."}, status=400)
+        if custom_domain and _domain_in_use(org, custom_domain):
+            return JsonResponse({"error": "Custom domain is already used by another instance."}, status=400)
 
         port = int(port_raw) if port_raw else _next_available_port(server)
         if port is None:
@@ -1083,15 +1127,22 @@ class OdooInstanceCreateAPIView(LoginRequiredMixin, View):
         if not ok:
             return JsonResponse({"error": capacity_msg}, status=400)
 
+        platform_domain = _generate_platform_domain(name)
+        if not platform_domain:
+            return JsonResponse({"error": f"Platform base domain is not configured. Set {platform_base_domain() or 'PLATFORM_BASE_DOMAIN'} first."}, status=400)
+        if _domain_in_use(org, platform_domain):
+            return JsonResponse({"error": "Generated platform domain is already used. Please retry."}, status=400)
+
         logger.info(
-            "Instance create requested by %s: server=%s name=%s db_name=%s mode=%s port=%s domain=%s",
+            "Instance create requested by %s: server=%s name=%s db_name=%s mode=%s port=%s platform_domain=%s custom_domain=%s",
             request.user,
             server.id,
             name,
             db_name,
             server.deployment_mode,
             port,
-            domain or "",
+            platform_domain,
+            custom_domain or "",
         )
 
         inst = OdooInstance.objects.create(
@@ -1099,20 +1150,31 @@ class OdooInstanceCreateAPIView(LoginRequiredMixin, View):
             server=server,
             name=name,
             db_name=db_name,
-            domain=domain,
+            domain=platform_domain,
             http_port=port,
-            domain_status=OdooInstance.DomainStatus.PENDING if domain else OdooInstance.DomainStatus.NOT_CONFIGURED,
+            domain_status=OdooInstance.DomainStatus.PENDING if platform_domain else OdooInstance.DomainStatus.NOT_CONFIGURED,
             ssl_status=(
                 OdooInstance.SSLStatus.NOT_CONFIGURED
-                if not domain or server.tls_mode == OdooServer.TLSMode.DISABLED
+                if not platform_domain or server.tls_mode == OdooServer.TLSMode.DISABLED
                 else OdooInstance.SSLStatus.PENDING
             ),
             requested_cpu_cores=req_cpu,
             requested_ram_mb=req_ram,
             created_by=request.user,
         )
-        if domain:
-            _sync_instance_domain_assignment(inst, domain)
+        _sync_instance_domain_assignment(
+            inst,
+            platform_domain,
+            source=DomainAssignment.Source.PLATFORM,
+            is_primary=True,
+        )
+        if custom_domain:
+            _sync_instance_domain_assignment(
+                inst,
+                custom_domain,
+                source=DomainAssignment.Source.CUSTOM,
+                is_primary=False,
+            )
         _dispatch(create_odoo_instance, inst.id)
         return JsonResponse(OdooInstanceSerializer(inst).data, status=201)
 
@@ -1139,27 +1201,15 @@ class OdooInstanceDomainAttachAPIView(LoginRequiredMixin, View):
             return JsonResponse({"error": "domain is required."}, status=400)
         if _domain_in_use(org, domain, exclude_instance_id=instance.id):
             return JsonResponse({"error": "Domain is already used by another instance."}, status=400)
+        if domain == instance.domain:
+            return JsonResponse({"ok": True, "message": "That domain is already the primary DafeApp hostname."})
 
-        instance.domain = domain
-        instance.domain_status = OdooInstance.DomainStatus.PENDING
-        instance.domain_last_checked_at = None
-        instance.ssl_status = (
-            OdooInstance.SSLStatus.NOT_CONFIGURED
-            if instance.server.tls_mode == OdooServer.TLSMode.DISABLED
-            else OdooInstance.SSLStatus.PENDING
+        _sync_instance_domain_assignment(
+            instance,
+            domain,
+            source=DomainAssignment.Source.CUSTOM,
+            is_primary=False,
         )
-        instance.ssl_error = ""
-        instance.save(
-            update_fields=[
-                "domain",
-                "domain_status",
-                "domain_last_checked_at",
-                "ssl_status",
-                "ssl_error",
-                "updated_at",
-            ]
-        )
-        _sync_instance_domain_assignment(instance, domain)
         _dispatch(provision_instance_domain, instance.id)
         return JsonResponse(OdooInstanceSerializer(instance).data)
 
@@ -1177,15 +1227,17 @@ class OdooInstanceDomainDetachAPIView(LoginRequiredMixin, View):
             pk=instance_id,
             organization=org,
         )
-        if not instance.domain:
-            return JsonResponse({"ok": True, "message": "No domain is attached to this instance."})
-
-        instance.domain_status = OdooInstance.DomainStatus.PENDING
-        instance.ssl_status = OdooInstance.SSLStatus.NOT_CONFIGURED
-        instance.ssl_error = ""
-        instance.save(update_fields=["domain_status", "ssl_status", "ssl_error", "updated_at"])
-        _dispatch(detach_instance_domain, instance.id)
-        return JsonResponse({"ok": True, "message": "Domain detach queued."})
+        payload = _request_data(request)
+        domain = normalize_domain_name(payload.get("domain") or "")
+        if not domain:
+            return JsonResponse({"error": "domain is required to detach a custom alias."}, status=400)
+        if domain == instance.domain:
+            return JsonResponse({"error": "The primary DafeApp domain cannot be detached."}, status=400)
+        assignment = instance.domain_assignments.exclude(status=DomainAssignment.Status.DELETED).filter(domain=domain).first()
+        if assignment is None:
+            return JsonResponse({"ok": True, "message": "That custom domain is not attached to this instance."})
+        _dispatch(detach_instance_domain, instance.id, domain)
+        return JsonResponse({"ok": True, "message": "Custom domain detach queued."})
 
 
 class OdooInstanceDomainRetryAPIView(LoginRequiredMixin, View):
@@ -1201,7 +1253,7 @@ class OdooInstanceDomainRetryAPIView(LoginRequiredMixin, View):
             pk=instance_id,
             organization=org,
         )
-        if not instance.domain:
+        if not instance.domain_assignments.exclude(status=DomainAssignment.Status.DELETED).exists():
             return JsonResponse({"error": "This instance has no domain to reprovision."}, status=400)
 
         instance.domain_status = OdooInstance.DomainStatus.PENDING
@@ -1218,7 +1270,6 @@ class OdooInstanceDomainRetryAPIView(LoginRequiredMixin, View):
                 "updated_at",
             ]
         )
-        _sync_instance_domain_assignment(instance, instance.domain)
         _dispatch(provision_instance_domain, instance.id)
         return JsonResponse({"ok": True, "message": "Domain reprovision queued."})
 

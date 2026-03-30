@@ -176,6 +176,11 @@ TRAEFIK_ACME_EMAIL = env("TRAEFIK_ACME_EMAIL", default=env("ODOO_ADMIN_EMAIL", d
 TRAEFIK_LOG_LEVEL = env("TRAEFIK_LOG_LEVEL", default="INFO")
 TRAEFIK_VERSION = env("TRAEFIK_VERSION", default="3.1.2")
 TRAEFIK_DEFAULT_TLS_MODE = env("TRAEFIK_DEFAULT_TLS_MODE", default="LETS_ENCRYPT")
+PLATFORM_BASE_DOMAIN = env("PLATFORM_BASE_DOMAIN", default="dafeapp.com")
+PLATFORM_DNS_PROVIDER = env("PLATFORM_DNS_PROVIDER", default="")
+PLATFORM_DNS_API_TOKEN = env("PLATFORM_DNS_API_TOKEN", default="")
+PLATFORM_DNS_ZONE_ID = env("PLATFORM_DNS_ZONE_ID", default="")
+PLATFORM_DNS_PROXIED = env.bool("PLATFORM_DNS_PROXIED", default=False)
 
 # ---------------------------------------------------------------------------
 # Authentication Backends

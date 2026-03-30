@@ -1,5 +1,5 @@
 import json
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
 from datetime import timedelta
@@ -1029,6 +1029,7 @@ class DnsSslDeploymentFlowTests(TestCase):
         self.assertEqual(server.dns_domain, "example.com")
         mock_dispatch.assert_called_once()
 
+    @override_settings(PLATFORM_BASE_DOMAIN="dafeapp.com")
     @patch("deployments.views._dispatch")
     def test_create_instance_reserves_domain_assignment(self, mock_dispatch):
         server = OdooServer.objects.create(
@@ -1054,19 +1055,22 @@ class DnsSslDeploymentFlowTests(TestCase):
                 "server_id": server.id,
                 "name": "crm",
                 "db_name": "crm_db",
-                "domain": "crm.example.com",
+                "custom_domain": "crm.example.com",
                 "http_port": 8072,
             },
         )
         self.assertEqual(response.status_code, 201)
         instance = OdooInstance.objects.get(server=server, db_name="crm_db")
-        assignment = DomainAssignment.objects.get(instance=instance, status=DomainAssignment.Status.PENDING)
+        primary = DomainAssignment.objects.get(instance=instance, is_primary=True, status=DomainAssignment.Status.PENDING)
+        custom = DomainAssignment.objects.get(instance=instance, domain="crm.example.com", status=DomainAssignment.Status.PENDING)
         self.assertEqual(instance.domain_status, OdooInstance.DomainStatus.PENDING)
         self.assertEqual(instance.ssl_status, OdooInstance.SSLStatus.PENDING)
-        self.assertEqual(assignment.zone_id, self.zone.id)
-        self.assertEqual(assignment.domain, "crm.example.com")
+        self.assertEqual(instance.domain, "crm.dafeapp.com")
+        self.assertEqual(primary.domain, "crm.dafeapp.com")
+        self.assertEqual(custom.zone_id, self.zone.id)
         mock_dispatch.assert_called_once()
 
+    @override_settings(PLATFORM_BASE_DOMAIN="dafeapp.com")
     @patch("deployments.views._dispatch")
     def test_domain_attach_and_detach_endpoints_queue_tasks(self, mock_dispatch):
         server = OdooServer.objects.create(
@@ -1099,17 +1103,17 @@ class DnsSslDeploymentFlowTests(TestCase):
         )
         self.assertEqual(attach_response.status_code, 200)
         instance.refresh_from_db()
-        self.assertEqual(instance.domain, "inventory.example.com")
-        self.assertEqual(instance.domain_status, OdooInstance.DomainStatus.PENDING)
+        self.assertEqual(instance.domain, "")
         self.assertTrue(DomainAssignment.objects.filter(instance=instance, domain="inventory.example.com").exists())
 
         detach_response = self.client.post(
             reverse("deployments:odoo-instance-domain-detach", kwargs={"instance_id": instance.id}),
-            data={},
+            data={"domain": "inventory.example.com"},
         )
         self.assertEqual(detach_response.status_code, 200)
         self.assertEqual(mock_dispatch.call_count, 2)
 
+    @override_settings(PLATFORM_BASE_DOMAIN="dafeapp.com")
     def test_instance_serializer_exposes_preferred_domain_url(self):
         server = OdooServer.objects.create(
             organization=self.org,
@@ -1130,7 +1134,7 @@ class DnsSslDeploymentFlowTests(TestCase):
             server=server,
             name="website",
             db_name="website_db",
-            domain="website.example.com",
+            domain="website.dafeapp.com",
             http_port=8078,
             status=OdooInstance.Status.RUNNING,
             domain_status=OdooInstance.DomainStatus.ACTIVE,
@@ -1138,9 +1142,28 @@ class DnsSslDeploymentFlowTests(TestCase):
             ssl_enabled=True,
             created_by=self.user,
         )
+        DomainAssignment.objects.create(
+            organization=self.org,
+            instance=instance,
+            domain="website.dafeapp.com",
+            source=DomainAssignment.Source.PLATFORM,
+            is_primary=True,
+            status=DomainAssignment.Status.ACTIVE,
+            is_managed=True,
+        )
+        DomainAssignment.objects.create(
+            organization=self.org,
+            instance=instance,
+            domain="erp.customer.com",
+            source=DomainAssignment.Source.CUSTOM,
+            is_primary=False,
+            status=DomainAssignment.Status.ACTIVE,
+            is_managed=False,
+        )
 
         data = OdooInstanceSerializer(instance).data
         self.assertEqual(data["direct_access_url"], "http://203.0.113.70:8078")
-        self.assertEqual(data["domain_access_url"], "https://website.example.com")
-        self.assertEqual(data["preferred_access_url"], "https://website.example.com")
-        self.assertEqual(data["access_url"], "https://website.example.com")
+        self.assertEqual(data["domain_access_url"], "https://website.dafeapp.com")
+        self.assertEqual(data["preferred_access_url"], "https://website.dafeapp.com")
+        self.assertEqual(data["access_url"], "https://website.dafeapp.com")
+        self.assertEqual(len(data["domain_assignments"]), 2)

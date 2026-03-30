@@ -163,6 +163,8 @@ class OdooInstanceSerializer(serializers.ModelSerializer):
     owner_name = serializers.SerializerMethodField()
     storage_path = serializers.SerializerMethodField()
     domain_assignment = serializers.SerializerMethodField()
+    domain_assignments = serializers.SerializerMethodField()
+    all_domain_urls = serializers.SerializerMethodField()
 
     def get_access_url(self, obj):
         return obj.access_url
@@ -191,6 +193,16 @@ class OdooInstanceSerializer(serializers.ModelSerializer):
             return None
         return DomainAssignmentSerializer(assignment).data
 
+    def get_domain_assignments(self, obj):
+        relation = getattr(obj, "domain_assignments", None)
+        if relation is None:
+            return []
+        rows = relation.exclude(status="DELETED").order_by("-is_primary", "-created_at", "-id")
+        return DomainAssignmentSerializer(rows, many=True).data
+
+    def get_all_domain_urls(self, obj):
+        return obj.all_domain_urls
+
     class Meta:
         model = OdooInstance
         fields = [
@@ -206,6 +218,8 @@ class OdooInstanceSerializer(serializers.ModelSerializer):
             "domain_status",
             "domain_last_checked_at",
             "domain_assignment",
+            "domain_assignments",
+            "all_domain_urls",
             "owner_name",
             "storage_path",
             "requested_cpu_cores",

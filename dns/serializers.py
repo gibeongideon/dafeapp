@@ -105,6 +105,7 @@ class DomainAssignmentSerializer(serializers.ModelSerializer):
     domain_status = serializers.SerializerMethodField()
     ssl_status = serializers.SerializerMethodField()
     ssl_error = serializers.SerializerMethodField()
+    source_label = serializers.SerializerMethodField()
 
     def get_zone_name(self, obj):
         return obj.zone.name if obj.zone_id else ""
@@ -127,6 +128,9 @@ class DomainAssignmentSerializer(serializers.ModelSerializer):
     def get_ssl_error(self, obj):
         return obj.instance.ssl_error if obj.instance_id else ""
 
+    def get_source_label(self, obj):
+        return obj.get_source_display()
+
     class Meta:
         model = DomainAssignment
         fields = [
@@ -138,8 +142,12 @@ class DomainAssignmentSerializer(serializers.ModelSerializer):
             "record_id",
             "domain",
             "hostname",
+            "source",
+            "source_label",
+            "is_primary",
             "proxied",
             "is_managed",
+            "provider_record_id",
             "status",
             "domain_status",
             "ssl_status",

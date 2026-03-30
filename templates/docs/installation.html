@@ -532,7 +532,79 @@ DafeApp UI
        TAB: Env Config
   ════════════════════════════════════════════════════════════════════ -->
   <div x-show="tab === 'config'" x-transition>
-    <div class="bg-white rounded-xl border border-gray-200 p-6">
+    <div class="space-y-6">
+      <div class="bg-white rounded-xl border border-gray-200 p-6">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-9 h-9 bg-orange-400 rounded-lg flex items-center justify-center text-white font-bold text-xs">CF</div>
+          <h3 class="font-semibold text-gray-900">Cloudflare Platform Domain Setup</h3>
+        </div>
+
+        <div class="space-y-4">
+          <div class="border-l-4 border-orange-400 pl-4">
+            <p class="font-medium text-gray-800 text-sm">Step 1 — Add your shared platform domain to Cloudflare</p>
+            <p class="text-gray-600 text-xs mt-1">
+              Put the base domain you want DafeApp to manage in Cloudflare, for example <strong>dafeapp.com</strong>.
+              New instances will then get automatic hostnames like <strong>app1.dafeapp.com</strong>.
+            </p>
+          </div>
+
+          <div class="border-l-4 border-orange-400 pl-4">
+            <p class="font-medium text-gray-800 text-sm">Step 2 — Create a scoped API token</p>
+            <p class="text-gray-600 text-xs mt-1">
+              Create a Cloudflare API token limited to the shared platform zone only. The token should be able to read the zone and create or update DNS records for it.
+            </p>
+            <div class="bg-slate-900 rounded-lg p-3 mt-2 font-mono text-xs text-green-400 space-y-0.5">
+              <p><span class="text-slate-500"># Recommended minimum permissions</span></p>
+              <p>Zone Read</p>
+              <p>Zone DNS Write</p>
+              <p><span class="text-slate-500"># Scope</span></p>
+              <p>Include → Specific zone → dafeapp.com</p>
+            </div>
+          </div>
+
+          <div class="border-l-4 border-orange-400 pl-4">
+            <p class="font-medium text-gray-800 text-sm">Step 3 — Copy the Cloudflare Zone ID</p>
+            <p class="text-gray-600 text-xs mt-1">
+              Open the <strong>dafeapp.com</strong> zone in Cloudflare and copy its Zone ID. DafeApp uses that together with the API token to create exact per-instance DNS records automatically.
+            </p>
+          </div>
+
+          <div class="border-l-4 border-orange-400 pl-4">
+            <p class="font-medium text-gray-800 text-sm">Step 4 — Configure DafeApp environment variables</p>
+            <div class="bg-slate-900 rounded-lg p-3 mt-2 font-mono text-xs text-green-400 space-y-0.5">
+              <p><span class="text-slate-500"># Shared DafeApp domain</span></p>
+              <p>PLATFORM_BASE_DOMAIN=dafeapp.com</p>
+              <p>PLATFORM_DNS_PROVIDER=CLOUDFLARE</p>
+              <p>PLATFORM_DNS_API_TOKEN=cf_xxxxxxxxxxxxxxxxxxxxx</p>
+              <p>PLATFORM_DNS_ZONE_ID=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</p>
+              <p>PLATFORM_DNS_PROXIED=False</p>
+              <p>&nbsp;</p>
+              <p><span class="text-slate-500"># TLS / Traefik</span></p>
+              <p>TRAEFIK_DEFAULT_TLS_MODE=LETS_ENCRYPT</p>
+              <p>TRAEFIK_ACME_EMAIL=admin@example.com</p>
+            </div>
+            <p class="text-gray-600 text-xs mt-2">
+              Start with <strong>PLATFORM_DNS_PROXIED=False</strong> while validating routing and Let's Encrypt. You can enable Cloudflare proxying later once the shared domain flow is stable.
+            </p>
+          </div>
+
+          <div class="border-l-4 border-orange-400 pl-4">
+            <p class="font-medium text-gray-800 text-sm">Step 5 — Open ports 80 and 443 on your server</p>
+            <p class="text-gray-600 text-xs mt-1">
+              Traefik and Let's Encrypt need public HTTP and HTTPS access. Without ports <strong>80</strong> and <strong>443</strong>, automatic SSL for the DafeApp domain will not complete.
+            </p>
+          </div>
+
+          <div class="border-l-4 border-orange-400 pl-4">
+            <p class="font-medium text-gray-800 text-sm">Custom domains still work separately</p>
+            <p class="text-gray-600 text-xs mt-1">
+              Customers do not need to use your Cloudflare account for their own domains. They can create an <strong>A</strong> record at their own provider pointing their hostname to your server IP, and DafeApp can attach that hostname as an additional alias while keeping the default <strong>*.dafeapp.com</strong> address active.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-gray-200 p-6">
       <h3 class="font-semibold text-gray-900 mb-4">Environment Variable Reference</h3>
       <div class="overflow-x-auto">
         <table class="w-full text-sm text-left">
@@ -562,6 +634,7 @@ DafeApp UI
           </tbody>
         </table>
       </div>
+    </div>
     </div>
   </div>
 

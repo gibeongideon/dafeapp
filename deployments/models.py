@@ -389,6 +389,19 @@ class OdooInstance(models.Model):
         return f"{scheme}://{self.domain}"
 
     @property
+    def all_domain_urls(self) -> list[str]:
+        relation = getattr(self, "domain_assignments", None)
+        if relation is None:
+            return [self.domain_access_url] if self.domain_access_url else []
+        tls_mode = self.server.tls_mode if self.server_id else OdooServer.TLSMode.LETS_ENCRYPT
+        scheme = "http" if tls_mode == OdooServer.TLSMode.DISABLED else "https"
+        rows = []
+        for assignment in relation.exclude(status="DELETED").order_by("-is_primary", "created_at", "id"):
+            if assignment.domain:
+                rows.append(f"{scheme}://{assignment.domain}")
+        return rows
+
+    @property
     def preferred_access_url(self) -> str:
         if not self.domain:
             return self.direct_access_url
@@ -405,7 +418,14 @@ class OdooInstance(models.Model):
         relation = getattr(self, "domain_assignments", None)
         if relation is None:
             return None
-        return relation.exclude(status="DELETED").order_by("-created_at", "-id").first()
+        return relation.exclude(status="DELETED").order_by("-is_primary", "-created_at", "-id").first()
+
+    @property
+    def custom_domain_assignments(self):
+        relation = getattr(self, "domain_assignments", None)
+        if relation is None:
+            return []
+        return relation.exclude(status="DELETED").filter(is_primary=False).order_by("-created_at", "-id")
 
     @property
     def storage_path(self) -> str:

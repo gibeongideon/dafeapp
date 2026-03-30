@@ -10,11 +10,11 @@ Related design document:
 
 ## Recommended Execution Order
 
-1. Build the `dns/` data model and provider service layer.
-2. Extend deployment models and serializers for domain-aware access.
-3. Add deployment API wiring for managed DNS and Traefik routing.
-4. Add bare-metal Traefik installation and dynamic route generation.
-5. Update the UI to expose domain assignment for bare-metal.
+1. Add one platform-managed shared domain configuration for DafeApp itself.
+2. Extend domain bindings so each instance can have one primary DafeApp hostname plus optional custom aliases.
+3. Update deployment API wiring for platform DNS, custom-domain verification, and Traefik routing.
+4. Add bare-metal Traefik installation and dynamic route generation per hostname.
+5. Update the UI so instance creation always shows the automatic DafeApp domain and optionally accepts a custom domain.
 6. Add reconciliation, health surfacing, and migration helpers.
 
 ## Phase 1 — DNS App Foundation

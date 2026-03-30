@@ -9,7 +9,7 @@
       {% if show_dns_view %}
       <h2 class="text-2xl font-semibold text-gray-900">DNS &amp; SSL</h2>
       <p class="text-sm text-gray-500">
-        Connect your DNS provider, sync zones, and manage instance domains and HTTPS without dropping to the API.
+        DafeApp now uses one shared platform domain for automatic instance URLs and lets each instance attach extra custom domains on top.
       </p>
       {% elif selected_server %}
       <div class="inline-flex items-center gap-2 text-[11px] uppercase tracking-[0.2em] text-gray-400">
@@ -41,11 +41,10 @@
          class="inline-flex items-center px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
         Servers
       </a>
-      <button id="open-dns-account-modal"
-              type="button"
-              class="inline-flex items-center px-4 py-2.5 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700 transition-colors">
-        Add DNS Account
-      </button>
+      <a href="/dashboard/docs/installation/"
+         class="inline-flex items-center px-4 py-2.5 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700 transition-colors">
+        Setup Guide
+      </a>
       {% elif selected_server %}
       <a href="{% url 'deployments:create-instance' %}"
          class="inline-flex items-center px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
@@ -81,14 +80,14 @@
     <div class="space-y-6">
       <div class="grid grid-cols-2 xl:grid-cols-4 gap-3">
         <div class="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
-          <p class="text-[11px] uppercase tracking-wide text-gray-400">Accounts</p>
-          <p id="dns-stat-accounts" class="mt-2 text-2xl font-semibold text-gray-900">0</p>
-          <p class="mt-1 text-xs text-gray-500">Connected DNS providers</p>
+          <p class="text-[11px] uppercase tracking-wide text-gray-400">Platform Domain</p>
+          <p class="mt-2 text-lg font-semibold text-gray-900 font-mono">{{ PLATFORM_BASE_DOMAIN|default:"not set" }}</p>
+          <p class="mt-1 text-xs text-gray-500">Default hostname for every instance</p>
         </div>
         <div class="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
-          <p class="text-[11px] uppercase tracking-wide text-gray-400">Zones</p>
-          <p id="dns-stat-zones" class="mt-2 text-2xl font-semibold text-gray-900">0</p>
-          <p class="mt-1 text-xs text-gray-500">Synced domains available</p>
+          <p class="text-[11px] uppercase tracking-wide text-gray-400">Platform DNS</p>
+          <p id="dns-stat-platform" class="mt-2 text-2xl font-semibold text-gray-900">{% if platform_dns_configured %}Ready{% else %}Pending{% endif %}</p>
+          <p class="mt-1 text-xs text-gray-500">Shared Cloudflare configuration</p>
         </div>
         <div class="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
           <p class="text-[11px] uppercase tracking-wide text-gray-400">Assignments</p>
@@ -96,27 +95,49 @@
           <p class="mt-1 text-xs text-gray-500">Instance domains tracked</p>
         </div>
         <div class="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
-          <p class="text-[11px] uppercase tracking-wide text-gray-400">Managed</p>
-          <p id="dns-stat-managed" class="mt-2 text-2xl font-semibold text-gray-900">0</p>
-          <p class="mt-1 text-xs text-gray-500">Assignments with managed DNS</p>
+          <p class="text-[11px] uppercase tracking-wide text-gray-400">Custom Aliases</p>
+          <p id="dns-stat-custom" class="mt-2 text-2xl font-semibold text-gray-900">0</p>
+          <p class="mt-1 text-xs text-gray-500">Extra customer domains attached</p>
         </div>
       </div>
 
       <section class="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
         <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
           <div>
-            <p class="text-xs uppercase tracking-wide text-gray-400">Providers</p>
-            <h3 class="mt-1 text-sm font-semibold text-gray-900">DNS Accounts</h3>
+            <p class="text-xs uppercase tracking-wide text-gray-400">Platform</p>
+            <h3 class="mt-1 text-sm font-semibold text-gray-900">Shared DafeApp Domain</h3>
           </div>
-          <button type="button"
-                  id="dns-refresh-accounts"
-                  class="inline-flex items-center px-3 py-1.5 text-xs font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
-            Refresh
-          </button>
+          <a href="/dashboard/docs/installation/" class="inline-flex items-center px-3 py-1.5 text-xs font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+            Open Docs
+          </a>
         </div>
-        <div id="dns-accounts-list" class="p-5 space-y-3">
-          <div class="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-sm text-gray-500 text-center">
-            Loading DNS accounts…
+        <div class="p-5 space-y-4">
+          <div class="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p class="text-xs uppercase tracking-wide text-emerald-600">Automatic Hostnames</p>
+                <p class="mt-2 text-lg font-semibold text-emerald-900 font-mono">{{ PLATFORM_BASE_DOMAIN|default:"not configured" }}</p>
+                <p class="mt-1 text-sm text-emerald-800">Every instance gets a default DafeApp URL under this base domain.</p>
+              </div>
+              <div class="text-sm text-emerald-900">
+                <p>DNS status: <span class="font-semibold">{% if platform_dns_configured %}Configured{% else %}Needs setup{% endif %}</span></p>
+                <p class="mt-1">Cloudflare proxy: <span class="font-semibold">{% if platform_dns_proxied %}Enabled{% else %}DNS only{% endif %}</span></p>
+              </div>
+            </div>
+          </div>
+          <div class="grid md:grid-cols-3 gap-3">
+            <div class="rounded-xl border border-gray-200 bg-gray-50 px-4 py-4">
+              <p class="text-xs uppercase tracking-wide text-gray-400">Primary URL</p>
+              <p class="mt-2 text-sm text-gray-700">Auto-created for each instance, for example <span class="font-mono">crm.{{ PLATFORM_BASE_DOMAIN|default:"dafeapp.com" }}</span>.</p>
+            </div>
+            <div class="rounded-xl border border-gray-200 bg-gray-50 px-4 py-4">
+              <p class="text-xs uppercase tracking-wide text-gray-400">Custom URL</p>
+              <p class="mt-2 text-sm text-gray-700">Optional extra alias from the customer’s DNS provider, for example <span class="font-mono">erp.customer.com</span>.</p>
+            </div>
+            <div class="rounded-xl border border-gray-200 bg-gray-50 px-4 py-4">
+              <p class="text-xs uppercase tracking-wide text-gray-400">Current Direction</p>
+              <p class="mt-2 text-sm text-gray-700">Keep this page for status and alias management. Per-organization DNS accounts are no longer the main path.</p>
+            </div>
           </div>
         </div>
       </section>
@@ -134,6 +155,7 @@
             <thead>
               <tr class="bg-gray-50 border-b border-gray-100">
                 <th class="text-left px-5 py-3 text-xs text-gray-500 uppercase">Domain</th>
+                <th class="text-left px-5 py-3 text-xs text-gray-500 uppercase">Source</th>
                 <th class="text-left px-5 py-3 text-xs text-gray-500 uppercase">Instance</th>
                 <th class="text-left px-5 py-3 text-xs text-gray-500 uppercase">Zone</th>
                 <th class="text-left px-5 py-3 text-xs text-gray-500 uppercase">Status</th>
@@ -143,7 +165,7 @@
             </thead>
             <tbody id="dns-assignments-body" class="divide-y divide-gray-100">
               <tr>
-                <td colspan="6" class="px-5 py-6 text-sm text-gray-400 text-center">Loading domain assignments…</td>
+                <td colspan="7" class="px-5 py-6 text-sm text-gray-400 text-center">Loading domain assignments…</td>
               </tr>
             </tbody>
           </table>
@@ -155,23 +177,23 @@
       <section class="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
         <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
           <div>
-            <p class="text-xs uppercase tracking-wide text-gray-400">Zones</p>
-            <h3 class="mt-1 text-sm font-semibold text-gray-900">Available DNS Zones</h3>
+            <p class="text-xs uppercase tracking-wide text-gray-400">Optional</p>
+            <h3 class="mt-1 text-sm font-semibold text-gray-900">Organization DNS Zones</h3>
           </div>
-          <p class="text-xs text-gray-500">Synced from your provider accounts</p>
+          <p class="text-xs text-gray-500">Only needed for legacy or future white-label flows</p>
         </div>
         <div id="dns-zones-list" class="divide-y divide-gray-100">
-          <div class="px-5 py-6 text-sm text-gray-400 text-center">Loading zones…</div>
+          <div class="px-5 py-6 text-sm text-gray-400 text-center">Loading optional zones…</div>
         </div>
       </section>
 
       <section class="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
         <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
           <div>
-            <p class="text-xs uppercase tracking-wide text-gray-400">Needs Attention</p>
-            <h3 class="mt-1 text-sm font-semibold text-gray-900">Instances Without Domains</h3>
+            <p class="text-xs uppercase tracking-wide text-gray-400">Optional</p>
+            <h3 class="mt-1 text-sm font-semibold text-gray-900">Instances Without Custom Domains</h3>
           </div>
-          <p class="text-xs text-gray-500">Attach a hostname directly from here</p>
+          <p class="text-xs text-gray-500">Every instance already gets a DafeApp hostname automatically</p>
         </div>
         <div id="dns-unassigned-list" class="divide-y divide-gray-100">
           <div class="px-5 py-6 text-sm text-gray-400 text-center">Loading instances…</div>
@@ -181,10 +203,10 @@
       <section class="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
         <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
           <div>
-            <p class="text-xs uppercase tracking-wide text-gray-400">Records</p>
-            <h3 class="mt-1 text-sm font-semibold text-gray-900">Recent DNS Records</h3>
+            <p class="text-xs uppercase tracking-wide text-gray-400">Visibility</p>
+            <h3 class="mt-1 text-sm font-semibold text-gray-900">Tracked DNS Records</h3>
           </div>
-          <p class="text-xs text-gray-500">Last 20 records known to DafeApp</p>
+          <p class="text-xs text-gray-500">Shows org-managed records only. Platform Cloudflare records are configured globally.</p>
         </div>
         <div id="dns-records-list" class="divide-y divide-gray-100">
           <div class="px-5 py-6 text-sm text-gray-400 text-center">Loading DNS records…</div>
@@ -793,6 +815,11 @@
           Server: <span id="instance-server-name" class="font-medium text-gray-700"></span>
           <span id="instance-server-mode-badge" class="ml-2 hidden px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700">Docker</span>
         </div>
+        <div class="rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2.5">
+          <p class="text-xs font-medium text-emerald-700">Default DafeApp Domain</p>
+          <p id="instance-platform-domain-preview" class="mt-1 font-mono text-sm text-emerald-800 break-all">app.dafeapp.com</p>
+          <p class="mt-1 text-[11px] text-emerald-700">This hostname is auto-created for every instance. You can also add your own domain below as an extra alias.</p>
+        </div>
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="block text-xs font-medium text-gray-600 mb-1">Instance Name</label>
@@ -804,11 +831,11 @@
           </div>
         </div>
 
-        <!-- Domain field -->
+        <!-- Optional custom domain field -->
         <div id="instance-domain-row">
           <label class="block text-xs font-medium text-gray-600 mb-1">
-            Domain
-            <span class="text-gray-400 font-normal">— optional on bare-metal, required for Docker</span>
+            Custom Domain
+            <span class="text-gray-400 font-normal">— optional extra hostname from your own DNS provider</span>
           </label>
           <input id="instance-domain" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg font-mono"
                  placeholder="acme.example.com" />
@@ -1309,6 +1336,7 @@
   const csrf = "{{ csrf_token }}";
   const dnsDashboardEnabled = {{ show_dns_view|yesno:"true,false" }};
   const defaultTlsMode = "{{ default_tls_mode }}";
+  const platformBaseDomain = "{{ PLATFORM_BASE_DOMAIN|default:'dafeapp.com' }}";
 
   // ─── helpers ─────────────────────────────────────────────────────────────
   const $ = (id) => document.getElementById(id);
@@ -1561,43 +1589,16 @@
   }
 
   function setDnsStats() {
-    const managedCount = dnsAssignmentsCache.filter((item) => item.is_managed).length;
-    if ($("dns-stat-accounts")) $("dns-stat-accounts").textContent = String(dnsAccountsCache.length);
-    if ($("dns-stat-zones")) $("dns-stat-zones").textContent = String(dnsZonesCache.length);
+    const customCount = dnsAssignmentsCache.filter((item) => !item.is_primary).length;
+    if ($("dns-stat-platform")) $("dns-stat-platform").textContent = platformBaseDomain ? "Ready" : "Pending";
     if ($("dns-stat-assignments")) $("dns-stat-assignments").textContent = String(dnsAssignmentsCache.length);
-    if ($("dns-stat-managed")) $("dns-stat-managed").textContent = String(managedCount);
+    if ($("dns-stat-custom")) $("dns-stat-custom").textContent = String(customCount);
   }
 
   function renderDnsAccounts() {
     const container = $("dns-accounts-list");
     if (!container) return;
-    if (!dnsAccountsCache.length) {
-      container.innerHTML = `
-        <div class="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-sm text-gray-500 text-center">
-          No DNS account yet. Add a Cloudflare token to start syncing zones.
-        </div>`;
-      return;
-    }
-    container.innerHTML = dnsAccountsCache.map((account) => `
-      <article class="rounded-xl border border-gray-200 p-4">
-        <div class="flex items-start justify-between gap-4">
-          <div>
-            <div class="flex items-center gap-2">
-              <p class="text-sm font-semibold text-gray-900">${escapeHtml(account.name || "")}</p>
-              ${account.is_verified ? dnsStatusPill("VERIFIED", "Verified") : dnsStatusPill(account.verification_error ? "FAILED" : "PENDING", account.verification_error ? "Failed" : "Pending")}
-            </div>
-            <p class="mt-1 text-xs text-gray-500">${escapeHtml(account.provider || "DNS provider")} · ${account.token_configured ? "token saved" : "token missing"}</p>
-            <p class="mt-2 text-[11px] text-gray-500">Last verified: ${escapeHtml(formatDate(account.last_verified_at))}</p>
-            ${account.verification_error ? `<p class="mt-2 text-[11px] text-red-600">${escapeHtml(account.verification_error)}</p>` : ""}
-          </div>
-          <div class="flex items-center gap-2">
-            <button type="button" class="edit-dns-account-btn px-3 py-1.5 text-xs font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors" data-account-id="${account.id}">Edit</button>
-            <button type="button" class="verify-dns-account-btn px-3 py-1.5 text-xs font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700 transition-colors" data-account-id="${account.id}">Verify</button>
-            <button type="button" class="sync-dns-account-btn px-3 py-1.5 text-xs font-medium text-indigo-700 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors" data-account-id="${account.id}">Sync Zones</button>
-            <button type="button" class="delete-dns-account-btn px-3 py-1.5 text-xs font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors" data-account-id="${account.id}" data-account-name="${escapeHtml(account.name || "")}">Delete</button>
-          </div>
-        </div>
-      </article>`).join("");
+    container.innerHTML = "";
   }
 
   function renderDnsZones() {
@@ -1638,8 +1639,9 @@
       <tr>
         <td class="px-5 py-3">
           <div class="font-medium text-gray-900">${escapeHtml(assignment.domain || "")}</div>
-          <div class="text-[11px] text-gray-500">${assignment.is_managed ? "Managed by DafeApp" : "Manual DNS"}</div>
+          <div class="text-[11px] text-gray-500">${assignment.is_primary ? "Primary instance URL" : (assignment.is_managed ? "Managed by DafeApp" : "Manual DNS")}</div>
         </td>
+        <td class="px-5 py-3 text-xs text-gray-700">${assignment.is_primary ? '<span class="inline-flex items-center px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-medium">Platform</span>' : '<span class="inline-flex items-center px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">Custom</span>'}</td>
         <td class="px-5 py-3 text-xs text-gray-700">${escapeHtml(assignment.instance_name || "—")}</td>
         <td class="px-5 py-3 text-xs text-gray-700">${escapeHtml(assignment.zone_name || "—")}</td>
         <td class="px-5 py-3">${dnsStatusPill(assignment.status || assignment.domain_status, assignment.status || "Pending")}</td>
@@ -1654,7 +1656,8 @@
             data-instance-domain="${escapeHtml(assignment.domain || "")}"
             data-server-mode="${escapeHtml(serverMode || "")}"
             data-domain-status="${escapeHtml(assignment.domain_status || assignment.status || "")}"
-            data-ssl-status="${escapeHtml(assignment.ssl_status || "")}">
+            data-ssl-status="${escapeHtml(assignment.ssl_status || "")}"
+            data-is-primary="${assignment.is_primary ? 'true' : 'false'}">
             Manage
           </button>` : '<span class="text-xs text-gray-400">—</span>'}
         </td>
@@ -1666,10 +1669,14 @@
     const container = $("dns-unassigned-list");
     if (!container) return;
     const rows = dnsInstancesCache
-      .filter((instance) => (instance.status || "").toUpperCase() !== "DELETED" && !instance.domain)
+      .filter((instance) => {
+        if ((instance.status || "").toUpperCase() === "DELETED") return false;
+        const assignments = Array.isArray(instance.domain_assignments) ? instance.domain_assignments : [];
+        return !assignments.some((item) => !item.is_primary);
+      })
       .slice(0, 12);
     if (!rows.length) {
-      container.innerHTML = '<div class="px-5 py-6 text-sm text-gray-400 text-center">Every active instance already has a domain.</div>';
+      container.innerHTML = '<div class="px-5 py-6 text-sm text-gray-400 text-center">Every active instance already has at least one custom alias, or can be managed from the assignments table.</div>';
       return;
     }
     container.innerHTML = rows.map((instance) => `
@@ -1685,8 +1692,9 @@
                 data-instance-domain=""
                 data-server-mode="${escapeHtml((instance.server && instance.server.deployment_mode) || "")}"
                 data-domain-status="${escapeHtml(instance.domain_status || "")}"
-                data-ssl-status="${escapeHtml(instance.ssl_status || "")}">
-          Attach
+                data-ssl-status="${escapeHtml(instance.ssl_status || "")}"
+                data-is-primary="false">
+          Add Custom Domain
         </button>
       </article>`).join("");
   }
@@ -1764,7 +1772,7 @@
       if ($("dns-zones-list")) $("dns-zones-list").innerHTML = fallback;
       if ($("dns-records-list")) $("dns-records-list").innerHTML = fallback;
       if ($("dns-unassigned-list")) $("dns-unassigned-list").innerHTML = fallback;
-      if ($("dns-assignments-body")) $("dns-assignments-body").innerHTML = '<tr><td colspan="6" class="px-5 py-6 text-sm text-red-500 text-center">DNS data could not be loaded right now.</td></tr>';
+      if ($("dns-assignments-body")) $("dns-assignments-body").innerHTML = '<tr><td colspan="7" class="px-5 py-6 text-sm text-red-500 text-center">DNS data could not be loaded right now.</td></tr>';
     }
   }
 
@@ -2728,20 +2736,24 @@
     return parts.join(" · ");
   }
 
-  function openDomainModal({ instanceId, instanceName, domain = "", serverMode = "BARE_METAL", domainStatus = "", sslStatus = "" }) {
+  let activeDomainIsPrimary = false;
+
+  function openDomainModal({ instanceId, instanceName, domain = "", serverMode = "BARE_METAL", domainStatus = "", sslStatus = "", isPrimary = false }) {
     activeDomainInstanceId = String(instanceId || "");
     activeDomainCurrentValue = domain || "";
     activeDomainServerMode = serverMode || "BARE_METAL";
+    activeDomainIsPrimary = Boolean(isPrimary);
     $("domain-instance-name").textContent = instanceName || "";
     $("domain-name-input").value = domain || "";
     $("domain-status-summary").textContent = domainStatusSummary(domainStatus, sslStatus, domain);
-    $("domain-help-text").textContent = activeDomainServerMode === "DOCKER"
-      ? "Docker instances need a domain because Traefik terminates HTTPS for them."
-      : "Bare-metal instances keep direct port access and can optionally add domain routing on top.";
+    $("domain-help-text").textContent = activeDomainIsPrimary
+      ? "This is the default DafeApp domain for the instance. You can reprovision it, but not detach it."
+      : "Attach or remove an extra custom hostname that points to this instance from your own DNS provider.";
     if (domain) {
-      show($("domain-detach-btn"));
+      if (activeDomainIsPrimary) hide($("domain-detach-btn"));
+      else show($("domain-detach-btn"));
       show($("domain-retry-btn"));
-      $("domain-save-btn").textContent = "Update Domain";
+      $("domain-save-btn").textContent = activeDomainIsPrimary ? "Keep Primary Domain" : "Update Domain";
     } else {
       hide($("domain-detach-btn"));
       hide($("domain-retry-btn"));
@@ -3090,23 +3102,29 @@
 
   function updateAccessPreview() {
     const el = $("instance-access-preview");
+    const platformEl = $("instance-platform-domain-preview");
+    const rawName = $("instance-name") ? $("instance-name").value.trim() : "";
+    const slug = (rawName || "app").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "app";
+    const platformDomain = platformBaseDomain ? `${slug}.${platformBaseDomain}` : slug;
+    if (platformEl) platformEl.textContent = platformDomain;
     if (selectedServerMode === "DOCKER") {
-      const domain = ($("instance-domain") ? $("instance-domain").value.trim() : "") || "your-domain.com";
-      const url = `https://${domain}`;
+      const customDomain = $("instance-domain") ? $("instance-domain").value.trim() : "";
+      const url = `https://${customDomain || platformDomain}`;
       el.textContent = url;
-      el.href = $("instance-domain") && $("instance-domain").value.trim() ? url : "#";
+      el.href = url;
       el.className = "text-xs font-mono text-purple-600 break-all hover:underline";
     } else {
       const domain = $("instance-domain") ? $("instance-domain").value.trim() : "";
       const port = $("instance-port").value.trim() || selectedServerMinPort;
       const ip = selectedServerIp || "SERVER_IP";
-      const url = domain ? `https://${domain}` : `http://${ip}:${port}`;
+      const url = platformDomain ? `https://${platformDomain}` : (domain ? `https://${domain}` : `http://${ip}:${port}`);
       el.textContent = url;
-      el.href = (domain || selectedServerIp) ? url : "#";
+      el.href = url;
       el.className = "text-xs font-mono text-blue-600 break-all hover:underline";
     }
   }
   $("instance-port").addEventListener("input", updateAccessPreview);
+  $("instance-name").addEventListener("input", updateAccessPreview);
   if ($("instance-domain")) $("instance-domain").addEventListener("input", updateAccessPreview);
 
   $("submit-create-instance").addEventListener("click", async () => {
@@ -3117,16 +3135,11 @@
     if (!name || !dbName)  { setMsg(msgEl, "Instance name and database name are required.", true); return; }
     const isDocker = selectedServerMode === "DOCKER";
     const domain = $("instance-domain") ? $("instance-domain").value.trim() : "";
-    if (isDocker && !domain) { setMsg(msgEl, "Domain is required for Docker instances.", true); return; }
     setMsg(msgEl, "Creating instance…");
 
     const payload = { server_id: selectedServerId, name, db_name: dbName };
-    if (isDocker) {
-      payload.domain = domain;
-    } else {
-      if (domain) payload.domain = domain;
-      payload.http_port = $("instance-port").value.trim();
-    }
+    if (domain) payload.custom_domain = domain;
+    if (!isDocker) payload.http_port = $("instance-port").value.trim();
 
     const resp = await postForm("/api/deployments/odoo/instances/create/", payload);
     if (!resp.ok) { setMsg(msgEl, resp.data.error || "Instance creation failed.", true); return; }
@@ -3166,7 +3179,7 @@
   });
 
   // ─── connectivity check ───────────────────────────────────────────────────
-  document.addEventListener("click", (e) => {
+  document.addEventListener("click", async (e) => {
     const btn = e.target.closest(".toggle-server-details");
     if (!btn) return;
     const sid = btn.dataset.serverId;
@@ -3248,6 +3261,7 @@
         serverMode: domainBtn.dataset.serverMode || "BARE_METAL",
         domainStatus: domainBtn.dataset.domainStatus || "",
         sslStatus: domainBtn.dataset.sslStatus || "",
+        isPrimary: domainBtn.dataset.isPrimary === "true",
       });
       return;
     }
@@ -3324,6 +3338,10 @@
       setMsg(msgEl, "Instance selection is missing.", true);
       return;
     }
+    if (activeDomainIsPrimary) {
+      setMsg(msgEl, "The primary DafeApp domain is automatic and cannot be edited here.", true);
+      return;
+    }
     if (!domain) {
       setMsg(msgEl, "Domain is required.", true);
       return;
@@ -3345,7 +3363,7 @@
     showConfirm(
       "Detach Domain",
       `Remove "${activeDomainCurrentValue}" from this instance?`,
-      () => postForm(`/api/deployments/odoo/instances/${activeDomainInstanceId}/domain/detach/`, {}),
+      () => postForm(`/api/deployments/odoo/instances/${activeDomainInstanceId}/domain/detach/`, { domain: activeDomainCurrentValue }),
       "Detach"
     );
   });

@@ -14,6 +14,13 @@ Keep the current Odoo provisioning logic intact, keep direct `IP:PORT` access wo
 - Cloudflare for DNS management and optional proxying
 - DafeApp's own `dns/` app for domain lifecycle, instead of ad hoc shell hooks
 
+Primary product requirement:
+
+- every instance gets an automatic DafeApp-managed hostname under one shared platform domain such as `app1.dafeapp.com`
+- an instance may also attach one or more custom hostnames from external DNS providers
+- both the platform hostname and custom hostname(s) should work for the same instance at the same time
+- per-organization DNS accounts are not the primary architecture for the current rollout
+
 ## Current Project State
 
 ### What already exists
@@ -59,13 +66,15 @@ This gives one host two access paths:
 
 ### 3. Use Cloudflare as the DNS control plane
 
-Cloudflare should become the primary managed DNS provider for this feature.
+Cloudflare should become the primary managed DNS provider for the shared DafeApp platform domain.
 
 Recommended first rollout:
 
 - exact per-instance DNS records
-- per-zone Cloudflare API tokens with minimum DNS permissions
+- one system-level Cloudflare token / zone for the platform domain
 - optional Cloudflare proxy enabled for public domains
+
+Custom domains from third-party providers should be supported without requiring DafeApp to own or manage that provider account. Users can point an `A` record manually and let DafeApp validate routing + SSL after that.
 
 Recommended later rollout:
 

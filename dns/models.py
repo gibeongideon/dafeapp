@@ -239,6 +239,10 @@ class DnsRecord(models.Model):
 
 
 class DomainAssignment(models.Model):
+    class Source(models.TextChoices):
+        PLATFORM = "PLATFORM", "Platform"
+        CUSTOM = "CUSTOM", "Custom"
+
     class Status(models.TextChoices):
         PENDING = "PENDING", "Pending"
         ACTIVE = "ACTIVE", "Active"
@@ -273,8 +277,15 @@ class DomainAssignment(models.Model):
     )
     domain = models.CharField(max_length=255)
     hostname = models.CharField(max_length=255, default="@")
+    source = models.CharField(
+        max_length=20,
+        choices=Source.choices,
+        default=Source.CUSTOM,
+    )
+    is_primary = models.BooleanField(default=False)
     proxied = models.BooleanField(default=False)
     is_managed = models.BooleanField(default=False)
+    provider_record_id = models.CharField(max_length=255, blank=True, default="")
     status = models.CharField(
         max_length=15,
         choices=Status.choices,
@@ -295,8 +306,8 @@ class DomainAssignment(models.Model):
             ),
             models.UniqueConstraint(
                 fields=["instance"],
-                condition=~Q(status="DELETED"),
-                name="dns_active_assignment_instance_uniq",
+                condition=Q(is_primary=True) & ~Q(status="DELETED"),
+                name="dns_active_primary_assignment_instance_uniq",
             ),
         ]
         indexes = [
