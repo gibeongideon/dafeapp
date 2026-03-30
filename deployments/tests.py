@@ -1,4 +1,8 @@
 import json
+import io
+import tarfile
+import tempfile
+from pathlib import Path
 from django.test import TestCase, override_settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
@@ -12,6 +16,7 @@ from cloud.models import CloudAccount, ExternalServer
 from dns.models import DomainAssignment, DnsProviderAccount, DnsZone
 from deployments.models import (
     DeploymentJob,
+    EnterpriseSource,
     GitRepositoryCredential,
     Infrastructure,
     Instance,
@@ -27,6 +32,26 @@ from deployments.tasks import delete_odoo_instance, _mark_server_unreachable_fro
 from users.models import VCSAccount
 
 User = get_user_model()
+
+
+def _build_enterprise_archive(
+    filename="odoo_19.0+e.20260327.tar.gz",
+    nested_root="ads/odoo_19.0+e.20260327/odoo-19.0+e.20260327",
+):
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+        files = {
+            f"{nested_root}/account/__manifest__.py": b"{'name': 'Accounting'}",
+            f"{nested_root}/account/__init__.py": b"",
+            f"{nested_root}/hr/__manifest__.py": b"{'name': 'HR'}",
+            f"{nested_root}/hr/__init__.py": b"",
+        }
+        for path, content in files.items():
+            info = tarfile.TarInfo(name=path)
+            info.size = len(content)
+            archive.addfile(info, io.BytesIO(content))
+    buffer.seek(0)
+    return SimpleUploadedFile(filename, buffer.getvalue(), content_type="application/gzip")
 
 
 class DeploymentCreateFlowTests(TestCase):
@@ -228,6 +253,17 @@ class OdooVersionedFlowTests(TestCase):
             addons_path_cache="/odoo/odoo-server/addons,/odoo_instances/1/addons/sales-tools",
             addons_sync_status=OdooInstance.AddonsSyncStatus.READY,
         )
+        EnterpriseSource.objects.create(
+            odoo_version="19",
+            package_name="odoo_19.0+e.20260327",
+            archive_filename="odoo_19.0+e.20260327.tar.gz",
+            archive_path="/tmp/odoo_19.0+e.20260327.tar.gz",
+            extract_path="/tmp/enterprise/19",
+            addons_source_path="/tmp/enterprise/19/odoo-19.0+e.20260327",
+            is_active=True,
+            status=EnterpriseSource.Status.READY,
+            uploaded_by=self.user,
+        )
         OdooInstanceGitRepo.objects.create(
             instance=instance,
             repo_name="sales-tools",
@@ -253,6 +289,8 @@ class OdooVersionedFlowTests(TestCase):
         self.assertContains(resp, "Setting")
         self.assertContains(resp, "Installation Summary")
         self.assertContains(resp, "Server IP")
+        self.assertContains(resp, "Activate Enterprise")
+        self.assertContains(resp, "odoo_19.0+e.20260327")
 
     def test_all_instances_view_hides_instance_summary_and_extra_header_copy(self):
         server = OdooServer.objects.create(
@@ -527,6 +565,200 @@ class OdooVersionedFlowTests(TestCase):
         self.assertEqual(payload["results"][0]["id"], repo.id)
         self.assertEqual(payload["results"][0]["repo_name"], "stock-custom")
         self.assertEqual(payload["results"][0]["branch"], "18.0")
+
+    def test_platform_admin_can_upload_enterprise_source(self):
+        self.user.is_platform_admin = True
+        self.user.save(update_fields=["is_platform_admin"])
+
+        with tempfile.TemporaryDirectory() as archive_root, tempfile.TemporaryDirectory() as extract_root:
+            with override_settings(
+                ODOO_ENTERPRISE_ARCHIVE_ROOT=archive_root,
+                ODOO_ENTERPRISE_EXTRACT_ROOT=extract_root,
+            ):
+                resp = self.client.post(
+                    reverse("deployments:enterprise-source-list"),
+                    data={
+                        "archive": _build_enterprise_archive(),
+                    },
+                )
+                self.assertEqual(resp.status_code, 201)
+                source = EnterpriseSource.objects.get(odoo_version="19")
+                self.assertEqual(source.status, EnterpriseSource.Status.READY)
+                self.assertTrue(source.is_active)
+                self.assertTrue(source.archive_path.startswith(archive_root))
+                self.assertTrue(source.extract_path.startswith(extract_root))
+                self.assertRegex(source.package_name, r"^\d{14}-odoo_19\.0\+e\.20260327\.tar$")
+                self.assertIn("odoo-19.0+e.20260327", source.addons_source_path)
+
+    def test_uploading_same_release_date_replaces_previous_enterprise_source(self):
+        self.user.is_platform_admin = True
+        self.user.save(update_fields=["is_platform_admin"])
+
+        with tempfile.TemporaryDirectory() as archive_root, tempfile.TemporaryDirectory() as extract_root:
+            with override_settings(
+                ODOO_ENTERPRISE_ARCHIVE_ROOT=archive_root,
+                ODOO_ENTERPRISE_EXTRACT_ROOT=extract_root,
+            ):
+                first_resp = self.client.post(
+                    reverse("deployments:enterprise-source-list"),
+                    data={"archive": _build_enterprise_archive()},
+                )
+                self.assertEqual(first_resp.status_code, 201)
+                first_source = EnterpriseSource.objects.get(odoo_version="19")
+                first_archive_path = first_source.archive_path
+                first_extract_path = first_source.extract_path
+
+                second_resp = self.client.post(
+                    reverse("deployments:enterprise-source-list"),
+                    data={"archive": _build_enterprise_archive()},
+                )
+                self.assertEqual(second_resp.status_code, 201)
+                self.assertEqual(EnterpriseSource.objects.filter(odoo_version="19").count(), 1)
+                second_source = EnterpriseSource.objects.get(odoo_version="19")
+                self.assertEqual(first_source.id, second_source.id)
+                self.assertFalse(Path(first_archive_path).exists())
+                self.assertFalse(Path(first_extract_path).exists())
+                self.assertTrue(Path(second_source.archive_path).exists())
+                self.assertTrue(Path(second_source.extract_path).exists())
+
+    def test_uploading_older_release_is_rejected_when_newer_one_exists(self):
+        self.user.is_platform_admin = True
+        self.user.save(update_fields=["is_platform_admin"])
+
+        with tempfile.TemporaryDirectory() as archive_root, tempfile.TemporaryDirectory() as extract_root:
+            with override_settings(
+                ODOO_ENTERPRISE_ARCHIVE_ROOT=archive_root,
+                ODOO_ENTERPRISE_EXTRACT_ROOT=extract_root,
+            ):
+                newer_resp = self.client.post(
+                    reverse("deployments:enterprise-source-list"),
+                    data={"archive": _build_enterprise_archive(filename="odoo_19.0+e.20260327.tar.gz")},
+                )
+                self.assertEqual(newer_resp.status_code, 201)
+
+                older_resp = self.client.post(
+                    reverse("deployments:enterprise-source-list"),
+                    data={"archive": _build_enterprise_archive(filename="odoo_19.0+e.20260301.tar.gz")},
+                )
+                self.assertEqual(older_resp.status_code, 400)
+                self.assertIn("newer Enterprise source already exists", older_resp.json()["error"])
+                self.assertEqual(EnterpriseSource.objects.filter(odoo_version="19").count(), 1)
+
+    def test_enterprise_uploads_are_kept_in_separate_version_folders(self):
+        self.user.is_platform_admin = True
+        self.user.save(update_fields=["is_platform_admin"])
+
+        with tempfile.TemporaryDirectory() as archive_root, tempfile.TemporaryDirectory() as extract_root:
+            with override_settings(
+                ODOO_ENTERPRISE_ARCHIVE_ROOT=archive_root,
+                ODOO_ENTERPRISE_EXTRACT_ROOT=extract_root,
+            ):
+                resp_19 = self.client.post(
+                    reverse("deployments:enterprise-source-list"),
+                    data={"archive": _build_enterprise_archive(filename="odoo_19.0+e.20260327.tar.gz")},
+                )
+                resp_18 = self.client.post(
+                    reverse("deployments:enterprise-source-list"),
+                    data={"archive": _build_enterprise_archive(filename="odoo_18.0+e.20260320.tar.gz")},
+                )
+
+                self.assertEqual(resp_19.status_code, 201)
+                self.assertEqual(resp_18.status_code, 201)
+
+                source_19 = EnterpriseSource.objects.get(odoo_version="19")
+                source_18 = EnterpriseSource.objects.get(odoo_version="18")
+
+                self.assertIn(f"{Path(archive_root) / '19'}", source_19.archive_path)
+                self.assertIn(f"{Path(extract_root) / '19'}", source_19.extract_path)
+                self.assertIn(f"{Path(archive_root) / '18'}", source_18.archive_path)
+                self.assertIn(f"{Path(extract_root) / '18'}", source_18.extract_path)
+
+    def test_platform_admin_can_switch_active_enterprise_source(self):
+        self.user.is_platform_admin = True
+        self.user.save(update_fields=["is_platform_admin"])
+        current = EnterpriseSource.objects.create(
+            odoo_version="19",
+            package_name="odoo_19.0+e.20260301",
+            archive_filename="odoo_19.0+e.20260301.tar.gz",
+            archive_path="/tmp/odoo_19.0+e.20260301.tar.gz",
+            extract_path="/tmp/enterprise/current",
+            addons_source_path="/tmp/enterprise/current/odoo-19.0+e.20260301",
+            is_active=True,
+            status=EnterpriseSource.Status.READY,
+            uploaded_by=self.user,
+        )
+        next_source = EnterpriseSource.objects.create(
+            odoo_version="19",
+            package_name="odoo_19.0+e.20260327",
+            archive_filename="odoo_19.0+e.20260327.tar.gz",
+            archive_path="/tmp/odoo_19.0+e.20260327.tar.gz",
+            extract_path="/tmp/enterprise/next",
+            addons_source_path="/tmp/enterprise/next/odoo-19.0+e.20260327",
+            is_active=False,
+            status=EnterpriseSource.Status.READY,
+            uploaded_by=self.user,
+        )
+
+        resp = self.client.post(
+            reverse("deployments:enterprise-source-activate", kwargs={"source_id": next_source.id}),
+            data={},
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        current.refresh_from_db()
+        next_source.refresh_from_db()
+        self.assertFalse(current.is_active)
+        self.assertTrue(next_source.is_active)
+
+    @patch("deployments.views._dispatch")
+    def test_instance_enterprise_activate_api_queues_job(self, mock_dispatch):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-enterprise",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            ip_address="203.0.113.55",
+            status=OdooServer.Status.PROVISIONED,
+            created_by=self.user,
+        )
+        instance = OdooInstance.objects.create(
+            organization=self.org,
+            server=server,
+            name="inventory",
+            db_name="inventory_db",
+            status=OdooInstance.Status.RUNNING,
+            created_by=self.user,
+        )
+        source = EnterpriseSource.objects.create(
+            odoo_version="19",
+            package_name="odoo_19.0+e.20260327",
+            archive_filename="odoo_19.0+e.20260327.tar.gz",
+            archive_path="/tmp/odoo_19.0+e.20260327.tar.gz",
+            extract_path="/tmp/enterprise/19",
+            addons_source_path="/tmp/enterprise/19/odoo-19.0+e.20260327",
+            is_active=True,
+            status=EnterpriseSource.Status.READY,
+            uploaded_by=self.user,
+        )
+
+        resp = self.client.post(
+            reverse("deployments:odoo-instance-enterprise-activate", kwargs={"instance_id": instance.id}),
+            data={},
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.json()
+        self.assertEqual(payload["enterprise_source_name"], source.package_name)
+        self.assertEqual(payload["enterprise_status"], OdooInstance.EnterpriseStatus.PENDING)
+        job = DeploymentJob.objects.get(
+            odoo_instance=instance,
+            job_type=DeploymentJob.JobType.ACTIVATE_ENTERPRISE,
+        )
+        mock_dispatch.assert_called_once()
+        self.assertEqual(mock_dispatch.call_args[0][1:], (instance.id, source.id, job.id))
 
     @patch("deployments.views._dispatch")
     def test_instance_repo_create_api_creates_repo_and_clone_job(self, mock_dispatch):

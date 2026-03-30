@@ -1,5 +1,7 @@
 import logging
 import json
+import re
+import tarfile
 import shutil
 import subprocess
 import tempfile
@@ -28,6 +30,7 @@ from cloud.pyos import looks_like_public_key_text
 from dns.models import DomainAssignment, DnsZone, normalize_domain_name
 from deployments.models import (
     DeploymentJob,
+    EnterpriseSource,
     GitRepositoryCredential,
     Infrastructure,
     Instance,
@@ -51,6 +54,7 @@ from deployments.domain_utils import (
 )
 from deployments.serializers import (
     DeploymentJobSerializer,
+    EnterpriseSourceSerializer,
     GitRepositoryCredentialSerializer,
     InfrastructureSerializer,
     InstanceSerializer,
@@ -62,6 +66,7 @@ from deployments.serializers import (
     TerraformRunSerializer,
 )
 from deployments.tasks import (
+    activate_enterprise_for_instance,
     checkout_instance_repo_branch,
     clone_instance_repo,
     create_odoo_instance,
@@ -100,6 +105,143 @@ def _request_data(request):
         except json.JSONDecodeError:
             return {}
     return request.POST
+
+
+def _enterprise_archive_root() -> Path:
+    return Path(getattr(settings, "ODOO_ENTERPRISE_ARCHIVE_ROOT", Path(settings.BASE_DIR) / "var" / "enterprise" / "archives"))
+
+
+def _enterprise_extract_root() -> Path:
+    return Path(getattr(settings, "ODOO_ENTERPRISE_EXTRACT_ROOT", Path(settings.BASE_DIR) / "var" / "enterprise" / "sources"))
+
+
+def _normalize_odoo_version(value: str) -> str:
+    return "".join(ch for ch in str(value or "").strip() if ch.isdigit())
+
+
+def _infer_odoo_version_from_filename(filename: str) -> str:
+    text = str(filename or "").strip().lower()
+    marker = "odoo_"
+    if marker not in text:
+        return ""
+    tail = text.split(marker, 1)[1]
+    digits = []
+    for ch in tail:
+        if ch.isdigit():
+            digits.append(ch)
+            continue
+        if ch in {".", "_", "+", "-"} and digits:
+            break
+        if digits:
+            break
+    return "".join(digits)
+
+
+def _infer_enterprise_release_code(filename: str) -> str:
+    text = str(filename or "").strip().lower()
+    match = re.search(r"odoo[_-]?(\d+)(?:\.0)?\+e\.(\d{8})\.tar(?:\.gz)?$", text)
+    return match.group(2) if match else ""
+
+
+def _enterprise_release_code_for_source(source: EnterpriseSource) -> str:
+    return _infer_enterprise_release_code(source.archive_filename or source.package_name)
+
+
+def _detect_enterprise_addons_source(extract_dir: Path) -> Path | None:
+    candidates: list[tuple[int, int, Path]] = []
+    for path in [extract_dir, *extract_dir.rglob("*")]:
+        if not path.is_dir():
+            continue
+        manifest_count = len(list(path.glob("*/__manifest__.py"))) + len(list(path.glob("*/__openerp__.py")))
+        if manifest_count > 0:
+            depth = len(path.relative_to(extract_dir).parts)
+            candidates.append((manifest_count, -depth, path))
+        addons_dir = path / "addons"
+        if addons_dir.is_dir():
+            manifest_count = len(list(addons_dir.glob("*/__manifest__.py"))) + len(list(addons_dir.glob("*/__openerp__.py")))
+            if manifest_count > 0:
+                depth = len(addons_dir.relative_to(extract_dir).parts)
+                candidates.append((manifest_count + 1, -depth, addons_dir))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return candidates[0][2]
+
+
+def _save_and_extract_enterprise_archive(*, archive_file, odoo_version: str, uploaded_by) -> EnterpriseSource:
+    odoo_version = _normalize_odoo_version(odoo_version) or _infer_odoo_version_from_filename(archive_file.name)
+    if not odoo_version:
+        raise ValueError("Could not determine the Odoo version for this Enterprise archive.")
+    release_code = _infer_enterprise_release_code(archive_file.name)
+    if not release_code:
+        raise ValueError("The Enterprise archive name must include a release date code like odoo_19.0+e.20260327.tar.gz.")
+
+    archive_root = _enterprise_archive_root() / odoo_version
+    extract_root = _enterprise_extract_root() / odoo_version
+    archive_root.mkdir(parents=True, exist_ok=True)
+    extract_root.mkdir(parents=True, exist_ok=True)
+
+    existing_sources = list(EnterpriseSource.objects.filter(odoo_version=odoo_version).order_by("-is_active", "-updated_at", "-id"))
+    existing_release_codes = [_enterprise_release_code_for_source(source) for source in existing_sources]
+    newest_existing_code = max((code for code in existing_release_codes if code), default="")
+    if newest_existing_code and release_code < newest_existing_code:
+        raise ValueError(
+            f"A newer Enterprise source already exists for Odoo {odoo_version} ({newest_existing_code}). "
+            "Upload the latest release only."
+        )
+
+    original_name = Path(archive_file.name).name
+    timestamp = timezone.now().strftime("%Y%m%d%H%M%S")
+    staged_root = Path(tempfile.mkdtemp(prefix=f"enterprise-{odoo_version}-"))
+    staged_archive_path = staged_root / f"{timestamp}-{original_name}"
+    staged_extract_dir = staged_root / staged_archive_path.name.removesuffix(".tar.gz").removesuffix(".tgz")
+    with staged_archive_path.open("wb") as handle:
+        for chunk in archive_file.chunks():
+            handle.write(chunk)
+
+    staged_extract_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        with tarfile.open(staged_archive_path, "r:gz") as tar:
+            tar.extractall(staged_extract_dir)
+    except (tarfile.TarError, OSError) as exc:
+        shutil.rmtree(staged_root, ignore_errors=True)
+        raise ValueError("The uploaded Enterprise package must be a valid .tar.gz archive.") from exc
+
+    addons_source = _detect_enterprise_addons_source(staged_extract_dir)
+    if addons_source is None:
+        shutil.rmtree(staged_root, ignore_errors=True)
+        raise ValueError("Could not detect an Enterprise addons directory inside the uploaded archive.")
+    addons_relative = addons_source.relative_to(staged_extract_dir)
+
+    shutil.rmtree(archive_root, ignore_errors=True)
+    shutil.rmtree(extract_root, ignore_errors=True)
+    archive_root.mkdir(parents=True, exist_ok=True)
+    extract_root.mkdir(parents=True, exist_ok=True)
+
+    archive_path = archive_root / staged_archive_path.name
+    extract_dir = extract_root / staged_extract_dir.name
+    shutil.move(str(staged_archive_path), archive_path)
+    shutil.move(str(staged_extract_dir), extract_dir)
+    shutil.rmtree(staged_root, ignore_errors=True)
+
+    source = existing_sources[0] if existing_sources else EnterpriseSource(odoo_version=odoo_version)
+    extra_source_ids = [row.id for row in existing_sources[1:]]
+    with transaction.atomic():
+        if extra_source_ids:
+            OdooInstance.objects.filter(enterprise_source_id__in=extra_source_ids).update(enterprise_source=source)
+            EnterpriseSource.objects.filter(id__in=extra_source_ids).delete()
+        source.package_name = archive_path.stem
+        source.archive_filename = original_name
+        source.archive_path = str(archive_path)
+        source.extract_path = str(extract_dir)
+        source.addons_source_path = str(extract_dir / addons_relative)
+        source.is_active = True
+        source.status = EnterpriseSource.Status.READY
+        source.last_error = ""
+        source.uploaded_by = uploaded_by
+        source.save()
+    return source
 
 
 def _repo_permission_denied(request):
@@ -800,16 +942,26 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
         ctx = super().get_context_data(**kwargs)
         org = self.request.organization
         section = (self.request.GET.get("section") or "servers").strip()
+        if section == "enterprise" and not self.request.user.is_platform_admin:
+            section = "servers"
         server_id = (self.request.GET.get("server_id") or "").strip()
         accounts = CloudAccount.objects.filter(organization=org, is_verified=True)
         ctx["accounts"] = accounts
         ctx["show_dns_view"] = section == "dns"
         ctx["show_instances_view"] = section == "instances"
+        ctx["show_enterprise_view"] = section == "enterprise"
         ctx["default_tls_mode"] = _default_tls_mode()
         ctx["PLATFORM_BASE_DOMAIN"] = platform_base_domain()
         ctx["platform_domains_enabled"] = platform_domains_enabled()
         ctx["platform_dns_configured"] = platform_dns_is_configured()
         ctx["platform_dns_proxied"] = platform_dns_default_proxied()
+        ctx["enterprise_sources"] = EnterpriseSource.objects.all().order_by("-created_at")[:20] if self.request.user.is_platform_admin else []
+        ctx["enterprise_active_sources"] = {
+            row.odoo_version: row
+            for row in EnterpriseSource.objects.filter(is_active=True, status=EnterpriseSource.Status.READY)
+        } if self.request.user.is_platform_admin else {}
+        ctx["enterprise_archive_root"] = str(_enterprise_archive_root())
+        ctx["enterprise_extract_root"] = str(_enterprise_extract_root())
         from cloud.models import ExternalServer
 
         ctx["external_servers"] = ExternalServer.objects.filter(
@@ -1736,6 +1888,43 @@ class GitRepositoryCredentialListCreateAPIView(LoginRequiredMixin, View):
         return JsonResponse(GitRepositoryCredentialSerializer(credential).data, status=201)
 
 
+class EnterpriseSourceListCreateAPIView(LoginRequiredMixin, View):
+    def get(self, request):
+        if not request.user.is_platform_admin:
+            return JsonResponse({"error": "Platform admin permission required."}, status=403)
+        rows = EnterpriseSource.objects.all().order_by("-created_at")
+        return JsonResponse({"results": EnterpriseSourceSerializer(rows, many=True).data})
+
+    def post(self, request):
+        if not request.user.is_platform_admin:
+            return JsonResponse({"error": "Platform admin permission required."}, status=403)
+        archive = request.FILES.get("archive")
+        if not archive:
+            return JsonResponse({"error": "archive is required."}, status=400)
+        try:
+            source = _save_and_extract_enterprise_archive(
+                archive_file=archive,
+                odoo_version=request.POST.get("odoo_version") or "",
+                uploaded_by=request.user,
+            )
+        except ValueError as exc:
+            return JsonResponse({"error": str(exc)}, status=400)
+        return JsonResponse(EnterpriseSourceSerializer(source).data, status=201)
+
+
+class EnterpriseSourceActivateAPIView(LoginRequiredMixin, View):
+    def post(self, request, source_id):
+        if not request.user.is_platform_admin:
+            return JsonResponse({"error": "Platform admin permission required."}, status=403)
+        source = get_object_or_404(EnterpriseSource, pk=source_id)
+        if source.status != EnterpriseSource.Status.READY:
+            return JsonResponse({"error": "Only ready Enterprise sources can be activated."}, status=400)
+        EnterpriseSource.objects.filter(odoo_version=source.odoo_version, is_active=True).exclude(pk=source.pk).update(is_active=False)
+        source.is_active = True
+        source.save(update_fields=["is_active", "updated_at"])
+        return JsonResponse({"ok": True, "source": EnterpriseSourceSerializer(source).data})
+
+
 class GitHubRepositoryListAPIView(LoginRequiredMixin, View):
     def get(self, request):
         org = getattr(request, "organization", None)
@@ -2096,12 +2285,13 @@ class OdooInstanceConsoleView(LoginRequiredMixin, TemplateView):
         ctx = super().get_context_data(**kwargs)
         org = self.request.organization
         instance = get_object_or_404(
-            OdooInstance.objects.select_related("server"),
+            OdooInstance.objects.select_related("server", "enterprise_source"),
             pk=self.kwargs["instance_id"],
             organization=org,
         )
         ctx["odoo_instance"] = instance
         ctx["odoo_server"] = instance.server
+        ctx["enterprise_active_source"] = EnterpriseSource.active_for_version(instance.server.odoo_version)
         ctx["instance_git_repos"] = list(instance.git_repos.all())
         ctx["env_sections"] = ["Production", "Staging", "Development"]
         ctx["tool_tabs"] = [
@@ -2115,6 +2305,40 @@ class OdooInstanceConsoleView(LoginRequiredMixin, TemplateView):
             "setting",
         ]
         return ctx
+
+
+class OdooInstanceEnterpriseActivateAPIView(LoginRequiredMixin, View):
+    def post(self, request, instance_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if _repo_permission_denied(request):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        instance = get_object_or_404(
+            OdooInstance.objects.select_related("server"),
+            pk=instance_id,
+            organization=org,
+        )
+        source = EnterpriseSource.active_for_version(instance.server.odoo_version)
+        if source is None:
+            return JsonResponse({"error": f"No active Enterprise source is available for Odoo {instance.server.odoo_version}."}, status=400)
+
+        job = _repo_job(
+            org,
+            job_type=DeploymentJob.JobType.ACTIVATE_ENTERPRISE,
+            instance=instance,
+            user=request.user,
+        )
+        _dispatch(activate_enterprise_for_instance, instance.id, source.id, job.id)
+        return JsonResponse(
+            {
+                "ok": True,
+                "job_id": job.id,
+                "enterprise_source_name": source.package_name,
+                "enterprise_status": OdooInstance.EnterpriseStatus.PENDING,
+            }
+        )
 
 
 class InfrastructureCreateAPIView(LoginRequiredMixin, View):

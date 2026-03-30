@@ -4,6 +4,7 @@ from deployments.models import (
     GitRepositoryCredential,
     Infrastructure,
     Instance,
+    EnterpriseSource,
     OdooInstance,
     OdooInstanceGitRepo,
     OdooServer,
@@ -60,11 +61,27 @@ class OdooInstanceAdmin(admin.ModelAdmin):
         "server",
         "db_name",
         "domain",
+        "enterprise_enabled",
+        "enterprise_status",
         "status",
         "created_at",
     ]
-    list_filter = ["status", "ssl_enabled"]
+    list_filter = ["status", "ssl_enabled", "enterprise_enabled", "enterprise_status"]
     search_fields = ["name", "db_name", "domain", "organization__name", "server__name"]
+
+
+@admin.register(EnterpriseSource)
+class EnterpriseSourceAdmin(admin.ModelAdmin):
+    list_display = [
+        "package_name",
+        "odoo_version",
+        "status",
+        "is_active",
+        "uploaded_by",
+        "created_at",
+    ]
+    list_filter = ["odoo_version", "status", "is_active"]
+    search_fields = ["package_name", "archive_filename", "addons_source_path"]
 
 
 @admin.register(OdooInstanceGitRepo)

@@ -1,12 +1,17 @@
 {% extends "dashboard/layout.html" %}
 
-{% block page_title %}{% if show_dns_view %}DNS &amp; SSL{% elif selected_server or show_instances_view %}Instances{% else %}Servers{% endif %}{% endblock %}
+{% block page_title %}{% if show_enterprise_view %}Enterprise{% elif show_dns_view %}DNS &amp; SSL{% elif selected_server or show_instances_view %}Instances{% else %}Servers{% endif %}{% endblock %}
 
 {% block content %}
 <div class="max-w-7xl mx-auto space-y-6">
   <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
     <div class="space-y-2">
-      {% if show_dns_view %}
+      {% if show_enterprise_view %}
+      <h2 class="text-2xl font-semibold text-gray-900">Enterprise Sources</h2>
+      <p class="text-sm text-gray-500">
+        Upload licensed Odoo Enterprise archives once on the platform, then activate them per instance.
+      </p>
+      {% elif show_dns_view %}
       <h2 class="text-2xl font-semibold text-gray-900">DNS &amp; SSL</h2>
       <p class="text-sm text-gray-500">
         DafeApp now uses one shared platform domain for automatic instance URLs and lets each instance attach extra custom domains on top.
@@ -36,7 +41,16 @@
       {% endif %}
     </div>
     <div class="flex items-center gap-2">
-      {% if show_dns_view %}
+      {% if show_enterprise_view %}
+      <a href="{% url 'deployments:create-instance' %}?section=servers"
+         class="inline-flex items-center px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+        Servers
+      </a>
+      <a href="#enterprise-settings"
+         class="inline-flex items-center px-4 py-2.5 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700 transition-colors">
+        Settings
+      </a>
+      {% elif show_dns_view %}
       <a href="{% url 'deployments:create-instance' %}?section=servers"
          class="inline-flex items-center px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
         Servers
@@ -66,7 +80,7 @@
         Servers
       </a>
       {% endif %}
-      {% if not show_dns_view %}
+      {% if not show_dns_view and not show_enterprise_view %}
       <button id="open-create-server"
               class="inline-flex items-center px-4 py-2.5 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700 transition-colors">
         Create Server
@@ -75,7 +89,128 @@
     </div>
   </div>
 
-  {% if show_dns_view %}
+  {% if user.is_platform_admin %}
+  <div class="flex flex-wrap gap-2">
+    <a href="{% url 'deployments:create-instance' %}?section=servers"
+       class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg border {% if not show_dns_view and not show_instances_view and not selected_server and not show_enterprise_view %}border-gray-900 bg-gray-900 text-white{% else %}border-gray-200 bg-white text-gray-700 hover:bg-gray-50{% endif %}">
+      Servers
+    </a>
+    <a href="{% url 'deployments:create-instance' %}?section=dns"
+       class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg border {% if show_dns_view %}border-gray-900 bg-gray-900 text-white{% else %}border-gray-200 bg-white text-gray-700 hover:bg-gray-50{% endif %}">
+      DNS &amp; SSL
+    </a>
+    <a href="{% url 'deployments:create-instance' %}?section=enterprise"
+       class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg border {% if show_enterprise_view %}border-gray-900 bg-gray-900 text-white{% else %}border-gray-200 bg-white text-gray-700 hover:bg-gray-50{% endif %}">
+      Enterprise
+    </a>
+  </div>
+  {% endif %}
+
+  {% if show_enterprise_view %}
+  <div id="enterprise-settings" class="grid gap-3 md:grid-cols-3 scroll-mt-24">
+    <div class="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
+      <p class="text-[11px] uppercase tracking-wide text-gray-400">Active Builds</p>
+      <p class="mt-2 text-2xl font-semibold text-gray-900">{{ enterprise_active_sources|length }}</p>
+      <p class="mt-1 text-xs text-gray-500">One active Enterprise source can be used per Odoo version.</p>
+    </div>
+    <div class="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
+      <p class="text-[11px] uppercase tracking-wide text-gray-400">Archive Store</p>
+      <p class="mt-2 text-sm font-semibold text-gray-900 break-all font-mono">{{ enterprise_archive_root|default:"var/enterprise/archives" }}</p>
+      <p class="mt-1 text-xs text-gray-500">Original uploads stay on the DafeApp host for traceability.</p>
+    </div>
+    <div class="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
+      <p class="text-[11px] uppercase tracking-wide text-gray-400">Extracted Sources</p>
+      <p class="mt-2 text-sm font-semibold text-gray-900 break-all font-mono">{{ enterprise_extract_root|default:"var/enterprise/sources" }}</p>
+      <p class="mt-1 text-xs text-gray-500">Instance activation copies detected addon roots from here.</p>
+    </div>
+  </div>
+  <div class="grid gap-6 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+    <section class="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+      <div class="px-5 py-4 border-b border-gray-100">
+        <p class="text-xs uppercase tracking-wide text-gray-400">Platform Upload</p>
+        <h3 class="mt-1 text-sm font-semibold text-gray-900">Upload Enterprise Archive</h3>
+      </div>
+      <div class="p-5 space-y-4">
+        <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Expected file example: <span class="font-mono">odoo_19.0+e.20260327.tar.gz</span>
+        </div>
+        {% if enterprise_active_sources %}
+        <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+          <p class="text-xs uppercase tracking-wide text-emerald-700">Current Active Sources</p>
+          <div class="mt-2 flex flex-wrap gap-2">
+            {% for version, source in enterprise_active_sources.items %}
+            <span class="inline-flex items-center gap-2 rounded-full bg-white/90 px-3 py-1 text-xs font-medium text-emerald-900 border border-emerald-100">
+              <span>Odoo {{ version }}</span>
+              <span class="font-mono">{{ source.package_name }}</span>
+            </span>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+        <form id="enterprise-upload-form" class="space-y-4">
+          <div class="grid gap-3 md:grid-cols-2">
+            <div class="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+              <p class="text-[11px] uppercase tracking-wide text-gray-400">Detected Version</p>
+              <p id="enterprise-version-preview" class="mt-1 text-sm font-semibold text-gray-900">Waiting for archive</p>
+            </div>
+            <div class="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+              <p class="text-[11px] uppercase tracking-wide text-gray-400">Code Date</p>
+              <p id="enterprise-release-preview" class="mt-1 text-sm font-semibold text-gray-900">Waiting for archive</p>
+            </div>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">Enterprise Archive</label>
+            <input id="enterprise-archive" type="file" accept=".tar.gz,.tgz,application/gzip,application/x-gzip" class="block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 file:mr-3 file:rounded-md file:border-0 file:bg-gray-900 file:px-3 file:py-2 file:text-xs file:font-medium file:text-white hover:file:bg-gray-800">
+          </div>
+          <p class="text-xs text-gray-500">
+            DafeApp auto-detects the version from names like <span class="font-mono">odoo_19.0+e.20260327.tar.gz</span>, stores Odoo 17, 18, and 19 in separate folders, replaces an existing upload with the same code date, and keeps only the latest release for each Odoo version.
+          </p>
+          <p id="enterprise-upload-msg" class="text-xs text-gray-500"></p>
+          <button id="submit-enterprise-upload" type="button" class="inline-flex items-center px-4 py-2.5 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700 transition-colors">
+            Upload Enterprise Source
+          </button>
+        </form>
+      </div>
+    </section>
+
+    <section class="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+      <div class="px-5 py-4 border-b border-gray-100">
+        <p class="text-xs uppercase tracking-wide text-gray-400">Inventory</p>
+        <h3 class="mt-1 text-sm font-semibold text-gray-900">Uploaded Enterprise Sources</h3>
+      </div>
+      <div class="divide-y divide-gray-100" id="enterprise-sources-list">
+        {% for source in enterprise_sources %}
+        <div class="px-5 py-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div class="min-w-0">
+            <div class="flex flex-wrap items-center gap-2">
+              <p class="text-sm font-semibold text-gray-900">{{ source.package_name }}</p>
+              <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold {% if source.is_active %}bg-green-100 text-green-700{% elif source.status == 'READY' %}bg-blue-100 text-blue-700{% else %}bg-red-100 text-red-700{% endif %}">
+                {% if source.is_active %}Active{% else %}{{ source.get_status_display }}{% endif %}
+              </span>
+              <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-600">Odoo {{ source.odoo_version }}</span>
+            </div>
+            <p class="mt-1 text-xs text-gray-500 break-all">Detected source root: <span class="font-mono">{{ source.addons_source_path }}</span></p>
+            {% if source.last_error %}
+            <p class="mt-1 text-xs text-red-600">{{ source.last_error }}</p>
+            {% endif %}
+          </div>
+          <div class="flex items-center gap-2">
+            {% if not source.is_active and source.status == 'READY' %}
+            <button type="button"
+                    class="enterprise-set-active inline-flex items-center px-3 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
+                    data-source-id="{{ source.id }}">
+              Set Active
+            </button>
+            {% endif %}
+          </div>
+        </div>
+        {% empty %}
+        <div class="px-5 py-8 text-sm text-gray-400 text-center">No Enterprise sources uploaded yet.</div>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+  {% elif show_dns_view %}
   <div class="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
     <div class="space-y-6">
       <div class="grid grid-cols-2 xl:grid-cols-4 gap-3">
@@ -2577,6 +2712,41 @@
     show(dnsAccountModal);
   }
 
+  function enterpriseSectionUrl() {
+    const url = new URL(window.location.href);
+    url.searchParams.set("section", "enterprise");
+    return url.toString();
+  }
+
+  function queueEnterpriseReload(delay = 700) {
+    setTimeout(() => {
+      window.location.href = enterpriseSectionUrl();
+    }, delay);
+  }
+
+  function parseEnterpriseArchiveName(filename) {
+    const text = String(filename || "").trim();
+    const match = text.match(/odoo[_-]?(\d+)(?:\.0)?\+e\.(\d{8})\.tar(?:\.gz)?$/i);
+    if (!match) return { version: "", releaseCode: "" };
+    return { version: match[1], releaseCode: match[2] };
+  }
+
+  function updateEnterpriseArchivePreview() {
+    const archiveInput = $("enterprise-archive");
+    const versionEl = $("enterprise-version-preview");
+    const releaseEl = $("enterprise-release-preview");
+    const file = archiveInput?.files?.[0] || null;
+    if (!file) {
+      if (versionEl) versionEl.textContent = "Waiting for archive";
+      if (releaseEl) releaseEl.textContent = "Waiting for archive";
+      return { version: "", releaseCode: "" };
+    }
+    const parsed = parseEnterpriseArchiveName(file.name);
+    if (versionEl) versionEl.textContent = parsed.version ? `Odoo ${parsed.version}` : "Could not detect version";
+    if (releaseEl) releaseEl.textContent = parsed.releaseCode || "Could not detect date";
+    return parsed;
+  }
+
   function domainStatusSummary(domainStatus, sslStatus, currentDomain) {
     if (!currentDomain) return "No domain is attached yet.";
     const parts = [`Current domain: ${currentDomain}`];
@@ -2628,6 +2798,39 @@
 
   $("open-dns-account-modal")?.addEventListener("click", () => openDnsAccountModal());
   $("dns-refresh-accounts")?.addEventListener("click", () => loadDnsDashboard());
+  $("enterprise-archive")?.addEventListener("change", updateEnterpriseArchivePreview);
+
+  $("submit-enterprise-upload")?.addEventListener("click", async () => {
+    const msgEl = $("enterprise-upload-msg");
+    const archiveInput = $("enterprise-archive");
+    const archive = archiveInput?.files?.[0] || null;
+    if (!archive) {
+      setMsg(msgEl, "Choose a .tar.gz Enterprise archive first.", true);
+      return;
+    }
+    const parsed = updateEnterpriseArchivePreview();
+    if (!parsed.version || !parsed.releaseCode) {
+      setMsg(msgEl, "Archive name must look like odoo_19.0+e.20260327.tar.gz.", true);
+      return;
+    }
+    const formData = new FormData();
+    formData.append("archive", archive);
+    setMsg(msgEl, "Uploading and extracting Enterprise source…");
+    const uploadRes = await fetch("/deployments/enterprise/sources/", {
+      method: "POST",
+      headers: { "X-CSRFToken": csrf },
+      body: formData,
+    });
+    const uploadData = await uploadRes.json().catch(() => ({}));
+    if (!uploadRes.ok) {
+      setMsg(msgEl, uploadData.error || "Enterprise upload failed.", true);
+      return;
+    }
+    setMsg(msgEl, `Uploaded ${uploadData.package_name || "Enterprise source"}. Refreshing the list…`);
+    if (archiveInput) archiveInput.value = "";
+    updateEnterpriseArchivePreview();
+    queueEnterpriseReload();
+  });
 
   $("submit-dns-account")?.addEventListener("click", async () => {
     const msgEl = $("dns-account-msg");
@@ -3128,6 +3331,26 @@
         () => requestJson(`/api/dns/accounts/${accountId}/`, { method: "DELETE" })
       );
       return;
+    }
+
+    const activateEnterpriseBtn = e.target.closest(".enterprise-set-active");
+    if (activateEnterpriseBtn) {
+      activateEnterpriseBtn.disabled = true;
+      setMsg($("enterprise-upload-msg"), "Setting Enterprise source as active…");
+      const activateRes = await fetch(`/deployments/enterprise/sources/${activateEnterpriseBtn.dataset.sourceId}/activate/`, {
+        method: "POST",
+        headers: {
+          "X-CSRFToken": csrf,
+        },
+      });
+      const activateData = await activateRes.json().catch(() => ({}));
+      if (!activateRes.ok) {
+        activateEnterpriseBtn.disabled = false;
+        setMsg($("enterprise-upload-msg"), activateData.error || "Could not activate this Enterprise source.", true);
+        return;
+      }
+      setMsg($("enterprise-upload-msg"), "Enterprise source activated. Refreshing the list…");
+      queueEnterpriseReload();
     }
   });
 

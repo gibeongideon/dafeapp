@@ -1,0 +1,45 @@
+---
+- name: Sync Odoo Enterprise addons onto an existing instance
+  hosts: all
+  become: true
+  gather_facts: false
+
+  vars:
+    enterprise_src: "{{ enterprise_src | default('') }}"
+    enterprise_dest: "{{ enterprise_dest | default('') }}"
+    odoo_user: "{{ odoo_user | default('odoo') }}"
+
+  tasks:
+    - name: Validate Enterprise source path
+      delegate_to: localhost
+      become: false
+      stat:
+        path: "{{ enterprise_src }}"
+      register: enterprise_source_stat
+
+    - name: Fail when Enterprise source path is missing
+      fail:
+        msg: "Enterprise source path does not exist on the DafeApp host: {{ enterprise_src }}"
+      when: not enterprise_source_stat.stat.exists
+
+    - name: Remove old Enterprise directory before sync
+      file:
+        path: "{{ enterprise_dest }}"
+        state: absent
+
+    - name: Recreate Enterprise directory
+      file:
+        path: "{{ enterprise_dest }}"
+        state: directory
+        owner: "{{ odoo_user }}"
+        group: "{{ odoo_user }}"
+        mode: "0755"
+
+    - name: Copy Enterprise addons from platform storage to target host
+      copy:
+        src: "{{ enterprise_src }}/"
+        dest: "{{ enterprise_dest }}/"
+        owner: "{{ odoo_user }}"
+        group: "{{ odoo_user }}"
+        mode: preserve
+

@@ -32,6 +32,7 @@ from deployments.domain_utils import (
 )
 from deployments.models import (
     DeploymentJob,
+    EnterpriseSource,
     GitRepositoryCredential,
     Infrastructure,
     Instance,
@@ -273,6 +274,26 @@ def _repo_slug(value: str) -> str:
     return slug or f"repo-{int(time.time())}"
 
 
+def _enterprise_host_local_path(instance: OdooInstance) -> str:
+    runtime = _instance_runtime_context(instance)
+    if instance.enterprise_remote_path:
+        return instance.enterprise_remote_path
+    addons_root = runtime["addons_root_path"].rstrip("/")
+    if runtime["mode"] == "bare_direct":
+        return f"{str(Path(addons_root).parent).rstrip('/')}/enterprise"
+    return f"{addons_root}/enterprise"
+
+
+def _enterprise_config_path(instance: OdooInstance) -> str:
+    runtime = _instance_runtime_context(instance)
+    host_path = _enterprise_host_local_path(instance)
+    if runtime["mode"] == "docker":
+        prefix = runtime["addons_root_path"].rstrip("/")
+        suffix = host_path[len(prefix):].lstrip("/") if host_path.startswith(prefix) else "enterprise"
+        return f"{runtime['container_addons_root'].rstrip('/')}/{suffix}"
+    return host_path
+
+
 def _instance_runtime_context(instance: OdooInstance) -> dict:
     summary = instance.installation_summary or {}
     server = instance.server
@@ -337,15 +358,25 @@ def _compute_addons_path(instance: OdooInstance) -> tuple[str, str]:
     runtime = _instance_runtime_context(instance)
     repos = list(instance.git_repos.filter(is_enabled=True).order_by("display_order", "repo_name", "id"))
     repo_paths = [_repo_config_path(instance, repo) for repo in repos]
+    enterprise_path = _enterprise_config_path(instance) if instance.enterprise_enabled else ""
 
     if repo_paths:
-        parts = [runtime["core_addons_path"], *repo_paths]
+        parts = [runtime["core_addons_path"]]
+        if enterprise_path:
+            parts.append(enterprise_path)
+        parts.extend(repo_paths)
     elif runtime["mode"] == "docker":
         parts = [runtime["container_addons_root"], runtime["core_addons_path"]]
+        if enterprise_path:
+            parts.insert(1, enterprise_path)
     elif runtime.get("manual_addons_root"):
         parts = [runtime["core_addons_path"], runtime["manual_addons_root"]]
+        if enterprise_path:
+            parts.insert(1, enterprise_path)
     else:
         parts = [runtime["core_addons_path"]]
+        if enterprise_path:
+            parts.append(enterprise_path)
     return runtime["addons_root_path"], ",".join(parts)
 
 
@@ -1151,6 +1182,10 @@ def _default_odoo_instance_playbook() -> str:
 def _default_docker_instance_playbook() -> str:
     """Absolute path to the repo-local Docker instance playbook."""
     return str(Path(settings.BASE_DIR) / "infra" / "ansible" / "create_docker_odoo_instance.yml")
+
+
+def _default_enterprise_sync_playbook() -> str:
+    return str(Path(settings.BASE_DIR) / "infra" / "ansible" / "sync_odoo_enterprise_addons.yml")
 
 
 def _default_bare_traefik_gateway_playbook() -> str:
@@ -3054,6 +3089,120 @@ def refresh_instance_addons(self, instance_id: int, job_id: int | None = None):
         instance.save(update_fields=["addons_sync_status", "addons_last_sync_at", "updated_at"])
         _job_done(job_id, ok=False, log=str(exc))
         raise
+    finally:
+        _release_repo_lock(instance.id, lock_token)
+
+
+@shared_task(bind=True, max_retries=0)
+def activate_enterprise_for_instance(self, instance_id: int, source_id: int | None = None, job_id: int | None = None):
+    instance = OdooInstance.objects.select_related(
+        "organization",
+        "server",
+        "enterprise_source",
+    ).get(pk=instance_id)
+    server = instance.server
+
+    _job_start(job_id, self.request.id)
+    lock_token = _acquire_repo_lock(instance.id)
+    ws_group = f"odoo.instance.{instance.id}"
+    try:
+        source = None
+        if source_id:
+            source = EnterpriseSource.objects.filter(pk=source_id, status=EnterpriseSource.Status.READY).first()
+        if source is None:
+            source = EnterpriseSource.active_for_version(server.odoo_version)
+        if source is None:
+            raise RuntimeError(f"No active Enterprise source is ready for Odoo {server.odoo_version}.")
+        if not source.addons_source_path or not Path(source.addons_source_path).exists():
+            raise RuntimeError("The active Enterprise source is missing from the platform filesystem.")
+
+        playbook = _default_enterprise_sync_playbook()
+        if not Path(playbook).exists():
+            raise RuntimeError(f"Enterprise sync playbook not found: {playbook}")
+
+        remote_path = _enterprise_host_local_path(instance)
+        instance.enterprise_status = OdooInstance.EnterpriseStatus.PENDING
+        instance.enterprise_error = ""
+        instance.save(update_fields=["enterprise_status", "enterprise_error", "updated_at"])
+        _broadcast_instance(instance.id, "Syncing Enterprise addons to the server…", instance.status)
+
+        ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
+        extra_vars = {
+            "enterprise_src": source.addons_source_path,
+            "enterprise_dest": remote_path,
+            "odoo_user": "odoo",
+        }
+        try:
+            ok, log_blob = _run_ansible_playbook(
+                playbook,
+                str(server.ip_address),
+                extra_vars,
+                ssh_user=ssh_user,
+                ssh_key_path=ssh_key,
+                ssh_password=ssh_password,
+                on_chunk=lambda line: _broadcast_log_line(ws_group, line),
+            )
+        finally:
+            if tmp_key:
+                os.unlink(tmp_key)
+
+        if not ok:
+            raise RuntimeError(log_blob or "Enterprise sync failed.")
+
+        instance.enterprise_enabled = True
+        instance.enterprise_source = source
+        instance.enterprise_remote_path = remote_path
+        instance.enterprise_status = OdooInstance.EnterpriseStatus.ACTIVE
+        instance.enterprise_error = ""
+        instance.enterprise_last_synced_at = timezone.now()
+        instance.save(
+            update_fields=[
+                "enterprise_enabled",
+                "enterprise_source",
+                "enterprise_remote_path",
+                "enterprise_status",
+                "enterprise_error",
+                "enterprise_last_synced_at",
+                "updated_at",
+            ]
+        )
+
+        sync_log = _sync_instance_addons_config(instance, on_line=lambda line: _broadcast_log_line(ws_group, line))
+        refresh_log = _restart_and_refresh_instance_addons(instance, on_line=lambda line: _broadcast_log_line(ws_group, line))
+        full_log = _append_text(log_blob, _append_text(sync_log, refresh_log))
+        _broadcast_instance(
+            instance.id,
+            "Enterprise addons activated.",
+            instance.status,
+            summary={
+                "enterprise_enabled": True,
+                "enterprise_source": source.package_name,
+                "enterprise_remote_path": instance.enterprise_remote_path,
+            },
+        )
+        _job_done(job_id, ok=True, log=full_log)
+    except Exception as exc:
+        logger.exception("Enterprise activation failed for instance %s", instance.id)
+        instance.enterprise_status = OdooInstance.EnterpriseStatus.ERROR
+        instance.enterprise_error = str(exc)
+        instance.save(update_fields=["enterprise_status", "enterprise_error", "updated_at"])
+        _broadcast_instance(
+            instance.id,
+            "Enterprise activation failed.",
+            instance.status,
+            summary={
+                "enterprise_enabled": instance.enterprise_enabled,
+                "enterprise_status": OdooInstance.EnterpriseStatus.ERROR,
+                "enterprise_error": str(exc),
+                "enterprise_source": (
+                    source.package_name
+                    if source is not None
+                    else (instance.enterprise_source.package_name if instance.enterprise_source_id else "")
+                ),
+                "enterprise_remote_path": instance.enterprise_remote_path,
+            },
+        )
+        _job_done(job_id, ok=False, log=str(exc))
     finally:
         _release_repo_lock(instance.id, lock_token)
 

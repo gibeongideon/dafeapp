@@ -154,6 +154,69 @@
         </div>
       </div>
 
+      <div class="rounded-2xl border border-gray-200 bg-gradient-to-br from-gray-50 via-white to-emerald-50/60 p-4">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div class="space-y-3 min-w-0">
+            <div class="flex flex-wrap items-center gap-2">
+              <p class="text-sm font-medium text-gray-800">Enterprise Addons</p>
+              <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                    :class="enterpriseStatusClass()"
+                    x-text="enterpriseStatusText()"></span>
+            </div>
+            <p class="text-xs text-gray-500">
+              Instances start on Community. Activate Enterprise later to copy the platform package to this server, extend the addons path, and refresh apps.
+            </p>
+            <div class="grid gap-3 md:grid-cols-2">
+              <div class="rounded-xl border border-gray-200 bg-white px-3 py-3">
+                <p class="text-[11px] uppercase tracking-wide text-gray-400">Platform Source</p>
+                <p class="mt-1 text-sm font-medium text-gray-900 break-all"
+                   x-text="enterpriseActiveSourceName || 'No active Enterprise package uploaded yet'"></p>
+              </div>
+              <div class="rounded-xl border border-gray-200 bg-white px-3 py-3">
+                <p class="text-[11px] uppercase tracking-wide text-gray-400">Instance Path</p>
+                <p class="mt-1 text-sm font-mono text-gray-800 break-all"
+                   x-text="enterpriseRemotePath || 'Will be created during activation'"></p>
+              </div>
+            </div>
+            <div class="grid gap-3 md:grid-cols-2">
+              <div class="rounded-xl border border-gray-200 bg-white px-3 py-3">
+                <p class="text-[11px] uppercase tracking-wide text-gray-400">Linked Package</p>
+                <p class="mt-1 text-sm text-gray-800 break-all"
+                   x-text="enterpriseSourceName || 'Not linked yet'"></p>
+              </div>
+              <div class="rounded-xl border border-gray-200 bg-white px-3 py-3">
+                <p class="text-[11px] uppercase tracking-wide text-gray-400">Last Enterprise Sync</p>
+                <p class="mt-1 text-sm text-gray-800"
+                   x-text="enterpriseLastSyncedAt ? fmtDate(enterpriseLastSyncedAt) : '—'"></p>
+              </div>
+            </div>
+            <div x-show="enterpriseError"
+                 class="rounded-xl border border-red-200 bg-red-50 px-3 py-3 text-sm text-red-700"
+                 x-text="enterpriseError"></div>
+            <div x-show="enterpriseMessage"
+                 :class="enterpriseMessageOk ? 'border-green-200 bg-green-50 text-green-700' : 'border-red-200 bg-red-50 text-red-700'"
+                 class="rounded-xl border px-3 py-3 text-sm"
+                 x-text="enterpriseMessage"></div>
+          </div>
+          <div class="flex w-full flex-col gap-2 lg:w-auto">
+            <button type="button"
+                    @click="activateEnterprise()"
+                    :disabled="enterpriseBusy || !enterpriseSourceAvailable"
+                    class="inline-flex items-center justify-center rounded-lg bg-gray-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+                    x-text="enterprisePrimaryActionLabel()">
+            </button>
+            <a href="/deployments/create/?section=enterprise"
+               class="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
+              Manage Platform Sources
+            </a>
+            <p class="text-xs text-gray-500 lg:max-w-[16rem]">
+              <span x-show="enterpriseSourceAvailable">This instance can use the currently active package for Odoo {{ odoo_server.odoo_version }}.</span>
+              <span x-show="!enterpriseSourceAvailable">A platform admin needs to upload and activate an Enterprise package for Odoo {{ odoo_server.odoo_version }} first.</span>
+            </p>
+          </div>
+        </div>
+      </div>
+
       <div x-show="showAddonSummary" class="grid gap-3 md:grid-cols-3">
         <div class="bg-gray-50 border border-gray-200 rounded-lg p-3">
           <p class="text-xs text-gray-500 mb-0.5">Repo Count</p>
@@ -728,6 +791,17 @@ function instanceConsole(instanceId) {
     githubReposLoaded: false,
     githubRepoLoadPromise: null,
     repoForm: null,
+    enterpriseEnabled: {% if odoo_instance.enterprise_enabled %}true{% else %}false{% endif %},
+    enterpriseStatusCode: '{{ odoo_instance.enterprise_status|escapejs }}',
+    enterpriseSourceName: '{% if odoo_instance.enterprise_source_id %}{{ odoo_instance.enterprise_source.package_name|escapejs }}{% endif %}',
+    enterpriseActiveSourceName: '{% if enterprise_active_source %}{{ enterprise_active_source.package_name|escapejs }}{% endif %}',
+    enterpriseSourceAvailable: {% if enterprise_active_source %}true{% else %}false{% endif %},
+    enterpriseRemotePath: '{{ odoo_instance.enterprise_remote_path|escapejs }}',
+    enterpriseLastSyncedAt: '{{ odoo_instance.enterprise_last_synced_at|date:"c"|default:"" }}',
+    enterpriseError: '{{ odoo_instance.enterprise_error|escapejs }}',
+    enterpriseMessage: null,
+    enterpriseMessageOk: false,
+    enterpriseBusy: false,
 
     // ── Init ──
     init() {
@@ -784,6 +858,21 @@ function instanceConsole(instanceId) {
             this.addonsPathCache = msg.addons_path_cache || this.addonsPathCache;
             this.addonsLastSyncAt = msg.addons_last_sync_at || this.addonsLastSyncAt;
             this.addonsSyncStatus = 'Ready';
+          }
+          if (msg.summary && msg.summary.enterprise_enabled !== undefined) {
+            this.enterpriseEnabled = !!msg.summary.enterprise_enabled;
+            this.enterpriseStatusCode = msg.summary.enterprise_status || (this.enterpriseEnabled ? 'ACTIVE' : this.enterpriseStatusCode);
+            this.enterpriseSourceName = msg.summary.enterprise_source || this.enterpriseSourceName;
+            this.enterpriseRemotePath = msg.summary.enterprise_remote_path || this.enterpriseRemotePath;
+            this.enterpriseError = msg.summary.enterprise_error || '';
+            if (!this.enterpriseError && this.enterpriseEnabled) {
+              this.enterpriseLastSyncedAt = new Date().toISOString();
+              this.enterpriseMessageOk = true;
+              this.enterpriseMessage = 'Enterprise addons are active on this instance.';
+            } else if (this.enterpriseError) {
+              this.enterpriseMessageOk = false;
+              this.enterpriseMessage = this.enterpriseError;
+            }
           }
           if (msg.type === 'removed') {
             window.location.href = `/deployments/create/?server_id=${msg.server_id}&section=instances#instances`;
@@ -1344,6 +1433,65 @@ function instanceConsole(instanceId) {
         TOKEN: 'Personal access token',
         SSH_KEY: 'SSH key',
       }[authType] ?? authType;
+    },
+
+    enterpriseStatusClass() {
+      return {
+        NOT_ENABLED: 'bg-gray-100 text-gray-600',
+        PENDING: 'bg-amber-100 text-amber-700',
+        ACTIVE: 'bg-emerald-100 text-emerald-700',
+        ERROR: 'bg-red-100 text-red-700',
+      }[this.enterpriseStatusCode] ?? 'bg-gray-100 text-gray-600';
+    },
+
+    enterpriseStatusText() {
+      return {
+        NOT_ENABLED: 'Not enabled',
+        PENDING: 'Pending',
+        ACTIVE: 'Active',
+        ERROR: 'Error',
+      }[this.enterpriseStatusCode] ?? this.enterpriseStatusCode;
+    },
+
+    enterprisePrimaryActionLabel() {
+      if (this.enterpriseBusy) return 'Queueing…';
+      if (!this.enterpriseSourceAvailable) return 'No Platform Source';
+      return this.enterpriseEnabled ? 'Re-sync Enterprise' : 'Activate Enterprise';
+    },
+
+    async activateEnterprise() {
+      if (!this.enterpriseSourceAvailable) {
+        this.enterpriseMessageOk = false;
+        this.enterpriseMessage = 'No active Enterprise source is available for this Odoo version yet.';
+        return;
+      }
+      this.enterpriseBusy = true;
+      this.enterpriseMessage = null;
+      try {
+        const res = await fetch(`/deployments/odoo/instances/${this.instanceId}/enterprise/activate/`, {
+          method: 'POST',
+          headers: { 'X-CSRFToken': this.getCsrf() },
+        });
+        const data = await res.json();
+        this.enterpriseMessageOk = res.ok;
+        this.enterpriseMessage = data.error || (
+          res.ok
+            ? `Enterprise activation queued from ${data.enterprise_source_name || this.enterpriseActiveSourceName}.`
+            : 'Enterprise activation failed.'
+        );
+        if (res.ok) {
+          this.enterpriseStatusCode = data.enterprise_status || 'PENDING';
+          this.enterpriseSourceName = data.enterprise_source_name || this.enterpriseSourceName;
+          this.enterpriseError = '';
+          this.loadJobs();
+          this.activeTab = 'jobs';
+        }
+      } catch (err) {
+        this.enterpriseMessageOk = false;
+        this.enterpriseMessage = 'Network error: ' + err.message;
+      } finally {
+        this.enterpriseBusy = false;
+      }
     },
 
     // ── Health check ──

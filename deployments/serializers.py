@@ -3,6 +3,7 @@ from rest_framework import serializers
 from dns.serializers import DomainAssignmentSerializer
 from deployments.models import (
     DeploymentJob,
+    EnterpriseSource,
     GitRepositoryCredential,
     Infrastructure,
     Instance,
@@ -165,6 +166,7 @@ class OdooInstanceSerializer(serializers.ModelSerializer):
     domain_assignment = serializers.SerializerMethodField()
     domain_assignments = serializers.SerializerMethodField()
     all_domain_urls = serializers.SerializerMethodField()
+    enterprise_source_name = serializers.SerializerMethodField()
 
     def get_access_url(self, obj):
         return obj.access_url
@@ -203,6 +205,11 @@ class OdooInstanceSerializer(serializers.ModelSerializer):
     def get_all_domain_urls(self, obj):
         return obj.all_domain_urls
 
+    def get_enterprise_source_name(self, obj):
+        if not obj.enterprise_source_id:
+            return ""
+        return obj.enterprise_source.package_name
+
     class Meta:
         model = OdooInstance
         fields = [
@@ -234,6 +241,13 @@ class OdooInstanceSerializer(serializers.ModelSerializer):
             "provisioning_log",
             "installation_summary",
             "installation_summary_text",
+            "enterprise_enabled",
+            "enterprise_status",
+            "enterprise_source",
+            "enterprise_source_name",
+            "enterprise_remote_path",
+            "enterprise_last_synced_at",
+            "enterprise_error",
             "server",
             "created_at",
             "updated_at",
@@ -301,6 +315,35 @@ class GitRepositoryCredentialSerializer(serializers.ModelSerializer):
             "ssh_public_key",
             "notes",
             "last_used_at",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class EnterpriseSourceSerializer(serializers.ModelSerializer):
+    uploaded_by_name = serializers.SerializerMethodField()
+
+    def get_uploaded_by_name(self, obj):
+        if not obj.uploaded_by_id:
+            return ""
+        full_name = obj.uploaded_by.get_full_name().strip()
+        return full_name or obj.uploaded_by.email
+
+    class Meta:
+        model = EnterpriseSource
+        fields = [
+            "id",
+            "odoo_version",
+            "package_name",
+            "archive_filename",
+            "archive_path",
+            "extract_path",
+            "addons_source_path",
+            "is_active",
+            "status",
+            "last_error",
+            "uploaded_by",
+            "uploaded_by_name",
             "created_at",
             "updated_at",
         ]

@@ -181,6 +181,14 @@ PLATFORM_DNS_PROVIDER = env("PLATFORM_DNS_PROVIDER", default="")
 PLATFORM_DNS_API_TOKEN = env("PLATFORM_DNS_API_TOKEN", default="")
 PLATFORM_DNS_ZONE_ID = env("PLATFORM_DNS_ZONE_ID", default="")
 PLATFORM_DNS_PROXIED = env.bool("PLATFORM_DNS_PROXIED", default=False)
+ODOO_ENTERPRISE_ARCHIVE_ROOT = env(
+    "ODOO_ENTERPRISE_ARCHIVE_ROOT",
+    default=str(BASE_DIR / "var" / "enterprise" / "archives"),
+)
+ODOO_ENTERPRISE_EXTRACT_ROOT = env(
+    "ODOO_ENTERPRISE_EXTRACT_ROOT",
+    default=str(BASE_DIR / "var" / "enterprise" / "sources"),
+)
 
 # ---------------------------------------------------------------------------
 # Authentication Backends

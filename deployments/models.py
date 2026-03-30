@@ -74,6 +74,46 @@ class Infrastructure(models.Model):
         return False, "Unsupported infrastructure type."
 
 
+class EnterpriseSource(models.Model):
+    class Status(models.TextChoices):
+        UPLOADED = "UPLOADED", "Uploaded"
+        READY = "READY", "Ready"
+        FAILED = "FAILED", "Failed"
+
+    odoo_version = models.CharField(max_length=10)
+    package_name = models.CharField(max_length=255)
+    archive_filename = models.CharField(max_length=255)
+    archive_path = models.CharField(max_length=500)
+    extract_path = models.CharField(max_length=500, blank=True, default="")
+    addons_source_path = models.CharField(max_length=500, blank=True, default="")
+    is_active = models.BooleanField(default=False)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.UPLOADED)
+    last_error = models.TextField(blank=True, default="")
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="uploaded_enterprise_sources",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["odoo_version", "is_active"], name="dep_ent_version_active_idx"),
+        ]
+
+    def __str__(self):
+        state = "active" if self.is_active else self.status.lower()
+        return f"Odoo {self.odoo_version} Enterprise [{self.package_name}] ({state})"
+
+    @classmethod
+    def active_for_version(cls, version: str):
+        return cls.objects.filter(odoo_version=str(version), is_active=True, status=cls.Status.READY).order_by("-updated_at", "-id").first()
+
+
 class Instance(models.Model):
     class Status(models.TextChoices):
         PENDING = "PENDING", "Pending"
@@ -282,6 +322,12 @@ class OdooInstance(models.Model):
         READY = "READY", "Ready"
         ERROR = "ERROR", "Error"
 
+    class EnterpriseStatus(models.TextChoices):
+        NOT_ENABLED = "NOT_ENABLED", "Not enabled"
+        PENDING = "PENDING", "Pending"
+        ACTIVE = "ACTIVE", "Active"
+        ERROR = "ERROR", "Error"
+
     class RestartPolicy(models.TextChoices):
         ALWAYS = "always", "Always"
         ON_FAILURE = "on-failure", "On Failure"
@@ -343,6 +389,22 @@ class OdooInstance(models.Model):
     installation_summary_text = models.TextField(blank=True)
     addons_root_path = models.CharField(max_length=500, blank=True, default="")
     addons_path_cache = models.TextField(blank=True, default="")
+    enterprise_enabled = models.BooleanField(default=False)
+    enterprise_status = models.CharField(
+        max_length=20,
+        choices=EnterpriseStatus.choices,
+        default=EnterpriseStatus.NOT_ENABLED,
+    )
+    enterprise_source = models.ForeignKey(
+        EnterpriseSource,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="instances",
+    )
+    enterprise_remote_path = models.CharField(max_length=500, blank=True, default="")
+    enterprise_last_synced_at = models.DateTimeField(null=True, blank=True)
+    enterprise_error = models.TextField(blank=True, default="")
     addons_sync_status = models.CharField(
         max_length=20,
         choices=AddonsSyncStatus.choices,
@@ -634,6 +696,7 @@ class DeploymentJob(models.Model):
         CHECKOUT_INSTANCE_REPO_BRANCH = "CHECKOUT_INSTANCE_REPO_BRANCH", "Checkout Instance Repo Branch"
         REMOVE_INSTANCE_REPO = "REMOVE_INSTANCE_REPO", "Remove Instance Repo"
         REFRESH_INSTANCE_ADDONS = "REFRESH_INSTANCE_ADDONS", "Refresh Instance Addons"
+        ACTIVATE_ENTERPRISE = "ACTIVATE_ENTERPRISE", "Activate Enterprise"
         ROLLBACK_INSTANCE_REPO = "ROLLBACK_INSTANCE_REPO", "Rollback Instance Repo"
         AUTO_SYNC_INSTANCE_REPOS = "AUTO_SYNC_INSTANCE_REPOS", "Auto Sync Instance Repos"
 

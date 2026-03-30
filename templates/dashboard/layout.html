@@ -142,6 +142,20 @@
         </svg>
         <span x-show="sidebarOpen" x-transition>Install Guide</span>
       </a>
+      {% if request.user.is_platform_admin %}
+      <div class="px-3 pt-3 pb-1" x-show="sidebarOpen" x-transition>
+        <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Setting</p>
+      </div>
+      <a href="{% url 'deployments_ui:create-instance' %}?section=enterprise"
+         class="ml-2 flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition
+                {% if request.path|slice:':13' == '/deployments/' and request.GET.section == 'enterprise' %}bg-blue-600 text-white{% else %}text-slate-300 hover:bg-slate-800{% endif %}">
+        <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M4 7h16M4 12h16M4 17h10m4-10l2 2-4 4-2-2 4-4z"/>
+        </svg>
+        <span x-show="sidebarOpen" x-transition>Enterprise Sources</span>
+      </a>
+      {% endif %}
     </nav>
 
     <!-- User panel -->
