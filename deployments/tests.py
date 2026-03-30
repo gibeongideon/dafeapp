@@ -781,7 +781,183 @@ class OdooVersionedFlowTests(TestCase):
         self.assertEqual(resp.status_code, 201)
         payload = resp.json()
         self.assertEqual(payload["github_repo"]["full_name"], "octocat/addon-bundle")
+        self.assertEqual(payload["linked_repo"]["repo_name"], "addon-bundle")
+        self.assertEqual(payload["linked_repo"]["status"], OdooInstanceGitRepo.Status.DISCONNECTED)
+        linked_repo = OdooInstanceGitRepo.objects.get(instance=instance, repo_name="addon-bundle")
+        self.assertEqual(payload["linked_repo"]["id"], linked_repo.id)
         mock_create_repo.assert_called_once()
+
+    @patch("deployments.views._create_github_repository")
+    def test_create_github_repo_accepts_personal_access_token_auth(self, mock_create_repo):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-create-upload-pat",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            status=OdooServer.Status.PROVISIONED,
+            ip_address="203.0.113.28",
+            created_by=self.user,
+        )
+        instance = OdooInstance.objects.create(
+            organization=self.org,
+            server=server,
+            name="website",
+            db_name="website_db",
+            status=OdooInstance.Status.RUNNING,
+            created_by=self.user,
+        )
+        mock_create_repo.return_value = {
+            "name": "addon-bundle",
+            "full_name": "octocat/addon-bundle",
+            "clone_url": "https://github.com/octocat/addon-bundle.git",
+            "default_branch": "main",
+            "html_url": "https://github.com/octocat/addon-bundle",
+            "private": True,
+        }
+
+        resp = self.client.post(
+            reverse("deployments:odoo-instance-repo-create-github", kwargs={"instance_id": instance.id}),
+            data=json.dumps(
+                {
+                    "repo_name": "addon-bundle",
+                    "auth_type": "TOKEN",
+                    "git_username": "octocat",
+                    "access_token": "github_pat_secret_123",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(resp.status_code, 201)
+        payload = resp.json()
+        self.assertEqual(payload["github_repo"]["full_name"], "octocat/addon-bundle")
+        self.assertEqual(payload["linked_repo"]["repo_name"], "addon-bundle")
+        self.assertEqual(payload["linked_repo"]["auth_type"], OdooInstanceGitRepo.AuthType.TOKEN)
+        mock_create_repo.assert_called_once()
+
+    @patch("deployments.views._create_github_repository")
+    def test_create_github_repo_returns_reconnect_hint_on_permission_error(self, mock_create_repo):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-create-upload-error",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            status=OdooServer.Status.PROVISIONED,
+            ip_address="203.0.113.29",
+            created_by=self.user,
+        )
+        instance = OdooInstance.objects.create(
+            organization=self.org,
+            server=server,
+            name="website",
+            db_name="website_db",
+            status=OdooInstance.Status.RUNNING,
+            created_by=self.user,
+        )
+        VCSAccount.objects.create(
+            user=self.user,
+            provider=VCSAccount.Provider.GITHUB,
+            username="octocat",
+            encrypted_access_token="encrypted-token",
+            is_active=True,
+        )
+        mock_create_repo.side_effect = RuntimeError(
+            "GitHub denied repository creation for this connection. Disconnect and reconnect GitHub from Connections so DafeApp gets repository write access, then try again."
+        )
+
+        resp = self.client.post(
+            reverse("deployments:odoo-instance-repo-create-github", kwargs={"instance_id": instance.id}),
+            data=json.dumps({"repo_name": "addon-bundle"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(resp.status_code, 400)
+        payload = resp.json()
+        self.assertIn("Disconnect and reconnect GitHub", payload["error"])
+        self.assertEqual(payload["reconnect_url"], reverse("socialaccount_connections"))
+
+    @patch("deployments.views._create_github_repository")
+    def test_create_github_repo_with_connected_account_falls_back_to_saved_pat(self, mock_create_repo):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-create-upload-fallback",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            status=OdooServer.Status.PROVISIONED,
+            ip_address="203.0.113.30",
+            created_by=self.user,
+        )
+        instance = OdooInstance.objects.create(
+            organization=self.org,
+            server=server,
+            name="website",
+            db_name="website_db",
+            status=OdooInstance.Status.RUNNING,
+            created_by=self.user,
+        )
+        vcs = VCSAccount.objects.create(
+            user=self.user,
+            provider=VCSAccount.Provider.GITHUB,
+            username="octocat",
+            encrypted_access_token="encrypted-oauth-token",
+            is_active=True,
+        )
+        saved_pat = GitRepositoryCredential.objects.create(
+            organization=self.org,
+            name="octocat-pat",
+            auth_type=GitRepositoryCredential.AuthType.TOKEN,
+            git_username="octocat",
+            created_by=self.user,
+        )
+        saved_pat._raw_access_token = "github_pat_saved_123"
+        saved_pat.save()
+
+        def create_repo_side_effect(*, actor, repo_name, private=True):
+            self.assertEqual(repo_name, "addon-bundle")
+            if actor.auth_type == OdooInstanceGitRepo.AuthType.GITHUB_OAUTH:
+                self.assertEqual(actor.username, vcs.username)
+                raise RuntimeError(
+                    "GitHub denied repository creation for this connection. Disconnect and reconnect GitHub from Connections so DafeApp gets repository write access, then try again."
+                )
+            self.assertEqual(actor.auth_type, OdooInstanceGitRepo.AuthType.TOKEN)
+            self.assertEqual(actor.username, "octocat")
+            return {
+                "name": "addon-bundle",
+                "full_name": "octocat/addon-bundle",
+                "clone_url": "https://github.com/octocat/addon-bundle.git",
+                "default_branch": "main",
+                "html_url": "https://github.com/octocat/addon-bundle",
+                "private": private,
+            }
+
+        mock_create_repo.side_effect = create_repo_side_effect
+
+        resp = self.client.post(
+            reverse("deployments:odoo-instance-repo-create-github", kwargs={"instance_id": instance.id}),
+            data=json.dumps(
+                {
+                    "repo_name": "addon-bundle",
+                    "auth_type": "GITHUB_OAUTH",
+                    "github_account_id": vcs.id,
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(resp.status_code, 201)
+        payload = resp.json()
+        self.assertEqual(payload["github_repo"]["full_name"], "octocat/addon-bundle")
+        self.assertEqual(payload["linked_repo"]["auth_type"], OdooInstanceGitRepo.AuthType.TOKEN)
+        self.assertEqual(mock_create_repo.call_count, 2)
 
     @patch("deployments.views._push_zip_to_github_repo")
     @patch("deployments.views._dispatch")
@@ -830,6 +1006,197 @@ class OdooVersionedFlowTests(TestCase):
         self.assertEqual(repo.credential.github_account_id, vcs.id)
         self.assertEqual(repo.git_url, "https://github.com/octocat/addon-bundle.git")
         mock_publish.assert_called_once()
+        mock_dispatch.assert_called_once()
+
+    @patch("deployments.views._push_zip_to_github_repo")
+    @patch("deployments.views._dispatch")
+    def test_upload_to_github_uses_existing_linked_repo_when_repo_id_is_provided(self, mock_dispatch, mock_publish):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-upload-linked",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            status=OdooServer.Status.PROVISIONED,
+            ip_address="203.0.113.25",
+            created_by=self.user,
+        )
+        instance = OdooInstance.objects.create(
+            organization=self.org,
+            server=server,
+            name="marketing",
+            db_name="marketing_db",
+            status=OdooInstance.Status.RUNNING,
+            created_by=self.user,
+        )
+        vcs = VCSAccount.objects.create(
+            user=self.user,
+            provider=VCSAccount.Provider.GITHUB,
+            username="octocat",
+            encrypted_access_token="encrypted-token",
+            is_active=True,
+        )
+        credential = GitRepositoryCredential.objects.create(
+            organization=self.org,
+            name="github-octocat",
+            auth_type=GitRepositoryCredential.AuthType.GITHUB_OAUTH,
+            github_account=vcs,
+            git_username="octocat",
+            created_by=self.user,
+        )
+        linked_repo = OdooInstanceGitRepo.objects.create(
+            instance=instance,
+            credential=credential,
+            repo_name="addon-bundle",
+            git_url="https://github.com/octocat/addon-bundle.git",
+            branch="main",
+            default_branch="main",
+            auth_type=OdooInstanceGitRepo.AuthType.GITHUB_OAUTH,
+            local_path="/odoo/instances/marketing_db/addons/addon-bundle",
+            status=OdooInstanceGitRepo.Status.DISCONNECTED,
+            last_error="Repository created on GitHub. Upload a zip or sync content to finish linking it to this instance.",
+            created_by=self.user,
+        )
+
+        resp = self.client.post(
+            reverse("deployments:odoo-instance-repo-upload-github", kwargs={"instance_id": instance.id}),
+            data={
+                "auth_type": "GITHUB_OAUTH",
+                "github_account_id": vcs.id,
+                "repo_id": linked_repo.id,
+                "repo_name": "addon-bundle",
+                "full_name": "octocat/addon-bundle",
+                "clone_url": "https://github.com/octocat/addon-bundle.git",
+                "zip_file": SimpleUploadedFile("addon-bundle.zip", b"PK\x03\x04fake-zip"),
+            },
+        )
+
+        self.assertEqual(resp.status_code, 201)
+        linked_repo.refresh_from_db()
+        self.assertEqual(OdooInstanceGitRepo.objects.filter(instance=instance, repo_name="addon-bundle").count(), 1)
+        self.assertEqual(linked_repo.auth_type, OdooInstanceGitRepo.AuthType.GITHUB_OAUTH)
+        mock_publish.assert_called_once()
+        mock_dispatch.assert_called_once()
+
+    @patch("deployments.views._push_zip_to_github_repo")
+    @patch("deployments.views._dispatch")
+    def test_upload_to_github_with_personal_access_token_creates_token_credential(self, mock_dispatch, mock_publish):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-upload-pat",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            status=OdooServer.Status.PROVISIONED,
+            ip_address="203.0.113.26",
+            created_by=self.user,
+        )
+        instance = OdooInstance.objects.create(
+            organization=self.org,
+            server=server,
+            name="marketing",
+            db_name="marketing_db",
+            status=OdooInstance.Status.RUNNING,
+            created_by=self.user,
+        )
+
+        resp = self.client.post(
+            reverse("deployments:odoo-instance-repo-upload-github", kwargs={"instance_id": instance.id}),
+            data={
+                "auth_type": "TOKEN",
+                "repo_name": "addon-bundle",
+                "full_name": "octocat/addon-bundle",
+                "clone_url": "https://github.com/octocat/addon-bundle.git",
+                "git_username": "octocat",
+                "access_token": "github_pat_secret_456",
+                "credential_name": "octocat-pat",
+                "zip_file": SimpleUploadedFile("addon-bundle.zip", b"PK\\x03\\x04fake-zip"),
+            },
+        )
+
+        self.assertEqual(resp.status_code, 201)
+        repo = OdooInstanceGitRepo.objects.get(instance=instance, repo_name="addon-bundle")
+        self.assertEqual(repo.auth_type, OdooInstanceGitRepo.AuthType.TOKEN)
+        self.assertEqual(repo.credential.name, "octocat-pat")
+        self.assertEqual(repo.credential.git_username, "octocat")
+        self.assertNotEqual(repo.credential.encrypted_access_token, "github_pat_secret_456")
+        mock_publish.assert_called_once()
+        mock_dispatch.assert_called_once()
+
+    @patch("deployments.views._push_zip_to_github_repo")
+    @patch("deployments.views._dispatch")
+    def test_upload_to_github_with_connected_account_falls_back_to_saved_pat_credential(self, mock_dispatch, mock_publish):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-upload-fallback",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            status=OdooServer.Status.PROVISIONED,
+            ip_address="203.0.113.31",
+            created_by=self.user,
+        )
+        instance = OdooInstance.objects.create(
+            organization=self.org,
+            server=server,
+            name="marketing",
+            db_name="marketing_db",
+            status=OdooInstance.Status.RUNNING,
+            created_by=self.user,
+        )
+        vcs = VCSAccount.objects.create(
+            user=self.user,
+            provider=VCSAccount.Provider.GITHUB,
+            username="octocat",
+            encrypted_access_token="encrypted-oauth-token",
+            is_active=True,
+        )
+        saved_pat = GitRepositoryCredential.objects.create(
+            organization=self.org,
+            name="octocat-pat",
+            auth_type=GitRepositoryCredential.AuthType.TOKEN,
+            git_username="octocat",
+            created_by=self.user,
+        )
+        saved_pat._raw_access_token = "github_pat_saved_789"
+        saved_pat.save()
+
+        def publish_side_effect(*, actor, user, full_name, zip_file, branch="main"):
+            self.assertEqual(full_name, "octocat/addon-bundle")
+            if actor.auth_type == OdooInstanceGitRepo.AuthType.GITHUB_OAUTH:
+                self.assertEqual(actor.username, vcs.username)
+                raise RuntimeError(
+                    "GitHub denied repository creation for this connection. Disconnect and reconnect GitHub from Connections so DafeApp gets repository write access, then try again."
+                )
+            self.assertEqual(actor.auth_type, OdooInstanceGitRepo.AuthType.TOKEN)
+            self.assertEqual(actor.username, "octocat")
+            return None
+
+        mock_publish.side_effect = publish_side_effect
+
+        resp = self.client.post(
+            reverse("deployments:odoo-instance-repo-upload-github", kwargs={"instance_id": instance.id}),
+            data={
+                "auth_type": "GITHUB_OAUTH",
+                "github_account_id": vcs.id,
+                "repo_name": "addon-bundle",
+                "full_name": "octocat/addon-bundle",
+                "clone_url": "https://github.com/octocat/addon-bundle.git",
+                "zip_file": SimpleUploadedFile("addon-bundle.zip", b"PK\\x03\\x04fake-zip"),
+            },
+        )
+
+        self.assertEqual(resp.status_code, 201)
+        repo = OdooInstanceGitRepo.objects.get(instance=instance, repo_name="addon-bundle")
+        self.assertEqual(repo.auth_type, OdooInstanceGitRepo.AuthType.TOKEN)
+        self.assertEqual(repo.credential_id, saved_pat.id)
+        self.assertEqual(mock_publish.call_count, 2)
         mock_dispatch.assert_called_once()
 
     def test_infrastructure_delete_requires_force_if_servers_exist(self):

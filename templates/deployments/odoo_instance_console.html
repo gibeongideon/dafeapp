@@ -328,10 +328,14 @@
                 <div class="space-y-4">
                   <div>
                     <label class="block text-xs font-medium text-gray-600 mb-1">Repository</label>
+                    <div x-show="githubReposLoading" class="mb-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+                      Loading GitHub repositories...
+                    </div>
                     <select x-model="repoForm.github_repo_full_name"
                             @change="applySelectedGitHubRepo()"
+                            :disabled="githubReposLoading || !githubRepos.length"
                             class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
-                      <option value="">Select repository</option>
+                      <option value="" x-text="githubReposLoading ? 'Loading repositories...' : (githubRepos.length ? 'Select repository' : 'No repositories available')"></option>
                       <template x-for="repo in githubRepos" :key="repo.id || repo.full_name">
                         <option :value="repo.full_name" x-text="repo.full_name"></option>
                       </template>
@@ -339,9 +343,13 @@
                   </div>
                   <div>
                     <label class="block text-xs font-medium text-gray-600 mb-1">Branch</label>
+                    <div x-show="githubBranchesLoading" class="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                      Loading branches...
+                    </div>
                     <select x-model="repoForm.branch"
+                            :disabled="githubReposLoading || githubBranchesLoading || !repoForm.github_repo_full_name"
                             class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
-                      <option value="">Select branch</option>
+                      <option value="" x-text="githubBranchesLoading ? 'Loading branches...' : (repoForm.github_repo_full_name ? 'Select branch' : 'Choose a repository first')"></option>
                       <template x-for="branch in githubBranches" :key="branch.name">
                         <option :value="branch.name" x-text="branch.name"></option>
                       </template>
@@ -354,53 +362,91 @@
             <div x-show="repoForm.mode === 'upload'" class="space-y-4">
               <div class="rounded-xl border border-gray-200 bg-gray-50 p-4">
                 <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Upload To GitHub</p>
-                <template x-if="hasGitHubAccount()">
-                  <div>
-                    <p class="mt-1 text-sm text-gray-600">A new private GitHub repo will be created in</p>
-                    <p class="mt-1 text-sm font-medium text-gray-900" x-text="connectedGitHubLabel()"></p>
-                  </div>
-                </template>
-                <template x-if="!hasGitHubAccount()">
-                  <div>
-                    <p class="mt-1 text-sm text-gray-600">Connect GitHub first, then create an empty repo and upload your zip file into it.</p>
-                    <a href="/accounts/3rdparty/" class="mt-3 inline-flex rounded-lg bg-gray-900 px-3 py-2 text-xs font-medium text-white hover:bg-gray-800">
-                      Connect GitHub
-                    </a>
-                  </div>
-                </template>
+                <p class="mt-1 text-sm text-gray-600">Create an empty GitHub repository first, then upload your Odoo zip module into it.</p>
               </div>
 
-              <template x-if="hasGitHubAccount()">
-                <div class="space-y-4">
+              <div class="space-y-4">
+                <div>
+                  <label class="block text-xs font-medium text-gray-600 mb-2">GitHub Publish Auth</label>
+                  <div class="grid gap-3 md:grid-cols-2">
+                    <button type="button"
+                            @click="repoForm.upload_auth_type = 'GITHUB_OAUTH'"
+                            :disabled="!hasGitHubAccount()"
+                            :class="repoForm.upload_auth_type === 'GITHUB_OAUTH' ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-300 bg-white text-gray-700'"
+                            class="rounded-xl border px-4 py-3 text-left text-sm disabled:cursor-not-allowed disabled:opacity-50">
+                      <p class="font-medium">Connected GitHub</p>
+                      <p class="mt-1 text-xs" :class="repoForm.upload_auth_type === 'GITHUB_OAUTH' ? 'text-gray-200' : 'text-gray-500'">
+                        <span x-show="hasGitHubAccount()" x-text="connectedGitHubLabel()"></span>
+                        <span x-show="!hasGitHubAccount()">Requires a connected GitHub account</span>
+                      </p>
+                    </button>
+                    <button type="button"
+                            @click="repoForm.upload_auth_type = 'TOKEN'"
+                            :class="repoForm.upload_auth_type === 'TOKEN' ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-300 bg-white text-gray-700'"
+                            class="rounded-xl border px-4 py-3 text-left text-sm">
+                      <p class="font-medium">Personal Access Token</p>
+                      <p class="mt-1 text-xs" :class="repoForm.upload_auth_type === 'TOKEN' ? 'text-gray-200' : 'text-gray-500'">Use a PAT with repository create/write access.</p>
+                    </button>
+                  </div>
+                </div>
+
+                <div x-show="repoForm.upload_auth_type === 'GITHUB_OAUTH' && !hasGitHubAccount()" class="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                  <p class="text-sm text-amber-800">Connect GitHub first to use the connected-account flow.</p>
+                  <a href="/accounts/3rdparty/" class="mt-3 inline-flex rounded-lg bg-gray-900 px-3 py-2 text-xs font-medium text-white hover:bg-gray-800">
+                    Connect GitHub
+                  </a>
+                </div>
+
+                <div x-show="repoForm.upload_auth_type === 'TOKEN'" class="grid gap-4 md:grid-cols-2">
                   <div>
-                    <label class="block text-xs font-medium text-gray-600 mb-1">Repository Name</label>
-                    <input x-model="repoForm.upload_repo_name" type="text" placeholder="my-custom-addon"
+                    <label class="block text-xs font-medium text-gray-600 mb-1">GitHub Username</label>
+                    <input x-model="repoForm.upload_git_username" type="text" placeholder="your-github-username"
                            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
                   </div>
-                  <div x-show="repoForm.upload_created_repo" class="rounded-xl border border-green-200 bg-green-50 p-4">
-                    <p class="text-xs font-semibold uppercase tracking-wide text-green-700">Repository Created</p>
-                    <p class="mt-1 text-sm font-medium text-green-900" x-text="repoForm.upload_created_repo?.full_name || ''"></p>
-                    <a x-show="repoForm.upload_created_repo?.html_url"
-                       :href="repoForm.upload_created_repo?.html_url"
-                       target="_blank"
-                       class="mt-2 inline-flex text-xs font-medium text-green-700 hover:underline">
-                      Open on GitHub
-                    </a>
+                  <div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1">Credential Label</label>
+                    <input x-model="repoForm.upload_credential_name" type="text" placeholder="github-pat"
+                           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
                   </div>
-                  <div x-show="repoForm.upload_created_repo">
-                    <label class="block text-xs font-medium text-gray-600 mb-1">Zip File</label>
-                    <input type="file"
-                           x-ref="uploadZipInput"
-                           accept=".zip,application/zip"
-                           @change="setUploadZip($event)"
-                           class="block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 file:mr-3 file:rounded-md file:border-0 file:bg-gray-900 file:px-3 file:py-2 file:text-xs file:font-medium file:text-white hover:file:bg-gray-800">
-                    <p class="mt-2 text-xs text-gray-500" x-text="repoForm.upload_file_name || 'Choose a .zip file with your addon code.'"></p>
+                  <div class="md:col-span-2">
+                    <label class="block text-xs font-medium text-gray-600 mb-1">Personal Access Token</label>
+                    <input x-model="repoForm.upload_access_token" type="password" placeholder="github_pat_..."
+                           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono">
+                    <p class="mt-2 text-xs text-gray-500">Use a GitHub token with repository create and contents write access.</p>
                   </div>
-                  <p x-show="!repoForm.upload_created_repo" class="text-xs text-gray-500">
-                    Step 1: create the empty GitHub repository. Step 2: upload the zip file into that repository.
-                  </p>
                 </div>
-              </template>
+
+                <div>
+                  <label class="block text-xs font-medium text-gray-600 mb-1">Repository Name</label>
+                  <input x-model="repoForm.upload_repo_name" type="text" placeholder="my-custom-addon"
+                         class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
+                </div>
+                <div x-show="repoForm.upload_created_repo" class="rounded-xl border border-green-200 bg-green-50 p-4">
+                  <p class="text-xs font-semibold uppercase tracking-wide text-green-700">Repository Created</p>
+                  <p class="mt-1 text-sm font-medium text-green-900" x-text="repoForm.upload_created_repo?.full_name || ''"></p>
+                  <a x-show="repoForm.upload_created_repo?.html_url"
+                     :href="repoForm.upload_created_repo?.html_url"
+                     target="_blank"
+                     class="mt-2 inline-flex text-xs font-medium text-green-700 hover:underline">
+                    Open on GitHub
+                  </a>
+                </div>
+                <div x-show="repoForm.upload_created_repo">
+                  <label class="block text-xs font-medium text-gray-600 mb-1">Zip File</label>
+                  <input type="file"
+                         x-ref="uploadZipInput"
+                         accept=".zip,application/zip"
+                         @change="setUploadZip($event)"
+                         class="block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 file:mr-3 file:rounded-md file:border-0 file:bg-gray-900 file:px-3 file:py-2 file:text-xs file:font-medium file:text-white hover:file:bg-gray-800">
+                  <p class="mt-2 text-xs text-gray-500" x-text="repoForm.upload_file_name || 'Choose a .zip file with your addon code.'"></p>
+                </div>
+                <p x-show="!repoForm.upload_created_repo" class="text-xs text-gray-500">
+                  Step 1: create the empty GitHub repository. Step 2: upload the zip file into that repository.
+                </p>
+                <p class="text-xs text-amber-700">
+                  If a saved PAT already exists for this GitHub username, DafeApp can reuse it automatically when the connected-account flow is denied. Otherwise, switch to <span class="font-medium">Personal Access Token</span> and try again.
+                </p>
+              </div>
             </div>
 
             <div x-show="repoForm.id" class="space-y-4">
@@ -452,7 +498,7 @@
           </div>
           <div class="flex items-center justify-end gap-3 px-5 py-4 border-t border-gray-200 bg-gray-50">
             <button @click="saveRepo()"
-                    :disabled="repoFormSaving"
+                    :disabled="repoPrimaryActionDisabled()"
                     class="px-4 py-2 text-sm text-white bg-gray-900 rounded-lg hover:bg-gray-800 disabled:opacity-50"
                     x-text="repoPrimaryActionLabel()"></button>
           </div>
@@ -677,6 +723,10 @@ function instanceConsole(instanceId) {
     githubAccounts: [],
     githubRepos: [],
     githubBranches: [],
+    githubReposLoading: false,
+    githubBranchesLoading: false,
+    githubReposLoaded: false,
+    githubRepoLoadPromise: null,
     repoForm: null,
 
     // ── Init ──
@@ -774,12 +824,17 @@ function instanceConsole(instanceId) {
         github_account_id: githubAccount ? String(githubAccount.id) : '',
         github_repo_full_name: '',
         upload_repo_name: '',
+        upload_auth_type: githubAccount ? 'GITHUB_OAUTH' : 'TOKEN',
+        upload_git_username: githubAccount?.username || '',
+        upload_access_token: '',
+        upload_credential_name: '',
+        upload_repo_id: '',
         upload_created_repo: null,
         upload_file: null,
         upload_file_name: '',
       };
-      this.githubRepos = [];
       this.githubBranches = [];
+      this.githubBranchesLoading = false;
     },
 
     async loadRepos(showLoading = true) {
@@ -803,13 +858,32 @@ function instanceConsole(instanceId) {
         const res = await fetch('/deployments/git-credentials/');
         const data = await res.json();
         this.credentials = data.results ?? [];
+        const nextGitHubAccounts = data.github_accounts ?? [];
+        const previousPrimaryId = this.githubAccounts[0] ? String(this.githubAccounts[0].id) : '';
+        const nextPrimaryId = nextGitHubAccounts[0] ? String(nextGitHubAccounts[0].id) : '';
         this.githubAccounts = data.github_accounts ?? [];
+        if (previousPrimaryId !== nextPrimaryId) {
+          this.githubRepos = [];
+          this.githubBranches = [];
+          this.githubReposLoaded = false;
+          this.githubRepoLoadPromise = null;
+        }
         if (!this.repoForm?.id && this.githubAccounts.length && !this.repoForm?.github_account_id) {
           this.repoForm.github_account_id = String(this.githubAccounts[0].id);
+        }
+        if (!this.repoForm?.id && this.githubAccounts.length && !this.repoForm?.upload_git_username) {
+          this.repoForm.upload_git_username = this.githubAccounts[0].username || '';
+        }
+        if (this.githubAccounts.length) {
+          this.ensureGitHubReposLoaded({ preselectFirst: false });
         }
       } catch (_) {
         this.credentials = [];
         this.githubAccounts = [];
+        this.githubRepos = [];
+        this.githubBranches = [];
+        this.githubReposLoaded = false;
+        this.githubRepoLoadPromise = null;
       }
     },
 
@@ -850,7 +924,7 @@ function instanceConsole(instanceId) {
           upload_file_name: '',
         };
       } else if (mode === 'github' && this.hasGitHubAccount()) {
-        this.loadGitHubRepos();
+        this.ensureGitHubReposLoaded();
       }
       this.showRepoModal = true;
     },
@@ -865,7 +939,7 @@ function instanceConsole(instanceId) {
     switchRepoMode(mode) {
       this.resetRepoForm(mode);
       if (mode === 'github' && this.hasGitHubAccount()) {
-        this.loadGitHubRepos();
+        this.ensureGitHubReposLoaded();
       }
     },
 
@@ -899,38 +973,79 @@ function instanceConsole(instanceId) {
       }[this.repoForm.mode] ?? 'Create Repo';
     },
 
+    repoPrimaryActionDisabled() {
+      if (this.repoFormSaving) return true;
+      if (!this.repoForm || this.repoForm.id) return false;
+      if (this.repoForm.mode === 'github') {
+        return this.githubReposLoading || this.githubBranchesLoading || !this.repoForm.github_repo_full_name;
+      }
+      return false;
+    },
+
     setUploadZip(event) {
       const [file] = event.target.files || [];
       this.repoForm.upload_file = file || null;
       this.repoForm.upload_file_name = file ? file.name : '';
     },
 
-    async loadGitHubRepos() {
-      if (!this.repoForm.github_account_id) return;
-      try {
-        const res = await fetch(`/deployments/github/repos/?github_account_id=${this.repoForm.github_account_id}`);
-        const data = await res.json();
-        this.githubRepos = data.results ?? [];
-        if (!res.ok) {
-          this.repoMessageOk = false;
-          this.repoMessage = data.error || 'Could not load GitHub repositories.';
-          return;
-        }
-        if (!this.repoForm.github_repo_full_name && this.githubRepos.length) {
+    async ensureGitHubReposLoaded({ preselectFirst = true, force = false } = {}) {
+      if (!this.repoForm?.github_account_id) return;
+      if (this.githubReposLoaded && !force) {
+        if (preselectFirst && !this.repoForm.github_repo_full_name && this.githubRepos.length) {
           this.repoForm.github_repo_full_name = this.githubRepos[0].full_name;
           await this.applySelectedGitHubRepo();
         }
-      } catch (_) {
-        this.githubRepos = [];
+        return;
       }
+      if (this.githubRepoLoadPromise && !force) {
+        await this.githubRepoLoadPromise;
+        if (preselectFirst && !this.repoForm.github_repo_full_name && this.githubRepos.length) {
+          this.repoForm.github_repo_full_name = this.githubRepos[0].full_name;
+          await this.applySelectedGitHubRepo();
+        }
+        return;
+      }
+
+      this.githubReposLoading = true;
+      this.githubRepoLoadPromise = (async () => {
+        try {
+          const res = await fetch(`/deployments/github/repos/?github_account_id=${this.repoForm.github_account_id}`);
+          const data = await res.json();
+          this.githubRepos = data.results ?? [];
+          if (!res.ok) {
+            this.repoMessageOk = false;
+            this.repoMessage = data.error || 'Could not load GitHub repositories.';
+            this.githubReposLoaded = false;
+            return;
+          }
+          this.githubReposLoaded = true;
+          if (preselectFirst && !this.repoForm.github_repo_full_name && this.githubRepos.length) {
+            this.repoForm.github_repo_full_name = this.githubRepos[0].full_name;
+            await this.applySelectedGitHubRepo();
+          }
+        } catch (_) {
+          this.githubRepos = [];
+          this.githubReposLoaded = false;
+        } finally {
+          this.githubReposLoading = false;
+          this.githubRepoLoadPromise = null;
+        }
+      })();
+
+      await this.githubRepoLoadPromise;
     },
 
     async applySelectedGitHubRepo() {
       const selected = this.githubRepos.find(repo => repo.full_name === this.repoForm.github_repo_full_name);
-      if (!selected) return;
+      if (!selected) {
+        this.githubBranches = [];
+        return;
+      }
       this.repoForm.repo_name = selected.name;
       this.repoForm.git_url = selected.clone_url;
       this.repoForm.branch = this.repoForm.branch || selected.default_branch || 'main';
+      this.githubBranchesLoading = true;
+      this.githubBranches = [];
       try {
         const res = await fetch(`/deployments/github/branches/?github_account_id=${this.repoForm.github_account_id}&full_name=${encodeURIComponent(selected.full_name)}`);
         const data = await res.json();
@@ -943,6 +1058,8 @@ function instanceConsole(instanceId) {
         }
       } catch (_) {
         this.githubBranches = [];
+      } finally {
+        this.githubBranchesLoading = false;
       }
     },
 
@@ -978,15 +1095,22 @@ function instanceConsole(instanceId) {
 
     async createGitHubRepo() {
       if (!this.hasGitHubAccount()) {
-        this.repoMessageOk = false;
-        this.repoMessage = 'Connect GitHub first.';
-        return null;
+        if (this.repoForm.upload_auth_type === 'GITHUB_OAUTH') {
+          this.repoMessageOk = false;
+          this.repoMessage = 'Connect GitHub first or switch this upload to Personal Access Token.';
+          return null;
+        }
       }
       if (!this.repoForm.upload_repo_name.trim()) {
         this.repoMessageOk = false;
         this.repoMessage = 'Repository name is required.';
         return null;
       }
+      if (this.repoForm.upload_auth_type === 'TOKEN' && !this.repoForm.upload_access_token.trim()) {
+          this.repoMessageOk = false;
+          this.repoMessage = 'Personal access token is required.';
+          return null;
+        }
 
       const res = await fetch(`/deployments/odoo/instances/${this.instanceId}/repos/create-github/`, {
         method: 'POST',
@@ -996,23 +1120,31 @@ function instanceConsole(instanceId) {
         },
         body: JSON.stringify({
           repo_name: this.repoForm.upload_repo_name.trim(),
+          auth_type: this.repoForm.upload_auth_type,
           github_account_id: this.repoForm.github_account_id,
+          git_username: this.repoForm.upload_git_username.trim(),
+          access_token: this.repoForm.upload_access_token.trim(),
+          credential_name: this.repoForm.upload_credential_name.trim(),
         }),
       });
       const data = await res.json();
       this.repoMessageOk = res.ok;
-      this.repoMessage = data.error || (res.ok ? 'GitHub repository created. You can upload the zip now.' : 'Could not create the GitHub repository.');
+      this.repoMessage = data.error || (res.ok ? 'GitHub repository created and linked to this instance. You can upload the zip now.' : 'Could not create the GitHub repository.');
       if (res.ok) {
         this.repoForm.upload_created_repo = data.github_repo;
+        this.repoForm.upload_repo_id = data.linked_repo?.id ? String(data.linked_repo.id) : '';
+        this.loadRepos(false);
       }
       return { res, data };
     },
 
     async saveUploadRepo() {
       if (!this.hasGitHubAccount()) {
-        this.repoMessageOk = false;
-        this.repoMessage = 'Connect GitHub first.';
-        return null;
+        if (this.repoForm.upload_auth_type === 'GITHUB_OAUTH') {
+          this.repoMessageOk = false;
+          this.repoMessage = 'Connect GitHub first or switch this upload to Personal Access Token.';
+          return null;
+        }
       }
       if (!this.repoForm.upload_created_repo) {
         return await this.createGitHubRepo();
@@ -1025,10 +1157,15 @@ function instanceConsole(instanceId) {
 
       const formData = new FormData();
       formData.append('branch', 'main');
+      formData.append('auth_type', this.repoForm.upload_auth_type);
       formData.append('github_account_id', this.repoForm.github_account_id);
       formData.append('repo_name', this.repoForm.upload_created_repo.name || this.repoForm.upload_repo_name.trim());
       formData.append('full_name', this.repoForm.upload_created_repo.full_name);
       formData.append('clone_url', this.repoForm.upload_created_repo.clone_url || '');
+      if (this.repoForm.upload_repo_id) formData.append('repo_id', this.repoForm.upload_repo_id);
+      formData.append('git_username', this.repoForm.upload_git_username.trim());
+      formData.append('access_token', this.repoForm.upload_access_token.trim());
+      formData.append('credential_name', this.repoForm.upload_credential_name.trim());
       formData.append('zip_file', this.repoForm.upload_file);
 
       const res = await fetch(`/deployments/odoo/instances/${this.instanceId}/repos/upload-to-github/`, {
@@ -1070,7 +1207,7 @@ function instanceConsole(instanceId) {
         } else if (this.repoForm.id) {
           this.repoMessage = 'Repository updated.';
         } else if (this.repoForm.mode === 'upload' && !data.job_id) {
-          this.repoMessage = 'GitHub repository created. Upload the zip file to continue.';
+          this.repoMessage = 'GitHub repository created and linked to this instance. Upload the zip file to continue.';
         } else if (this.repoForm.mode === 'upload') {
           this.repoMessage = 'Zip uploaded and repository queued for clone.';
         } else {
