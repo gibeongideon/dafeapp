@@ -18,6 +18,7 @@ urlpatterns = [
     path("odoo/servers/<int:server_id>/check/", views.OdooServerCheckConnectivityView.as_view(), name="odoo-server-check"),
     path("pyos/vps/create/", views.PyosVpsCreateAPIView.as_view(), name="pyos-vps-create"),
     path("odoo/instances/", views.OdooInstanceListAPIView.as_view(), name="odoo-instance-list"),
+    path("odoo/instances/<int:instance_id>/runtime-logs/", views.OdooInstanceRuntimeLogsAPIView.as_view(), name="odoo-instance-runtime-logs"),
     path("odoo/instances/<int:instance_id>/repos/", views.OdooInstanceGitRepoListAPIView.as_view(), name="odoo-instance-repo-list"),
     path("odoo/instances/<int:instance_id>/repos/create-github/", views.OdooInstanceGitRepoCreateGitHubAPIView.as_view(), name="odoo-instance-repo-create-github"),
     path("odoo/instances/<int:instance_id>/repos/upload-to-github/", views.OdooInstanceGitRepoUploadToGitHubAPIView.as_view(), name="odoo-instance-repo-upload-github"),

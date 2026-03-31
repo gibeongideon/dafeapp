@@ -1,6 +1,7 @@
 import logging
 import json
 import re
+import shlex
 import tarfile
 import shutil
 import subprocess
@@ -261,6 +262,63 @@ def _default_tls_mode() -> str:
     return value if value in valid else OdooServer.TLSMode.LETS_ENCRYPT
 
 
+def _instance_runtime_log_command(instance: OdooInstance) -> tuple[str, str]:
+    server = instance.server
+    if server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
+        container_name = (instance.container_name or f"odoo-{instance.db_name.replace('_', '-')}").strip()
+        return (
+            "docker",
+            f"""
+container={shlex.quote(container_name)}
+if docker ps -a --format '{{{{.Names}}}}' | grep -Fx -- "$container" >/dev/null 2>&1; then
+  docker logs --tail 120 "$container" 2>&1 | tail -n 120
+  exit 0
+fi
+echo "Container $container not found."
+""".strip(),
+        )
+
+    service_name = (instance.systemd_service or f"odoo-{instance.db_name}").strip()
+    log_paths = []
+    summary_match = re.search(r"^\s*Logs\s*:\s*(.+)$", instance.installation_summary_text or "", flags=re.MULTILINE)
+    if summary_match:
+        log_paths.append(summary_match.group(1).strip())
+    log_paths.extend(
+        [
+            f"/opt/odoo{server.odoo_version}/logs/{instance.db_name}.log",
+            f"/odoo/instances/{instance.db_name}/logs/{instance.db_name}.log",
+        ]
+    )
+    unique_log_paths = []
+    for path in log_paths:
+        normalized = str(path or "").strip()
+        if normalized and normalized not in unique_log_paths:
+            unique_log_paths.append(normalized)
+
+    fallback_reads = "\n".join(
+        f"""
+if [ -f {shlex.quote(path)} ]; then
+  tail -n 120 {shlex.quote(path)} 2>&1
+  exit 0
+fi
+""".strip()
+        for path in unique_log_paths
+    )
+    return (
+        "systemd",
+        f"""
+service={shlex.quote(service_name)}
+journal_output=$(journalctl -u "$service" -n 120 --no-pager -o short-iso 2>&1 | tail -n 120)
+if [ -n "$journal_output" ] && ! printf '%s' "$journal_output" | grep -qiE 'No entries|-- No entries --|Unit .* could not be found'; then
+  printf '%s\n' "$journal_output"
+  exit 0
+fi
+{fallback_reads}
+echo "No runtime logs found for $service."
+""".strip(),
+    )
+
+
 def _server_mutation_lock_reason(server: OdooServer) -> str:
     if server.status in (OdooServer.Status.PROVISIONING, OdooServer.Status.CONFIGURING):
         return "Server provisioning is still in progress."
@@ -274,15 +332,6 @@ def _instance_mutation_lock_reason(instance: OdooInstance, *, include_jobs: bool
 
     if instance.status in (OdooInstance.Status.PENDING, OdooInstance.Status.CONFIGURING):
         return "Instance provisioning is still in progress."
-
-    if (
-        instance.domain_status == OdooInstance.DomainStatus.PENDING
-        or instance.ssl_status == OdooInstance.SSLStatus.PENDING
-        or instance.domain_assignments.exclude(status=DomainAssignment.Status.DELETED)
-        .filter(status=DomainAssignment.Status.PENDING)
-        .exists()
-    ):
-        return "Domain provisioning is still in progress for this instance."
 
     if instance.enterprise_status == OdooInstance.EnterpriseStatus.PENDING:
         return "Enterprise activation is still in progress for this instance."
@@ -1367,6 +1416,62 @@ class OdooServerDetailAPIView(LoginRequiredMixin, View):
             return JsonResponse({"error": "No active organization."}, status=400)
         server = get_object_or_404(OdooServer, pk=server_id, organization=org, is_active=True)
         return JsonResponse(OdooServerSerializer(server).data)
+
+
+class OdooInstanceRuntimeLogsAPIView(LoginRequiredMixin, View):
+    """GET /odoo/instances/<instance_id>/runtime-logs/ — fetch current Odoo runtime logs."""
+
+    def get(self, request, instance_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+
+        instance = get_object_or_404(
+            OdooInstance.objects.select_related(
+                "server",
+                "server__infrastructure",
+                "server__infrastructure__external_server",
+            ),
+            pk=instance_id,
+            organization=org,
+        )
+        server = instance.server
+        if server.status != OdooServer.Status.PROVISIONED:
+            return JsonResponse(
+                {
+                    "logs": "",
+                    "source": "",
+                    "checked_at": timezone.now().isoformat(),
+                    "message": "Server is not provisioned yet.",
+                }
+            )
+
+        from deployments.tasks import _ssh_run
+
+        source, command = _instance_runtime_log_command(instance)
+        try:
+            code, output = _ssh_run(server, command, timeout=60)
+        except Exception as exc:
+            logger.warning("Runtime log fetch failed for instance %s", instance.id, exc_info=True)
+            return JsonResponse(
+                {
+                    "logs": "",
+                    "source": source,
+                    "checked_at": timezone.now().isoformat(),
+                    "error": str(exc) or "Could not fetch live runtime logs.",
+                },
+                status=502,
+            )
+
+        payload = {
+            "logs": (output or "").strip(),
+            "source": source,
+            "checked_at": timezone.now().isoformat(),
+        }
+        if code != 0:
+            payload["error"] = output or "Could not fetch live runtime logs."
+            return JsonResponse(payload, status=502)
+        return JsonResponse(payload)
 
 
 class PyosVpsCreateAPIView(LoginRequiredMixin, View):

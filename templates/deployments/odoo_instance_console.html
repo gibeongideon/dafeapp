@@ -45,7 +45,7 @@
     <!-- Tab bar -->
     <div class="border-b border-gray-200 flex items-center px-4 gap-1">
       <template x-for="t in tabs" :key="t.id">
-        <button @click="activeTab = t.id; if(t.id==='jobs') loadJobs(); if(t.id==='history') loadHistory(); if(t.id==='addons') loadRepos();"
+        <button @click="setActiveTab(t.id)"
                 :class="activeTab === t.id
                   ? 'text-gray-900 border-b-2 border-gray-900'
                   : 'text-gray-500 hover:text-gray-700 border-b-2 border-transparent'"
@@ -423,12 +423,36 @@
         <div class="grid gap-4 p-4 md:grid-cols-2">
           <div class="space-y-3">
             <div>
-              <p class="text-xs uppercase tracking-wide text-gray-400">Instance Addons Root</p>
-              <p class="text-sm font-mono text-gray-800 break-all" x-text="addonsRootPath || 'Not configured yet'"></p>
+              <div class="flex items-center justify-between gap-3">
+                <p class="text-xs uppercase tracking-wide text-gray-400">Instance Addons Root</p>
+                <button type="button"
+                        @click="copyText(addonsRootPath)"
+                        :disabled="!addonsRootPath"
+                        class="inline-flex items-center rounded-lg border border-gray-300 bg-white px-2.5 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50">
+                  Copy
+                </button>
+              </div>
+              <button type="button"
+                      @click="copyText(addonsRootPath)"
+                      :disabled="!addonsRootPath"
+                      class="mt-1 text-left text-sm font-mono text-blue-600 break-all hover:underline disabled:cursor-not-allowed disabled:text-gray-400 disabled:no-underline"
+                      x-text="addonsRootPath || 'Not configured yet'"></button>
             </div>
             <div>
-              <p class="text-xs uppercase tracking-wide text-gray-400">Computed Addons Path</p>
-              <p class="text-sm font-mono text-gray-800 break-all" x-text="addonsPathCache || 'Not built yet'"></p>
+              <div class="flex items-center justify-between gap-3">
+                <p class="text-xs uppercase tracking-wide text-gray-400">Computed Addons Path</p>
+                <button type="button"
+                        @click="copyText(addonsPathCache)"
+                        :disabled="!addonsPathCache"
+                        class="inline-flex items-center rounded-lg border border-gray-300 bg-white px-2.5 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50">
+                  Copy
+                </button>
+              </div>
+              <button type="button"
+                      @click="copyText(addonsPathCache)"
+                      :disabled="!addonsPathCache"
+                      class="mt-1 text-left text-sm font-mono text-blue-600 break-all hover:underline disabled:cursor-not-allowed disabled:text-gray-400 disabled:no-underline"
+                      x-text="addonsPathCache || 'Not built yet'"></button>
             </div>
             <div>
               <p class="text-xs uppercase tracking-wide text-gray-400">Current Branch</p>
@@ -770,10 +794,14 @@
       <div class="flex items-center justify-between px-4 py-2 bg-gray-900 border-b border-gray-700">
         <div class="flex items-center gap-2">
           <span class="inline-block w-2 h-2 rounded-full"
-                :class="wsConnected ? 'bg-green-400' : 'bg-gray-500'"></span>
-          <p class="text-xs text-gray-400" x-text="wsConnected ? 'Connected · live stream' : 'Disconnected'"></p>
+                :class="liveLogConnected() ? 'bg-green-400' : 'bg-gray-500'"></span>
+          <div>
+            <p class="text-xs text-gray-400" x-text="liveLogStatusLabel()"></p>
+            <p class="text-[11px] text-gray-500" x-show="liveLogMetaLabel()" x-text="liveLogMetaLabel()"></p>
+          </div>
         </div>
         <div class="flex gap-2">
+          <button @click="refreshRuntimeLogs(true)" class="text-xs text-gray-500 hover:text-white">Refresh</button>
           <button @click="clearLogs()" class="text-xs text-gray-500 hover:text-white">Clear</button>
           <button @click="autoScroll = !autoScroll"
                   :class="autoScroll ? 'text-blue-400' : 'text-gray-500'"
@@ -785,7 +813,7 @@
            class="bg-gray-950 text-green-400 font-mono text-xs p-4 overflow-auto"
            style="min-height:400px; max-height:600px;"
            x-ref="logOutput">
-        <div x-show="logLines.length === 0" class="text-gray-600">Waiting for log output…</div>
+        <div x-show="logLines.length === 0" class="text-gray-600" x-text="hasPendingInstanceStatus() ? 'Waiting for provisioning log output…' : 'Waiting for runtime log output…'"></div>
         <template x-for="(line, idx) in logLines" :key="idx">
           <div x-text="line" class="leading-5 whitespace-pre-wrap"></div>
         </template>
@@ -891,6 +919,12 @@ function instanceConsole(instanceId) {
     wsConnected: false,
     autoScroll: true,
     _ws: null,
+    runtimeLogsLoading: false,
+    runtimeLogsConnected: false,
+    runtimeLogSource: '',
+    runtimeLogCheckedAt: '',
+    runtimeLogError: '',
+    runtimeLogTimer: null,
 
     // History
     history: [],
@@ -956,6 +990,20 @@ function instanceConsole(instanceId) {
       this.loadJobs();
       this.loadRepos();
       this.loadCredentials().then(() => this.resumeGitHubFlowFromRedirect());
+      if (this.activeTab === 'logs') this.startRuntimeLogPolling();
+      window.addEventListener('pagehide', () => this.stopRuntimeLogPolling());
+    },
+
+    setActiveTab(tabId) {
+      this.activeTab = tabId;
+      if (tabId === 'jobs') this.loadJobs();
+      if (tabId === 'history') this.loadHistory();
+      if (tabId === 'addons') this.loadRepos();
+      if (tabId === 'logs') {
+        this.startRuntimeLogPolling();
+      } else {
+        this.stopRuntimeLogPolling();
+      }
     },
 
     get repoHealth() {
@@ -973,9 +1021,6 @@ function instanceConsole(instanceId) {
 
     instanceActionLockReason() {
       if (this.hasPendingInstanceStatus()) return 'Instance provisioning is still in progress.';
-      if ((this.instanceDomainStatus || '').toUpperCase() === 'PENDING' || (this.instanceSslStatus || '').toUpperCase() === 'PENDING') {
-        return 'Domain provisioning is still in progress for this instance.';
-      }
       if ((this.enterpriseStatusCode || '').toUpperCase() === 'PENDING') {
         return 'Enterprise activation is still in progress for this instance.';
       }
@@ -988,6 +1033,31 @@ function instanceConsole(instanceId) {
 
     instanceActionsLocked() {
       return !!this.instanceActionLockReason();
+    },
+
+    async copyText(value) {
+      const text = String(value || '').trim();
+      if (!text) return;
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          const input = document.createElement('textarea');
+          input.value = text;
+          input.setAttribute('readonly', '');
+          input.style.position = 'absolute';
+          input.style.left = '-9999px';
+          document.body.appendChild(input);
+          input.select();
+          document.execCommand('copy');
+          document.body.removeChild(input);
+        }
+        this.repoMessage = 'Path copied to clipboard.';
+        this.repoMessageOk = true;
+      } catch (err) {
+        this.repoMessage = 'Could not copy the path.';
+        this.repoMessageOk = false;
+      }
     },
 
     // ── WebSocket ──
@@ -1005,16 +1075,11 @@ function instanceConsole(instanceId) {
       this._ws.onmessage = (e) => {
         try {
           const msg = JSON.parse(e.data);
+          const wasPending = this.hasPendingInstanceStatus();
           // Streaming log line from Phase-2 _broadcast_log_line
           if (msg.type === 'log.line' || msg.line !== undefined) {
             const text = msg.line ?? msg.message ?? JSON.stringify(msg);
-            this.logLines.push(text);
-            if (this.autoScroll) {
-              this.$nextTick(() => {
-                const el = this.$refs.logOutput;
-                if (el) el.scrollTop = el.scrollHeight;
-              });
-            }
+            if (this.hasPendingInstanceStatus()) this.appendLogLine(text);
           }
           // Generic status update
           if (msg.status) {
@@ -1058,8 +1123,96 @@ function instanceConsole(instanceId) {
           if (msg.summary && msg.summary.installation_summary_text) {
             this.updateInstallationSummary(msg.summary.installation_summary_text);
           }
+          if (wasPending && !this.hasPendingInstanceStatus() && this.activeTab === 'logs') {
+            this.startRuntimeLogPolling(true);
+          }
         } catch (_) {}
       };
+    },
+
+    appendLogLine(text) {
+      this.logLines.push(text);
+      if (this.autoScroll) {
+        this.$nextTick(() => {
+          const el = this.$refs.logOutput;
+          if (el) el.scrollTop = el.scrollHeight;
+        });
+      }
+    },
+
+    liveLogConnected() {
+      return this.hasPendingInstanceStatus() ? this.wsConnected : this.runtimeLogsConnected;
+    },
+
+    liveLogStatusLabel() {
+      if (this.hasPendingInstanceStatus()) {
+        return this.wsConnected ? 'Connected · provisioning stream' : 'Waiting for provisioning stream';
+      }
+      if (this.runtimeLogsLoading && !this.logLines.length) return 'Refreshing runtime logs…';
+      if (this.runtimeLogError) return 'Runtime log fetch failed';
+      return this.runtimeLogsConnected ? 'Connected · runtime log polling' : 'Waiting for runtime logs';
+    },
+
+    liveLogMetaLabel() {
+      if (this.hasPendingInstanceStatus()) return '';
+      const parts = [];
+      if (this.runtimeLogSource) parts.push(this.runtimeLogSource === 'docker' ? 'Docker' : 'Systemd');
+      if (this.runtimeLogCheckedAt) parts.push(`Updated ${this.fmtDate(this.runtimeLogCheckedAt)}`);
+      return parts.join(' · ');
+    },
+
+    startRuntimeLogPolling(forceRefresh = false) {
+      if (this.hasPendingInstanceStatus()) {
+        this.stopRuntimeLogPolling();
+        return;
+      }
+      if (!this.runtimeLogTimer) {
+        this.runtimeLogTimer = setInterval(() => this.refreshRuntimeLogs(), 5000);
+      }
+      if (forceRefresh || !this.logLines.length) {
+        this.refreshRuntimeLogs(true);
+      }
+    },
+
+    stopRuntimeLogPolling() {
+      if (this.runtimeLogTimer) {
+        clearInterval(this.runtimeLogTimer);
+        this.runtimeLogTimer = null;
+      }
+    },
+
+    async refreshRuntimeLogs(force = false) {
+      if (this.hasPendingInstanceStatus()) return;
+      if (this.runtimeLogsLoading && !force) return;
+      this.runtimeLogsLoading = true;
+      this.runtimeLogError = '';
+      try {
+        const res = await fetch(`/deployments/odoo/instances/${this.instanceId}/runtime-logs/`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error || 'Could not fetch runtime logs.');
+        }
+        const nextLines = String(data.logs || '').split(/\r?\n/).filter((line) => line !== '');
+        const changed = nextLines.join('\n') !== this.logLines.join('\n');
+        this.logLines = nextLines;
+        this.runtimeLogSource = data.source || '';
+        this.runtimeLogCheckedAt = data.checked_at || '';
+        this.runtimeLogsConnected = true;
+        if (changed && this.autoScroll) {
+          this.$nextTick(() => {
+            const el = this.$refs.logOutput;
+            if (el) el.scrollTop = el.scrollHeight;
+          });
+        }
+      } catch (err) {
+        this.runtimeLogsConnected = false;
+        this.runtimeLogError = err instanceof Error ? err.message : 'Could not fetch runtime logs.';
+        if (!this.logLines.length) {
+          this.logLines = [this.runtimeLogError];
+        }
+      } finally {
+        this.runtimeLogsLoading = false;
+      }
     },
 
     updateInstallationSummary(text) {
@@ -1074,6 +1227,7 @@ function instanceConsole(instanceId) {
 
     clearLogs() {
       this.logLines = [];
+      if (!this.hasPendingInstanceStatus()) this.refreshRuntimeLogs(true);
     },
 
     formatBytes(bytes) {

@@ -292,6 +292,7 @@ class OdooVersionedFlowTests(TestCase):
         self.assertContains(resp, "Slide to activate")
         self.assertContains(resp, 'role="switch"')
         self.assertContains(resp, "odoo_19.0+e.20260327")
+        self.assertContains(resp, "Copy")
 
     def test_all_instances_view_hides_instance_summary_and_extra_header_copy(self):
         server = OdooServer.objects.create(
@@ -400,6 +401,42 @@ class OdooVersionedFlowTests(TestCase):
         instance_data = next(row for row in resp.json()["results"] if row["id"] == instance.id)
         self.assertEqual(instance_data["status"], OdooInstance.Status.RUNNING)
         self.assertEqual(instance_data["server"]["ssh_connection_status"], "disconnected")
+
+    @patch("deployments.tasks._ssh_run")
+    def test_instance_runtime_logs_api_returns_live_logs_for_selected_instance(self, mock_ssh_run):
+        mock_ssh_run.return_value = (0, "2026-03-31 10:00:00 INFO inventory_db odoo.modules.loading")
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-live-logs",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            ip_address="203.0.113.46",
+            status=OdooServer.Status.PROVISIONED,
+            deployment_mode=OdooServer.DeploymentMode.DOCKER,
+            created_by=self.user,
+        )
+        instance = OdooInstance.objects.create(
+            organization=self.org,
+            server=server,
+            name="inventory",
+            db_name="inventory_db",
+            container_name="odoo-inventory-db",
+            status=OdooInstance.Status.RUNNING,
+            created_by=self.user,
+        )
+
+        resp = self.client.get(
+            reverse("deployments:odoo-instance-runtime-logs", kwargs={"instance_id": instance.id}),
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.json()
+        self.assertEqual(payload["source"], "docker")
+        self.assertIn("inventory_db", payload["logs"])
+        mock_ssh_run.assert_called_once()
 
     @patch("deployments.tasks._probe_server_ssh")
     def test_manual_connectivity_check_marks_server_disconnected_when_ssh_validation_fails(self, mock_probe):
@@ -536,6 +573,56 @@ class OdooVersionedFlowTests(TestCase):
         self.assertContains(resp, "function retryDisconnectedVisibleServers()")
         self.assertContains(resp, "setInterval(retryDisconnectedVisibleServers, DISCONNECTED_SERVER_RETRY_INTERVAL_MS)")
         self.assertNotContains(resp, "Reachability")
+
+    def test_servers_page_does_not_show_server_level_runtime_logs_panel(self):
+        OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-logs-panel",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            ip_address="203.0.113.47",
+            status=OdooServer.Status.PROVISIONED,
+            created_by=self.user,
+        )
+
+        resp = self.client.get(reverse("deployments_ui:create-instance"), {"section": "servers"})
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, "Live Odoo Logs")
+
+    def test_instance_console_includes_instance_runtime_log_fetch(self):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-console-logs",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            ip_address="203.0.113.48",
+            status=OdooServer.Status.PROVISIONED,
+            deployment_mode=OdooServer.DeploymentMode.DOCKER,
+            created_by=self.user,
+        )
+        instance = OdooInstance.objects.create(
+            organization=self.org,
+            server=server,
+            name="inventory",
+            db_name="inventory_db",
+            container_name="odoo-inventory-db",
+            status=OdooInstance.Status.RUNNING,
+            created_by=self.user,
+        )
+
+        resp = self.client.get(
+            reverse("deployments_ui:odoo-instance-console", kwargs={"instance_id": instance.id})
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "/deployments/odoo/instances/${this.instanceId}/runtime-logs/")
 
     def test_ansible_unreachable_log_marks_server_and_external_server_disconnected(self):
         external_server = ExternalServer.objects.create(
@@ -2021,6 +2108,45 @@ class DnsSslDeploymentFlowTests(TestCase):
         )
         self.assertEqual(detach_response.status_code, 200)
         self.assertEqual(mock_dispatch.call_count, 2)
+
+    @override_settings(PLATFORM_BASE_DOMAIN="dafeapp.com")
+    @patch("deployments.views._dispatch")
+    def test_domain_attach_endpoint_allows_running_instance_while_domain_is_pending(self, mock_dispatch):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            domain_routing_enabled=True,
+            tls_mode=OdooServer.TLSMode.LETS_ENCRYPT,
+            name="pending-domain-host",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            ip_address="203.0.113.61",
+            status=OdooServer.Status.PROVISIONED,
+            created_by=self.user,
+        )
+        instance = OdooInstance.objects.create(
+            organization=self.org,
+            server=server,
+            name="crm",
+            db_name="crm_db",
+            domain="crm.dafeapp.com",
+            http_port=8076,
+            status=OdooInstance.Status.RUNNING,
+            domain_status=OdooInstance.DomainStatus.PENDING,
+            ssl_status=OdooInstance.SSLStatus.PENDING,
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            reverse("deployments:odoo-instance-domain-attach", kwargs={"instance_id": instance.id}),
+            data={"domain": "crm.example.com"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(DomainAssignment.objects.filter(instance=instance, domain="crm.example.com").exists())
+        mock_dispatch.assert_called_once()
 
     @override_settings(PLATFORM_BASE_DOMAIN="dafeapp.com")
     def test_instance_serializer_exposes_preferred_domain_url(self):

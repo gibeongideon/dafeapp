@@ -1495,10 +1495,6 @@
     return "";
   }
 
-  function assignmentPending(assignments) {
-    return (assignments || []).some((item) => normalizeStatus(item?.status) === "PENDING");
-  }
-
   function instanceActionLockReason(instanceLike) {
     const serverReason = serverActionLockReason(instanceLike?.server || instanceLike?.server_status);
     if (serverReason) return serverReason;
@@ -1506,15 +1502,6 @@
     const status = normalizeStatus(instanceLike?.status || instanceLike?.instance_status);
     if (status === "PENDING" || status === "CONFIGURING") {
       return "Instance provisioning is still in progress.";
-    }
-
-    if (
-      normalizeStatus(instanceLike?.assignment_status) === "PENDING"
-      || normalizeStatus(instanceLike?.domain_status) === "PENDING"
-      || normalizeStatus(instanceLike?.ssl_status) === "PENDING"
-      || assignmentPending(instanceLike?.domain_assignments)
-    ) {
-      return "Domain provisioning is still in progress for this instance.";
     }
 
     if (normalizeStatus(instanceLike?.enterprise_status) === "PENDING") {
