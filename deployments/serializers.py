@@ -242,9 +242,13 @@ class OdooInstanceSerializer(serializers.ModelSerializer):
             "installation_summary",
             "installation_summary_text",
             "enterprise_enabled",
+            "enterprise_auto_sync",
             "enterprise_status",
+            "enterprise_source_mode",
             "enterprise_source",
             "enterprise_source_name",
+            "enterprise_version",
+            "enterprise_available_version",
             "enterprise_remote_path",
             "enterprise_last_synced_at",
             "enterprise_error",
@@ -324,6 +328,7 @@ class GitRepositoryCredentialSerializer(serializers.ModelSerializer):
 
 class EnterpriseSourceSerializer(serializers.ModelSerializer):
     uploaded_by_name = serializers.SerializerMethodField()
+    owner_name = serializers.SerializerMethodField()
 
     def get_uploaded_by_name(self, obj):
         if not obj.uploaded_by_id:
@@ -331,12 +336,22 @@ class EnterpriseSourceSerializer(serializers.ModelSerializer):
         full_name = obj.uploaded_by.get_full_name().strip()
         return full_name or obj.uploaded_by.email
 
+    def get_owner_name(self, obj):
+        if not obj.owner_id:
+            return ""
+        full_name = obj.owner.get_full_name().strip()
+        return full_name or obj.owner.email
+
     class Meta:
         model = EnterpriseSource
         fields = [
             "id",
             "odoo_version",
+            "source_scope",
+            "owner",
+            "owner_name",
             "package_name",
+            "release_code",
             "archive_filename",
             "archive_path",
             "extract_path",

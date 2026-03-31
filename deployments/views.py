@@ -18,6 +18,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.http import JsonResponse
 from django.urls import reverse
 from django.shortcuts import get_object_or_404, redirect
@@ -113,12 +114,22 @@ def _request_data(request):
     return request.POST
 
 
-def _enterprise_archive_root() -> Path:
-    return Path(getattr(settings, "ODOO_ENTERPRISE_ARCHIVE_ROOT", Path(settings.BASE_DIR) / "var" / "enterprise" / "archives"))
+def _enterprise_archive_root(*, scope: str = EnterpriseSource.Scope.PLATFORM, owner_id: int | None = None) -> Path:
+    base_root = Path(getattr(settings, "ODOO_ENTERPRISE_ARCHIVE_ROOT", Path(settings.BASE_DIR) / "var" / "enterprise" / "archives"))
+    if scope == EnterpriseSource.Scope.USER:
+        if owner_id is None:
+            raise ValueError("User Enterprise storage requires an owner.")
+        return base_root / "users" / str(owner_id)
+    return base_root / "platform"
 
 
-def _enterprise_extract_root() -> Path:
-    return Path(getattr(settings, "ODOO_ENTERPRISE_EXTRACT_ROOT", Path(settings.BASE_DIR) / "var" / "enterprise" / "sources"))
+def _enterprise_extract_root(*, scope: str = EnterpriseSource.Scope.PLATFORM, owner_id: int | None = None) -> Path:
+    base_root = Path(getattr(settings, "ODOO_ENTERPRISE_EXTRACT_ROOT", Path(settings.BASE_DIR) / "var" / "enterprise" / "sources"))
+    if scope == EnterpriseSource.Scope.USER:
+        if owner_id is None:
+            raise ValueError("User Enterprise storage requires an owner.")
+        return base_root / "users" / str(owner_id)
+    return base_root / "platform"
 
 
 def _normalize_odoo_version(value: str) -> str:
@@ -174,7 +185,7 @@ def _detect_enterprise_addons_source(extract_dir: Path) -> Path | None:
     return candidates[0][2]
 
 
-def _save_and_extract_enterprise_archive(*, archive_file, odoo_version: str, uploaded_by) -> EnterpriseSource:
+def _save_and_extract_enterprise_archive(*, archive_file, odoo_version: str, uploaded_by, scope: str = EnterpriseSource.Scope.PLATFORM) -> EnterpriseSource:
     odoo_version = _normalize_odoo_version(odoo_version) or _infer_odoo_version_from_filename(archive_file.name)
     if not odoo_version:
         raise ValueError("Could not determine the Odoo version for this Enterprise archive.")
@@ -182,12 +193,19 @@ def _save_and_extract_enterprise_archive(*, archive_file, odoo_version: str, upl
     if not release_code:
         raise ValueError("The Enterprise archive name must include a release date code like odoo_19.0+e.20260327.tar.gz.")
 
-    archive_root = _enterprise_archive_root() / odoo_version
-    extract_root = _enterprise_extract_root() / odoo_version
+    owner = uploaded_by if scope == EnterpriseSource.Scope.USER else None
+    archive_root = _enterprise_archive_root(scope=scope, owner_id=owner.id if owner else None) / odoo_version
+    extract_root = _enterprise_extract_root(scope=scope, owner_id=owner.id if owner else None) / odoo_version
     archive_root.mkdir(parents=True, exist_ok=True)
     extract_root.mkdir(parents=True, exist_ok=True)
 
-    existing_sources = list(EnterpriseSource.objects.filter(odoo_version=odoo_version).order_by("-is_active", "-updated_at", "-id"))
+    existing_sources = list(
+        EnterpriseSource.objects.filter(
+            odoo_version=odoo_version,
+            source_scope=scope,
+            owner=owner,
+        ).order_by("-is_active", "-updated_at", "-id")
+    )
     existing_release_codes = [_enterprise_release_code_for_source(source) for source in existing_sources]
     newest_existing_code = max((code for code in existing_release_codes if code), default="")
     if newest_existing_code and release_code < newest_existing_code:
@@ -231,13 +249,21 @@ def _save_and_extract_enterprise_archive(*, archive_file, odoo_version: str, upl
     shutil.move(str(staged_extract_dir), extract_dir)
     shutil.rmtree(staged_root, ignore_errors=True)
 
-    source = existing_sources[0] if existing_sources else EnterpriseSource(odoo_version=odoo_version)
+    source = existing_sources[0] if existing_sources else EnterpriseSource(odoo_version=odoo_version, source_scope=scope, owner=owner)
     extra_source_ids = [row.id for row in existing_sources[1:]]
     with transaction.atomic():
         if extra_source_ids:
             OdooInstance.objects.filter(enterprise_source_id__in=extra_source_ids).update(enterprise_source=source)
             EnterpriseSource.objects.filter(id__in=extra_source_ids).delete()
+        if scope == EnterpriseSource.Scope.PLATFORM:
+            EnterpriseSource.objects.filter(
+                odoo_version=odoo_version,
+                source_scope=scope,
+                owner=owner,
+                is_active=True,
+            ).exclude(pk=source.pk).update(is_active=False)
         source.package_name = archive_path.stem
+        source.release_code = release_code
         source.archive_filename = original_name
         source.archive_path = str(archive_path)
         source.extract_path = str(extract_dir)
@@ -246,8 +272,17 @@ def _save_and_extract_enterprise_archive(*, archive_file, odoo_version: str, upl
         source.status = EnterpriseSource.Status.READY
         source.last_error = ""
         source.uploaded_by = uploaded_by
+        source.owner = owner
+        source.source_scope = scope
         source.save()
     return source
+
+
+def _enterprise_source_for_instance(*, instance: OdooInstance, user, source_mode: str | None = None) -> EnterpriseSource | None:
+    mode = (source_mode or instance.enterprise_source_mode or OdooInstance.EnterpriseSourceMode.PLATFORM).strip().upper()
+    if mode == OdooInstance.EnterpriseSourceMode.USER:
+        return EnterpriseSource.latest_user_for_version(user, instance.server.odoo_version)
+    return EnterpriseSource.active_for_version(instance.server.odoo_version, scope=EnterpriseSource.Scope.PLATFORM)
 
 
 def _repo_permission_denied(request):
@@ -2286,22 +2321,30 @@ class GitRepositoryCredentialListCreateAPIView(LoginRequiredMixin, View):
 
 class EnterpriseSourceListCreateAPIView(LoginRequiredMixin, View):
     def get(self, request):
+        rows = EnterpriseSource.objects.all()
         if not request.user.is_platform_admin:
-            return JsonResponse({"error": "Platform admin permission required."}, status=403)
-        rows = EnterpriseSource.objects.all().order_by("-created_at")
+            rows = rows.filter(
+                Q(source_scope=EnterpriseSource.Scope.PLATFORM, is_active=True)
+                | Q(source_scope=EnterpriseSource.Scope.USER, owner=request.user)
+            )
+        rows = rows.order_by("-created_at")
         return JsonResponse({"results": EnterpriseSourceSerializer(rows, many=True).data})
 
     def post(self, request):
-        if not request.user.is_platform_admin:
-            return JsonResponse({"error": "Platform admin permission required."}, status=403)
         archive = request.FILES.get("archive")
         if not archive:
             return JsonResponse({"error": "archive is required."}, status=400)
+        requested_scope = (request.POST.get("source_scope") or "").strip().upper()
+        if request.user.is_platform_admin and requested_scope == EnterpriseSource.Scope.PLATFORM:
+            scope = EnterpriseSource.Scope.PLATFORM
+        else:
+            scope = EnterpriseSource.Scope.USER
         try:
             source = _save_and_extract_enterprise_archive(
                 archive_file=archive,
                 odoo_version=request.POST.get("odoo_version") or "",
                 uploaded_by=request.user,
+                scope=scope,
             )
         except ValueError as exc:
             return JsonResponse({"error": str(exc)}, status=400)
@@ -2313,9 +2356,15 @@ class EnterpriseSourceActivateAPIView(LoginRequiredMixin, View):
         if not request.user.is_platform_admin:
             return JsonResponse({"error": "Platform admin permission required."}, status=403)
         source = get_object_or_404(EnterpriseSource, pk=source_id)
+        if source.source_scope != EnterpriseSource.Scope.PLATFORM:
+            return JsonResponse({"error": "Only platform Enterprise sources can be set active globally."}, status=400)
         if source.status != EnterpriseSource.Status.READY:
             return JsonResponse({"error": "Only ready Enterprise sources can be activated."}, status=400)
-        EnterpriseSource.objects.filter(odoo_version=source.odoo_version, is_active=True).exclude(pk=source.pk).update(is_active=False)
+        EnterpriseSource.objects.filter(
+            odoo_version=source.odoo_version,
+            source_scope=EnterpriseSource.Scope.PLATFORM,
+            is_active=True,
+        ).exclude(pk=source.pk).update(is_active=False)
         source.is_active = True
         source.save(update_fields=["is_active", "updated_at"])
         return JsonResponse({"ok": True, "source": EnterpriseSourceSerializer(source).data})
@@ -2774,7 +2823,11 @@ class OdooInstanceConsoleView(LoginRequiredMixin, TemplateView):
         )
         ctx["odoo_instance"] = instance
         ctx["odoo_server"] = instance.server
-        ctx["enterprise_active_source"] = EnterpriseSource.active_for_version(instance.server.odoo_version)
+        ctx["enterprise_active_source"] = EnterpriseSource.active_for_version(
+            instance.server.odoo_version,
+            scope=EnterpriseSource.Scope.PLATFORM,
+        )
+        ctx["enterprise_user_source"] = EnterpriseSource.latest_user_for_version(self.request.user, instance.server.odoo_version)
         ctx["instance_git_repos"] = list(instance.git_repos.all())
         ctx["env_sections"] = ["Production", "Staging", "Development"]
         ctx["tool_tabs"] = [
@@ -2806,8 +2859,14 @@ class OdooInstanceEnterpriseActivateAPIView(LoginRequiredMixin, View):
         lock_reason = _instance_mutation_lock_reason(instance)
         if lock_reason:
             return JsonResponse({"error": lock_reason}, status=409)
-        source = EnterpriseSource.active_for_version(instance.server.odoo_version)
+        payload = _request_data(request)
+        source_mode = (payload.get("source_mode") or instance.enterprise_source_mode or OdooInstance.EnterpriseSourceMode.PLATFORM).strip().upper()
+        if source_mode not in OdooInstance.EnterpriseSourceMode.values:
+            return JsonResponse({"error": "Unsupported Enterprise source mode."}, status=400)
+        source = _enterprise_source_for_instance(instance=instance, user=request.user, source_mode=source_mode)
         if source is None:
+            if source_mode == OdooInstance.EnterpriseSourceMode.USER:
+                return JsonResponse({"error": f"No private Enterprise upload is available for Odoo {instance.server.odoo_version}."}, status=400)
             return JsonResponse({"error": f"No active Enterprise source is available for Odoo {instance.server.odoo_version}."}, status=400)
 
         job = _repo_job(
@@ -2822,6 +2881,9 @@ class OdooInstanceEnterpriseActivateAPIView(LoginRequiredMixin, View):
                 "ok": True,
                 "job_id": job.id,
                 "enterprise_source_name": source.package_name,
+                "enterprise_source_mode": source_mode,
+                "enterprise_version": source.release_code,
+                "enterprise_available_version": source.release_code,
                 "enterprise_status": OdooInstance.EnterpriseStatus.PENDING,
             }
         )

@@ -75,13 +75,26 @@ class Infrastructure(models.Model):
 
 
 class EnterpriseSource(models.Model):
+    class Scope(models.TextChoices):
+        PLATFORM = "PLATFORM", "Platform"
+        USER = "USER", "User"
+
     class Status(models.TextChoices):
         UPLOADED = "UPLOADED", "Uploaded"
         READY = "READY", "Ready"
         FAILED = "FAILED", "Failed"
 
     odoo_version = models.CharField(max_length=10)
+    source_scope = models.CharField(max_length=20, choices=Scope.choices, default=Scope.PLATFORM)
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="enterprise_sources",
+    )
     package_name = models.CharField(max_length=255)
+    release_code = models.CharField(max_length=32, blank=True, default="")
     archive_filename = models.CharField(max_length=255)
     archive_path = models.CharField(max_length=500)
     extract_path = models.CharField(max_length=500, blank=True, default="")
@@ -103,15 +116,36 @@ class EnterpriseSource(models.Model):
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["odoo_version", "is_active"], name="dep_ent_version_active_idx"),
+            models.Index(fields=["source_scope", "owner", "odoo_version"], name="dep_ent_scope_owner_version_idx"),
         ]
 
     def __str__(self):
         state = "active" if self.is_active else self.status.lower()
-        return f"Odoo {self.odoo_version} Enterprise [{self.package_name}] ({state})"
+        scope = "platform" if self.source_scope == self.Scope.PLATFORM else f"user:{self.owner_id or 'unknown'}"
+        return f"Odoo {self.odoo_version} Enterprise [{self.package_name}] ({scope}, {state})"
 
     @classmethod
-    def active_for_version(cls, version: str):
-        return cls.objects.filter(odoo_version=str(version), is_active=True, status=cls.Status.READY).order_by("-updated_at", "-id").first()
+    def active_for_version(cls, version: str, *, scope: str = Scope.PLATFORM, owner=None):
+        qs = cls.objects.filter(
+            odoo_version=str(version),
+            is_active=True,
+            status=cls.Status.READY,
+            source_scope=scope,
+        )
+        if scope == cls.Scope.USER:
+            qs = qs.filter(owner=owner)
+        return qs.order_by("-updated_at", "-id").first()
+
+    @classmethod
+    def latest_user_for_version(cls, owner, version: str):
+        if owner is None:
+            return None
+        return cls.objects.filter(
+            owner=owner,
+            odoo_version=str(version),
+            source_scope=cls.Scope.USER,
+            status=cls.Status.READY,
+        ).order_by("-updated_at", "-id").first()
 
 
 class Instance(models.Model):
@@ -328,6 +362,10 @@ class OdooInstance(models.Model):
         ACTIVE = "ACTIVE", "Active"
         ERROR = "ERROR", "Error"
 
+    class EnterpriseSourceMode(models.TextChoices):
+        PLATFORM = "PLATFORM", "Platform"
+        USER = "USER", "User"
+
     class RestartPolicy(models.TextChoices):
         ALWAYS = "always", "Always"
         ON_FAILURE = "on-failure", "On Failure"
@@ -390,10 +428,16 @@ class OdooInstance(models.Model):
     addons_root_path = models.CharField(max_length=500, blank=True, default="")
     addons_path_cache = models.TextField(blank=True, default="")
     enterprise_enabled = models.BooleanField(default=False)
+    enterprise_auto_sync = models.BooleanField(default=True)
     enterprise_status = models.CharField(
         max_length=20,
         choices=EnterpriseStatus.choices,
         default=EnterpriseStatus.NOT_ENABLED,
+    )
+    enterprise_source_mode = models.CharField(
+        max_length=20,
+        choices=EnterpriseSourceMode.choices,
+        default=EnterpriseSourceMode.PLATFORM,
     )
     enterprise_source = models.ForeignKey(
         EnterpriseSource,
@@ -402,6 +446,8 @@ class OdooInstance(models.Model):
         on_delete=models.SET_NULL,
         related_name="instances",
     )
+    enterprise_version = models.CharField(max_length=32, blank=True, default="")
+    enterprise_available_version = models.CharField(max_length=32, blank=True, default="")
     enterprise_remote_path = models.CharField(max_length=500, blank=True, default="")
     enterprise_last_synced_at = models.DateTimeField(null=True, blank=True)
     enterprise_error = models.TextField(blank=True, default="")
