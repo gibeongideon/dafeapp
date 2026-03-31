@@ -1926,16 +1926,23 @@ class OdooInstanceGitRepoDetailAPIView(LoginRequiredMixin, View):
         payload = _request_data(request)
 
         branch_changed = False
+        resync_needed = False
         refresh_needed = False
 
         if "repo_name" in payload:
-            repo.repo_name = _derive_repo_name(payload.get("repo_name"), repo.git_url)
-            refresh_needed = True
+            next_repo_name = _derive_repo_name(payload.get("repo_name"), repo.git_url)
+            if next_repo_name != repo.repo_name:
+                repo.repo_name = next_repo_name
+                resync_needed = True
         if "git_url" in payload and payload.get("git_url"):
-            repo.git_url = payload.get("git_url").strip()
+            next_git_url = payload.get("git_url").strip()
+            if next_git_url != repo.git_url:
+                repo.git_url = next_git_url
+                resync_needed = True
         if "branch" in payload and payload.get("branch") and payload.get("branch").strip() != repo.branch:
             repo.branch = payload.get("branch").strip()
             branch_changed = True
+            repo.pinned_commit = ""
         if "auto_update" in payload:
             repo.auto_update = str(payload.get("auto_update")).lower() in ("1", "true", "yes", "on")
         if "install_requirements_on_update" in payload:
@@ -1956,9 +1963,12 @@ class OdooInstanceGitRepoDetailAPIView(LoginRequiredMixin, View):
             auth_type = payload.get("auth_type").strip()
             if auth_type not in OdooInstanceGitRepo.AuthType.values:
                 return JsonResponse({"error": "Unsupported auth_type."}, status=400)
-            repo.auth_type = auth_type
+            if auth_type != repo.auth_type:
+                repo.auth_type = auth_type
+                resync_needed = True
+                repo.pinned_commit = ""
             try:
-                repo.credential = _resolve_git_credential(
+                next_credential = _resolve_git_credential(
                     org=org,
                     user=request.user,
                     payload=payload,
@@ -1966,6 +1976,10 @@ class OdooInstanceGitRepoDetailAPIView(LoginRequiredMixin, View):
                 )
             except ValueError as exc:
                 return JsonResponse({"error": str(exc)}, status=400)
+            if next_credential != repo.credential:
+                repo.credential = next_credential
+                resync_needed = True
+                repo.pinned_commit = ""
 
         repo.local_path = _build_repo_local_path(repo.instance, repo.repo_name)
         repo.save()
@@ -1979,6 +1993,14 @@ class OdooInstanceGitRepoDetailAPIView(LoginRequiredMixin, View):
                 user=request.user,
             )
             _dispatch(checkout_instance_repo_branch, repo.id, repo.branch, job.id)
+        elif resync_needed:
+            job = _repo_job(
+                org,
+                job_type=DeploymentJob.JobType.UPDATE_INSTANCE_REPO,
+                instance=repo.instance,
+                user=request.user,
+            )
+            _dispatch(update_instance_repo, repo.id, job.id)
         elif refresh_needed:
             job = _repo_job(
                 org,

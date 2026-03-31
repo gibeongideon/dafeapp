@@ -725,6 +725,82 @@ def _prepare_remote_git_key(server: OdooServer, repo: OdooInstanceGitRepo) -> tu
     return remote_path, command
 
 
+def _remote_git_setup(server: OdooServer, repo: OdooInstanceGitRepo) -> tuple[str, str]:
+    if repo.auth_type == OdooInstanceGitRepo.AuthType.SSH_KEY:
+        return _prepare_remote_git_key(server, repo)
+    return "", ""
+
+
+def _with_remote_key_cleanup(command: str, remote_key_path: str) -> str:
+    if not remote_key_path:
+        return command
+    return f"{command} ; rm -f {shlex.quote(remote_key_path)}"
+
+
+def _remote_repo_head_commit(
+    server: OdooServer,
+    repo: OdooInstanceGitRepo,
+    branch: str,
+    *,
+    on_line=None,
+) -> tuple[str, str]:
+    clone_url = _repo_clone_url(repo)
+    remote_key_path, git_setup = _remote_git_setup(server, repo)
+    branch_ref = f"refs/heads/{(branch or '').strip()}"
+    command = (
+        f"{git_setup + ' && ' if git_setup else ''}"
+        f"git ls-remote {shlex.quote(clone_url)} {shlex.quote(branch_ref)}"
+    )
+    command = _with_remote_key_cleanup(command, remote_key_path)
+    code, output = _ssh_run(server, command, on_line=on_line)
+    if code != 0:
+        raise RuntimeError(output or f"Could not read the remote commit for branch '{branch}'.")
+    match = re.search(r"([0-9a-fA-F]{7,64})", output or "")
+    if not match:
+        raise RuntimeError(f"Could not determine the remote commit for branch '{branch}'.")
+    return match.group(1), output
+
+
+def _local_repo_head_commit(server: OdooServer, repo_path: str) -> str:
+    command = (
+        f"if [ -d {shlex.quote(repo_path)}/.git ]; then "
+        f"git -C {shlex.quote(repo_path)} rev-parse HEAD; "
+        f"fi"
+    )
+    code, output = _ssh_run(server, command)
+    if code != 0:
+        return ""
+    return (output or "").strip().splitlines()[-1].strip() if (output or "").strip() else ""
+
+
+def _clean_clone_instance_repo(
+    server: OdooServer,
+    repo: OdooInstanceGitRepo,
+    branch: str,
+    *,
+    on_line=None,
+) -> tuple[str, str]:
+    clone_url = _repo_clone_url(repo)
+    addons_root = repo.instance.addons_root_path or _instance_runtime_context(repo.instance)["addons_root_path"]
+    remote_key_path, git_setup = _remote_git_setup(server, repo)
+    clone_cmd = (
+        f"mkdir -p {shlex.quote(addons_root)} "
+        f"&& rm -rf {shlex.quote(repo.local_path)} "
+        f"&& {git_setup + ' && ' if git_setup else ''}"
+        f"git clone --branch {shlex.quote(branch)} --single-branch "
+        f"{shlex.quote(clone_url)} {shlex.quote(repo.local_path)}"
+    )
+    clone_cmd = _with_remote_key_cleanup(clone_cmd, remote_key_path)
+    code, log_blob = _ssh_run(server, clone_cmd, on_line=on_line)
+    if code != 0:
+        raise RuntimeError(log_blob or "Clone failed.")
+
+    head_code, head_output = _ssh_run(server, f"git -C {shlex.quote(repo.local_path)} rev-parse HEAD")
+    if head_code != 0:
+        raise RuntimeError(head_output or "Could not read the cloned commit SHA.")
+    return head_output.strip(), log_blob
+
+
 def _sync_instance_addons_config(instance: OdooInstance, *, on_line=None) -> str:
     addons_root, addons_path = _compute_addons_path(instance)
     runtime = _instance_runtime_context(instance)
@@ -3304,31 +3380,13 @@ def clone_instance_repo(self, repo_id: int, job_id: int | None = None):
             reset_log=True,
             started=True,
         )
-
-        clone_url = _repo_clone_url(repo)
-        git_setup = ""
-        remote_key_path = ""
-        if repo.auth_type == OdooInstanceGitRepo.AuthType.SSH_KEY:
-            remote_key_path, git_setup = _prepare_remote_git_key(server, repo)
-
-        clone_cmd = (
-            f"mkdir -p {shlex.quote(instance.addons_root_path or _instance_runtime_context(instance)['addons_root_path'])} "
-            f"&& rm -rf {shlex.quote(repo.local_path)} "
-            f"&& {git_setup + ' && ' if git_setup else ''}"
-            f"git clone --branch {shlex.quote(repo.branch)} --single-branch "
-            f"{shlex.quote(clone_url)} {shlex.quote(repo.local_path)}"
+        new_commit, log_blob = _clean_clone_instance_repo(
+            server,
+            repo,
+            repo.branch,
+            on_line=lambda line: _broadcast_log_line(ws_group, line),
         )
-        if remote_key_path:
-            clone_cmd = f"{clone_cmd} ; rm -f {shlex.quote(remote_key_path)}"
-
-        code, log_blob = _ssh_run(server, clone_cmd, on_line=lambda line: _broadcast_log_line(ws_group, line))
-        if code != 0:
-            raise RuntimeError(log_blob or "Clone failed.")
-
-        head_code, head_output = _ssh_run(server, f"git -C {shlex.quote(repo.local_path)} rev-parse HEAD")
-        if head_code != 0:
-            raise RuntimeError(head_output or "Could not read the cloned commit SHA.")
-        repo.last_pulled_commit = head_output.strip()
+        repo.last_pulled_commit = new_commit
         repo.previous_commit = ""
         repo.last_remote_commit = repo.last_pulled_commit
         repo.default_branch = repo.default_branch or repo.branch
@@ -3387,38 +3445,20 @@ def update_instance_repo(self, repo_id: int, job_id: int | None = None, *, force
         )
         repo.instance.addons_sync_status = OdooInstance.AddonsSyncStatus.PENDING
         repo.instance.save(update_fields=["addons_sync_status", "updated_at"])
-
-        git_setup = ""
-        remote_key_path = ""
-        if repo.auth_type == OdooInstanceGitRepo.AuthType.SSH_KEY:
-            remote_key_path, git_setup = _prepare_remote_git_key(server, repo)
-
-        remote_cmd = (
-            f"cd {shlex.quote(repo.local_path)}"
-            f" && {git_setup + ' && ' if git_setup else ''}"
-            f"git fetch origin {shlex.quote(repo.branch)}"
-            f" && printf 'LOCAL=%s\n' \"$(git rev-parse HEAD)\""
-            f" && printf 'REMOTE=%s\n' \"$(git rev-parse FETCH_HEAD)\""
+        local_commit = _local_repo_head_commit(server, repo.local_path) or repo.last_pulled_commit or ""
+        remote_commit, remote_log = _remote_repo_head_commit(
+            server,
+            repo,
+            repo.branch,
+            on_line=lambda line: _broadcast_log_line(ws_group, line),
         )
-        if remote_key_path:
-            remote_cmd = f"{remote_cmd} ; rm -f {shlex.quote(remote_key_path)}"
-
-        code, log_blob = _ssh_run(server, remote_cmd, on_line=lambda line: _broadcast_log_line(ws_group, line))
-        if code != 0:
-            raise RuntimeError(log_blob or "Fetch failed.")
-
-        local_match = re.search(r"LOCAL=([0-9a-fA-F]{7,64})", log_blob)
-        remote_match = re.search(r"REMOTE=([0-9a-fA-F]{7,64})", log_blob)
-        local_commit = local_match.group(1) if local_match else ""
-        remote_commit = remote_match.group(1) if remote_match else ""
         repo.last_remote_commit = remote_commit
-        if not remote_commit:
-            raise RuntimeError("Could not determine the remote commit for this branch.")
-        if local_commit == remote_commit:
+        repo.save(update_fields=["last_remote_commit", "updated_at"])
+        if local_commit == remote_commit and _local_repo_head_commit(server, repo.local_path):
             repo.status = OdooInstanceGitRepo.Status.CONNECTED
             repo.last_sync_finished_at = timezone.now()
             repo.last_error = ""
-            _append_repo_log(repo, _append_text(log_blob, "Already up to date."), reset=True)
+            _append_repo_log(repo, _append_text(remote_log, "Already up to date."), reset=True)
             repo.save(
                 update_fields=[
                     "status",
@@ -3435,17 +3475,15 @@ def update_instance_repo(self, repo_id: int, job_id: int | None = None, *, force
             _job_done(job_id, ok=True, log=repo.last_sync_log)
             return
 
-        pull_cmd = (
-            f"cd {shlex.quote(repo.local_path)}"
-            f" && git checkout {shlex.quote(repo.branch)}"
-            f" && git pull --ff-only origin {shlex.quote(repo.branch)}"
-            f" && git rev-parse HEAD"
+        reclone_notice = (
+            f"Replacing local copy of {repo.repo_name}:{repo.branch} with a clean clone from GitHub…"
         )
-        code, pull_output = _ssh_run(server, pull_cmd, on_line=lambda line: _broadcast_log_line(ws_group, line))
-        if code != 0:
-            raise RuntimeError(pull_output or "Pull failed.")
-
-        new_commit = pull_output.splitlines()[-1].strip()
+        new_commit, clone_log = _clean_clone_instance_repo(
+            server,
+            repo,
+            repo.branch,
+            on_line=lambda line: _broadcast_log_line(ws_group, line),
+        )
         changed_modules = _detect_changed_modules(server, repo.local_path, local_commit, new_commit)
         repo.previous_commit = local_commit
         repo.last_pulled_commit = new_commit
@@ -3463,7 +3501,7 @@ def update_instance_repo(self, repo_id: int, job_id: int | None = None, *, force
         )
         full_log = _repo_follow_up_success(
             repo,
-            log_blob=_append_text(log_blob, pull_output),
+            log_blob=_append_text(_append_text(remote_log, reclone_notice), clone_log),
             modules=changed_modules,
             on_line=lambda line: _broadcast_log_line(ws_group, line),
         )
@@ -3493,6 +3531,7 @@ def checkout_instance_repo_branch(self, repo_id: int, branch: str, job_id: int |
         branch = (branch or "").strip()
         if not branch:
             raise RuntimeError("A target branch is required.")
+        _update_repo_paths(instance, repo)
 
         _set_repo_status(
             repo,
@@ -3505,33 +3544,26 @@ def checkout_instance_repo_branch(self, repo_id: int, branch: str, job_id: int |
         repo.instance.addons_sync_status = OdooInstance.AddonsSyncStatus.PENDING
         repo.instance.save(update_fields=["addons_sync_status", "updated_at"])
 
-        git_setup = ""
-        remote_key_path = ""
-        if repo.auth_type == OdooInstanceGitRepo.AuthType.SSH_KEY:
-            remote_key_path, git_setup = _prepare_remote_git_key(server, repo)
-
         previous_commit = repo.last_pulled_commit or ""
-        branch_cmd = (
-            f"cd {shlex.quote(repo.local_path)}"
-            f" && {git_setup + ' && ' if git_setup else ''}"
-            f"git fetch origin {shlex.quote(branch)}"
-            f" && git checkout {shlex.quote(branch)}"
-            f" && git pull --ff-only origin {shlex.quote(branch)}"
-            f" && git rev-parse HEAD"
+        remote_commit, remote_log = _remote_repo_head_commit(
+            server,
+            repo,
+            branch,
+            on_line=lambda line: _broadcast_log_line(ws_group, line),
         )
-        if remote_key_path:
-            branch_cmd = f"{branch_cmd} ; rm -f {shlex.quote(remote_key_path)}"
-
-        code, output = _ssh_run(server, branch_cmd, on_line=lambda line: _broadcast_log_line(ws_group, line))
-        if code != 0:
-            raise RuntimeError(output or "Branch checkout failed.")
-
-        new_commit = output.splitlines()[-1].strip()
+        reclone_notice = f"Replacing local copy with a clean clone of branch '{branch}'…"
+        new_commit, clone_log = _clean_clone_instance_repo(
+            server,
+            repo,
+            branch,
+            on_line=lambda line: _broadcast_log_line(ws_group, line),
+        )
         changed_modules = _detect_changed_modules(server, repo.local_path, previous_commit, new_commit)
         repo.branch = branch
         repo.previous_commit = previous_commit
         repo.last_pulled_commit = new_commit
-        repo.last_remote_commit = new_commit
+        repo.last_remote_commit = remote_commit
+        repo.pinned_commit = ""
         repo.last_pulled_at = timezone.now()
         repo.last_detected_modules = changed_modules or _detect_repo_modules(server, repo.local_path)
         repo.save(
@@ -3540,6 +3572,7 @@ def checkout_instance_repo_branch(self, repo_id: int, branch: str, job_id: int |
                 "previous_commit",
                 "last_pulled_commit",
                 "last_remote_commit",
+                "pinned_commit",
                 "last_pulled_at",
                 "last_detected_modules",
                 "updated_at",
@@ -3547,7 +3580,7 @@ def checkout_instance_repo_branch(self, repo_id: int, branch: str, job_id: int |
         )
         full_log = _repo_follow_up_success(
             repo,
-            log_blob=output,
+            log_blob=_append_text(_append_text(remote_log, reclone_notice), clone_log),
             modules=changed_modules,
             on_line=lambda line: _broadcast_log_line(ws_group, line),
         )

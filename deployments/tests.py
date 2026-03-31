@@ -1141,6 +1141,56 @@ class OdooVersionedFlowTests(TestCase):
         mock_dispatch.assert_called_once()
 
     @patch("deployments.views._dispatch")
+    def test_instance_repo_rename_queues_clean_resync_job(self, mock_dispatch):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-repo-rename",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            status=OdooServer.Status.PROVISIONED,
+            ip_address="203.0.113.24",
+            created_by=self.user,
+        )
+        instance = OdooInstance.objects.create(
+            organization=self.org,
+            server=server,
+            name="inventory",
+            db_name="inventory_db",
+            status=OdooInstance.Status.RUNNING,
+            created_by=self.user,
+        )
+        repo = OdooInstanceGitRepo.objects.create(
+            instance=instance,
+            repo_name="stock-tools",
+            git_url="https://github.com/acme/stock-tools.git",
+            branch="18.0",
+            auth_type=OdooInstanceGitRepo.AuthType.PUBLIC,
+            local_path="/odoo/instances/inventory_db/addons/stock-tools",
+            status=OdooInstanceGitRepo.Status.CONNECTED,
+            created_by=self.user,
+        )
+
+        resp = self.client.post(
+            reverse("deployments:odoo-instance-repo-detail", kwargs={"instance_id": instance.id, "repo_id": repo.id}),
+            data=json.dumps({"repo_name": "stock-tools-renamed"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        repo.refresh_from_db()
+        self.assertEqual(repo.repo_name, "stock-tools-renamed")
+        self.assertTrue(repo.local_path.endswith("/stock-tools-renamed"))
+        job = DeploymentJob.objects.get(
+            odoo_instance=instance,
+            job_type=DeploymentJob.JobType.UPDATE_INSTANCE_REPO,
+        )
+        self.assertEqual(job.status, DeploymentJob.Status.QUEUED)
+        mock_dispatch.assert_called_once()
+
+    @patch("deployments.views._dispatch")
     def test_github_oauth_repo_create_uses_vcs_account_as_token_source(self, mock_dispatch):
         server = OdooServer.objects.create(
             organization=self.org,
