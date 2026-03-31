@@ -71,7 +71,10 @@
               data-server-name="{{ selected_server.name }}"
               data-server-ip="{{ selected_server.ip_address|default:'' }}"
               data-server-min-port="{{ selected_server.min_port }}"
-              data-server-mode="{{ selected_server.deployment_mode }}">
+              data-server-mode="{{ selected_server.deployment_mode }}"
+              data-server-status="{{ selected_server.status }}"
+              data-server-is-reachable="{{ selected_server.is_reachable|yesno:'true,false' }}"
+              data-server-last-checked-at="{{ selected_server.last_checked_at|date:'c'|default:'' }}">
         + New Instance
       </button>
       {% elif show_instances_view %}
@@ -494,13 +497,21 @@
                 data-instance-domain="{{ oi.domain|default:'' }}"
                 data-server-mode="{{ oi.server.deployment_mode }}"
                 data-domain-status="{{ oi.domain_status }}"
-                data-ssl-status="{{ oi.ssl_status }}">
+                data-ssl-status="{{ oi.ssl_status }}"
+                data-instance-status="{{ oi.status }}"
+                data-server-status="{{ oi.server.status }}"
+                data-enterprise-status="{{ oi.enterprise_status }}">
           {% if oi.domain %}Manage Domain{% else %}Add Domain{% endif %}
         </button>
         <button type="button"
                 class="delete-instance-btn inline-flex items-center justify-center px-3 py-2 text-xs font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
                 data-instance-id="{{ oi.id }}"
-                data-instance-name="{{ oi.name }}">
+                data-instance-name="{{ oi.name }}"
+                data-instance-status="{{ oi.status }}"
+                data-server-status="{{ oi.server.status }}"
+                data-domain-status="{{ oi.domain_status }}"
+                data-ssl-status="{{ oi.ssl_status }}"
+                data-enterprise-status="{{ oi.enterprise_status }}">
           Delete
         </button>
         {% endif %}
@@ -716,13 +727,15 @@
                 class="open-ssh-keys-modal px-3 py-2 text-xs font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
                 data-server-id="{{ s.id }}"
                 data-server-name="{{ s.name }}"
+                data-server-status="{{ s.status }}"
                 title="Manage SSH keys for this server">
           SSH Keys
         </button>
         <button type="button"
                 class="archive-server-btn px-3 py-2 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
                 data-server-id="{{ s.id }}"
-                data-server-name="{{ s.name }}">
+                data-server-name="{{ s.name }}"
+                data-server-status="{{ s.status }}">
           Archive
         </button>
         <button type="button"
@@ -757,7 +770,8 @@
           <div class="flex items-center justify-between gap-3">
             <span class="text-gray-500">Reachability</span>
             <button type="button" class="check-connectivity-btn text-[10px] text-gray-400 hover:text-gray-600 underline"
-                    data-server-id="{{ s.id }}">Check now</button>
+                    data-server-id="{{ s.id }}"
+                    data-server-status="{{ s.status }}">Check now</button>
           </div>
           <div class="flex items-center justify-between gap-3 col-span-2">
             <span class="text-gray-500">Example access</span>
@@ -793,7 +807,8 @@
           <button type="button"
                   class="delete-server-btn text-[11px] font-medium text-red-600 underline"
                   data-server-id="{{ s.id }}"
-                  data-server-name="{{ s.name }}">
+                  data-server-name="{{ s.name }}"
+                  data-server-status="{{ s.status }}">
             Delete permanently
           </button>
         </div>
@@ -898,13 +913,21 @@
                       data-instance-domain="{{ oi.domain|default:'' }}"
                       data-server-mode="{{ oi.server.deployment_mode }}"
                       data-domain-status="{{ oi.domain_status }}"
-                      data-ssl-status="{{ oi.ssl_status }}">
+                      data-ssl-status="{{ oi.ssl_status }}"
+                      data-instance-status="{{ oi.status }}"
+                      data-server-status="{{ oi.server.status }}"
+                      data-enterprise-status="{{ oi.enterprise_status }}">
                 Domain
               </button>
               <button type="button"
                       class="delete-instance-btn px-2 py-1.5 text-xs font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
                       data-instance-id="{{ oi.id }}"
-                      data-instance-name="{{ oi.name }}">
+                      data-instance-name="{{ oi.name }}"
+                      data-instance-status="{{ oi.status }}"
+                      data-server-status="{{ oi.server.status }}"
+                      data-domain-status="{{ oi.domain_status }}"
+                      data-ssl-status="{{ oi.ssl_status }}"
+                      data-enterprise-status="{{ oi.enterprise_status }}">
                 Del
               </button>
               {% endif %}
@@ -1456,6 +1479,112 @@
     });
   }
 
+  function normalizeStatus(value) {
+    return String(value || "").trim().toUpperCase();
+  }
+
+  function parseBool(value) {
+    return ["1", "true", "yes", "on"].includes(String(value || "").trim().toLowerCase());
+  }
+
+  function serverActionLockReason(serverLike) {
+    const status = normalizeStatus(serverLike?.status || serverLike?.server_status || serverLike);
+    if (status === "PROVISIONING" || status === "CONFIGURING") {
+      return "Server provisioning is still in progress.";
+    }
+    return "";
+  }
+
+  function assignmentPending(assignments) {
+    return (assignments || []).some((item) => normalizeStatus(item?.status) === "PENDING");
+  }
+
+  function instanceActionLockReason(instanceLike) {
+    const serverReason = serverActionLockReason(instanceLike?.server || instanceLike?.server_status);
+    if (serverReason) return serverReason;
+
+    const status = normalizeStatus(instanceLike?.status || instanceLike?.instance_status);
+    if (status === "PENDING" || status === "CONFIGURING") {
+      return "Instance provisioning is still in progress.";
+    }
+
+    if (
+      normalizeStatus(instanceLike?.assignment_status) === "PENDING"
+      || normalizeStatus(instanceLike?.domain_status) === "PENDING"
+      || normalizeStatus(instanceLike?.ssl_status) === "PENDING"
+      || assignmentPending(instanceLike?.domain_assignments)
+    ) {
+      return "Domain provisioning is still in progress for this instance.";
+    }
+
+    if (normalizeStatus(instanceLike?.enterprise_status) === "PENDING") {
+      return "Enterprise activation is still in progress for this instance.";
+    }
+
+    return "";
+  }
+
+  function setLockedButtonState(button, locked, reason = "") {
+    if (!button) return;
+    button.disabled = !!locked;
+    button.setAttribute("aria-disabled", locked ? "true" : "false");
+    button.title = locked ? reason : "";
+    button.classList.toggle("opacity-50", !!locked);
+    button.classList.toggle("cursor-not-allowed", !!locked);
+  }
+
+  function syncInstanceActionButtons(root = document) {
+    root.querySelectorAll(".manage-domain-btn").forEach((button) => {
+      const reason = instanceActionLockReason({
+        instance_status: button.dataset.instanceStatus,
+        server_status: button.dataset.serverStatus,
+        domain_status: button.dataset.domainStatus,
+        ssl_status: button.dataset.sslStatus,
+        enterprise_status: button.dataset.enterpriseStatus,
+        assignment_status: button.dataset.assignmentStatus,
+      });
+      setLockedButtonState(button, !!reason, reason);
+    });
+
+    root.querySelectorAll(".delete-instance-btn").forEach((button) => {
+      const reason = instanceActionLockReason({
+        instance_status: button.dataset.instanceStatus,
+        server_status: button.dataset.serverStatus,
+        domain_status: button.dataset.domainStatus,
+        ssl_status: button.dataset.sslStatus,
+        enterprise_status: button.dataset.enterpriseStatus,
+      });
+      setLockedButtonState(button, !!reason, reason);
+    });
+  }
+
+  function syncServerActionButtons(root = document) {
+    root.querySelectorAll(".open-ssh-keys-modal, .archive-server-btn, .delete-server-btn, .check-connectivity-btn").forEach((button) => {
+      const reason = serverActionLockReason(button.dataset.serverStatus);
+      setLockedButtonState(button, !!reason, reason);
+    });
+
+    const newInstanceBtn = $("new-instance-btn");
+    if (newInstanceBtn) {
+      const serverStatus = normalizeStatus(newInstanceBtn.dataset.serverStatus);
+      const isReachable = parseBool(newInstanceBtn.dataset.serverIsReachable);
+      const hasConnectivityCheck = !!String(newInstanceBtn.dataset.serverLastCheckedAt || "").trim();
+      let reason = serverActionLockReason(serverStatus);
+      if (!reason && serverStatus !== "PROVISIONED") {
+        reason = "Server is not ready for new instances yet.";
+      }
+      if (!reason && hasConnectivityCheck && !isReachable) {
+        reason = "Server SSH is unreachable. Run a successful connectivity check first.";
+      }
+      setLockedButtonState(newInstanceBtn, !!reason, reason);
+    }
+  }
+
+  function syncPageActionLocks(root = document) {
+    syncInstanceActionButtons(root);
+    syncServerActionButtons(root);
+  }
+
   // ─── inline progress ─────────────────────────────────────────────────────
   const wsBase = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}`;
 
@@ -1666,6 +1795,10 @@
             data-server-mode="${escapeHtml(serverMode || "")}"
             data-domain-status="${escapeHtml(assignment.domain_status || assignment.status || "")}"
             data-ssl-status="${escapeHtml(assignment.ssl_status || "")}"
+            data-instance-status="${escapeHtml((linkedInstance && linkedInstance.status) || "")}"
+            data-server-status="${escapeHtml((linkedInstance && linkedInstance.server && linkedInstance.server.status) || "")}"
+            data-enterprise-status="${escapeHtml((linkedInstance && linkedInstance.enterprise_status) || "")}"
+            data-assignment-status="${escapeHtml(assignment.status || "")}"
             data-is-primary="${assignment.is_primary ? 'true' : 'false'}">
             Manage
           </button>` : '<span class="text-xs text-gray-400">—</span>'}
@@ -1702,6 +1835,9 @@
                 data-server-mode="${escapeHtml((instance.server && instance.server.deployment_mode) || "")}"
                 data-domain-status="${escapeHtml(instance.domain_status || "")}"
                 data-ssl-status="${escapeHtml(instance.ssl_status || "")}"
+                data-instance-status="${escapeHtml(instance.status || "")}"
+                data-server-status="${escapeHtml((instance.server && instance.server.status) || "")}"
+                data-enterprise-status="${escapeHtml(instance.enterprise_status || "")}"
                 data-is-primary="false">
           Add Custom Domain
         </button>
@@ -1739,6 +1875,7 @@
     renderDnsAssignments();
     renderDnsUnassignedInstances();
     renderDnsRecords();
+    syncPageActionLocks();
   }
 
   async function loadDnsDashboard() {
@@ -1942,10 +2079,20 @@
                   data-instance-domain="${escapeHtml(instance.domain || "")}"
                   data-server-mode="${escapeHtml(server.deployment_mode || "")}"
                   data-domain-status="${escapeHtml(instance.domain_status || "")}"
-                  data-ssl-status="${escapeHtml(instance.ssl_status || "")}">
+                  data-ssl-status="${escapeHtml(instance.ssl_status || "")}"
+                  data-instance-status="${escapeHtml(instance.status || "")}"
+                  data-server-status="${escapeHtml(server.status || "")}"
+                  data-enterprise-status="${escapeHtml(instance.enterprise_status || "")}">
             ${instance.domain ? "Manage Domain" : "Add Domain"}
           </button>
-          <button type="button" class="delete-instance-btn inline-flex items-center justify-center px-3 py-2 text-xs font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors" data-instance-id="${iid}" data-instance-name="${escapeHtml(instance.name || "")}">Delete</button>` : ""}
+          <button type="button" class="delete-instance-btn inline-flex items-center justify-center px-3 py-2 text-xs font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors"
+                  data-instance-id="${iid}"
+                  data-instance-name="${escapeHtml(instance.name || "")}"
+                  data-instance-status="${escapeHtml(instance.status || "")}"
+                  data-server-status="${escapeHtml(server.status || "")}"
+                  data-domain-status="${escapeHtml(instance.domain_status || "")}"
+                  data-ssl-status="${escapeHtml(instance.ssl_status || "")}"
+                  data-enterprise-status="${escapeHtml(instance.enterprise_status || "")}">Delete</button>` : ""}
         </div>
         <details class="mt-4 rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
           <summary class="cursor-pointer text-xs font-medium text-gray-600">View details</summary>
@@ -1974,6 +2121,7 @@
       return;
     }
     grid.innerHTML = rows.map(instanceCardHtml).join("");
+    syncPageActionLocks(grid);
   }
 
   function updateInstanceProgressFromApi(instance) {
@@ -2132,6 +2280,10 @@
     const summaryText = document.getElementById(`server-summary-text-${sid}`);
     const progressNote = document.getElementById(`server-progress-note-${sid}`);
     const instanceBtn = document.querySelector(`.open-server-instances-btn[data-server-id="${sid}"]`);
+    const sshKeysBtn = document.querySelector(`.open-ssh-keys-modal[data-server-id="${sid}"]`);
+    const archiveBtn = document.querySelector(`.archive-server-btn[data-server-id="${sid}"]`);
+    const deleteBtn = document.querySelector(`.delete-server-btn[data-server-id="${sid}"]`);
+    const checkBtn = document.querySelector(`.check-connectivity-btn[data-server-id="${sid}"]`);
     const isBusy = isBusyStatus(server.status);
     statusBadges.forEach((statusBadge) => {
       statusBadge.textContent = serverBadgeLabel(server.status);
@@ -2227,6 +2379,9 @@
       if (server.ip_address !== undefined) instanceBtn.dataset.serverIp = server.ip_address || "";
       if (server.min_port !== undefined) instanceBtn.dataset.serverMinPort = String(server.min_port || 8069);
       if (server.deployment_mode) instanceBtn.dataset.serverMode = server.deployment_mode;
+      instanceBtn.dataset.serverStatus = server.status || "";
+      instanceBtn.dataset.serverIsReachable = reachable ? "true" : "false";
+      instanceBtn.dataset.serverLastCheckedAt = server.last_checked_at || "";
       instanceBtn.dataset.targetUrl = `/deployments/create/?server_id=${sid}&section=instances#instances`;
       instanceBtn.textContent = "Create Instance";
       instanceBtn.disabled = !(provisioned && (!server.last_checked_at || reachable));
@@ -2234,6 +2389,18 @@
         ? "open-server-instances-btn flex-1 inline-flex items-center justify-center px-3 py-2 text-xs font-medium rounded-lg transition-colors text-gray-400 bg-gray-100 cursor-not-allowed"
         : "open-server-instances-btn flex-1 inline-flex items-center justify-center px-3 py-2 text-xs font-medium rounded-lg transition-colors text-white bg-gray-900 hover:bg-gray-700";
     }
+    [sshKeysBtn, archiveBtn, deleteBtn, checkBtn].forEach((button) => {
+      if (button) button.dataset.serverStatus = server.status || "";
+    });
+    if (String(selectedServerId || "") === String(sid)) {
+      const newInstanceBtn = $("new-instance-btn");
+      if (newInstanceBtn) {
+        newInstanceBtn.dataset.serverStatus = server.status || "";
+        newInstanceBtn.dataset.serverIsReachable = server.is_reachable ? "true" : "false";
+        newInstanceBtn.dataset.serverLastCheckedAt = server.last_checked_at || "";
+      }
+    }
+    syncPageActionLocks(document.getElementById(`server-card-${sid}`) || document);
   }
 
   async function refreshServerCards() {
@@ -2247,6 +2414,7 @@
       servers.forEach((server) => seenIds.add(String(server.id)));
       removeMissingServerCards(seenIds);
       syncLiveServerPolling(servers);
+      syncPageActionLocks();
     } catch (err) {
       // Silent: the page still works with websocket updates and manual refresh.
     }
@@ -2511,13 +2679,15 @@
                 class="open-ssh-keys-modal px-3 py-2 text-xs font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
                 data-server-id="${sid}"
                 data-server-name="${name}"
+                data-server-status="${escapeHtml(server.status || "")}"
                 title="Manage SSH keys for this server">
           SSH Keys
         </button>
         <button type="button"
                 class="archive-server-btn px-3 py-2 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
                 data-server-id="${sid}"
-                data-server-name="${name}">
+                data-server-name="${name}"
+                data-server-status="${escapeHtml(server.status || "")}">
           Archive
         </button>
         <button type="button"
@@ -2545,7 +2715,8 @@
           <div class="flex items-center justify-between gap-3">
             <span class="text-gray-500">Reachability</span>
             <button type="button" class="check-connectivity-btn text-[10px] text-gray-400 hover:text-gray-600 underline"
-                    data-server-id="${sid}">Check now</button>
+                    data-server-id="${sid}"
+                    data-server-status="${escapeHtml(server.status || "")}">Check now</button>
           </div>
           <div class="flex items-center justify-between gap-3 col-span-2">
             <span class="text-gray-500">Example access</span>
@@ -2567,7 +2738,8 @@
           <button type="button"
                   class="delete-server-btn text-[11px] font-medium text-red-600 underline"
                   data-server-id="${sid}"
-                  data-server-name="${name}">
+                  data-server-name="${name}"
+                  data-server-status="${escapeHtml(server.status || "")}">
             Delete permanently
           </button>
         </div>
@@ -2600,6 +2772,7 @@
       show(sshKeysModal);
     });
     connectServerProgress(sid, document.getElementById(`server-progress-${sid}`));
+    syncPageActionLocks(newCard);
     setTimeout(refreshServerCards, 1200);
   }
 
@@ -2621,9 +2794,11 @@
   let activeDomainInstanceId = "";
   let activeDomainCurrentValue = "";
   let activeDomainServerMode = "BARE_METAL";
+  let activeDomainLockReason = "";
 
   refreshServerCards();
   autoCheckVisibleServers();
+  syncPageActionLocks();
   setInterval(refreshServerCards, 60000);
   setInterval(autoCheckVisibleServers, 60000);
   refreshInstanceRows();
@@ -2757,17 +2932,38 @@
 
   let activeDomainIsPrimary = false;
 
-  function openDomainModal({ instanceId, instanceName, domain = "", serverMode = "BARE_METAL", domainStatus = "", sslStatus = "", isPrimary = false }) {
+  function openDomainModal({
+    instanceId,
+    instanceName,
+    domain = "",
+    serverMode = "BARE_METAL",
+    domainStatus = "",
+    sslStatus = "",
+    isPrimary = false,
+    instanceStatus = "",
+    serverStatus = "",
+    enterpriseStatus = "",
+    assignmentStatus = "",
+  }) {
     activeDomainInstanceId = String(instanceId || "");
     activeDomainCurrentValue = domain || "";
     activeDomainServerMode = serverMode || "BARE_METAL";
     activeDomainIsPrimary = Boolean(isPrimary);
+    activeDomainLockReason = instanceActionLockReason({
+      instance_status: instanceStatus,
+      server_status: serverStatus,
+      domain_status: domainStatus,
+      ssl_status: sslStatus,
+      enterprise_status: enterpriseStatus,
+      assignment_status: assignmentStatus,
+    });
     $("domain-instance-name").textContent = instanceName || "";
     $("domain-name-input").value = domain || "";
     $("domain-status-summary").textContent = domainStatusSummary(domainStatus, sslStatus, domain);
     $("domain-help-text").textContent = activeDomainIsPrimary
       ? "This is the default DafeApp domain for the instance. You can reprovision it, but not detach it."
       : "Attach or remove an extra custom hostname that points to this instance from your own DNS provider.";
+    $("domain-name-input").disabled = !!activeDomainLockReason || activeDomainIsPrimary;
     if (domain) {
       if (activeDomainIsPrimary) hide($("domain-detach-btn"));
       else show($("domain-detach-btn"));
@@ -2778,7 +2974,10 @@
       hide($("domain-retry-btn"));
       $("domain-save-btn").textContent = "Attach Domain";
     }
-    setMsg($("domain-modal-msg"), "");
+    setLockedButtonState($("domain-save-btn"), !!activeDomainLockReason || activeDomainIsPrimary, activeDomainLockReason);
+    setLockedButtonState($("domain-retry-btn"), !!activeDomainLockReason, activeDomainLockReason);
+    setLockedButtonState($("domain-detach-btn"), !!activeDomainLockReason, activeDomainLockReason);
+    setMsg($("domain-modal-msg"), activeDomainLockReason || "");
     show(domainModal);
   }
 
@@ -3276,6 +3475,10 @@
         domainStatus: domainBtn.dataset.domainStatus || "",
         sslStatus: domainBtn.dataset.sslStatus || "",
         isPrimary: domainBtn.dataset.isPrimary === "true",
+        instanceStatus: domainBtn.dataset.instanceStatus || "",
+        serverStatus: domainBtn.dataset.serverStatus || "",
+        enterpriseStatus: domainBtn.dataset.enterpriseStatus || "",
+        assignmentStatus: domainBtn.dataset.assignmentStatus || "",
       });
       return;
     }
@@ -3370,6 +3573,10 @@
       setMsg(msgEl, "Instance selection is missing.", true);
       return;
     }
+    if (activeDomainLockReason) {
+      setMsg(msgEl, activeDomainLockReason, true);
+      return;
+    }
     if (activeDomainIsPrimary) {
       setMsg(msgEl, "The primary DafeApp domain is automatic and cannot be edited here.", true);
       return;
@@ -3385,6 +3592,10 @@
 
   $("domain-retry-btn")?.addEventListener("click", async () => {
     if (!activeDomainInstanceId) return;
+    if (activeDomainLockReason) {
+      setMsg($("domain-modal-msg"), activeDomainLockReason, true);
+      return;
+    }
     setMsg($("domain-modal-msg"), "Retrying provisioning…");
     const resp = await postForm(`/api/deployments/odoo/instances/${activeDomainInstanceId}/domain/retry/`, {});
     await finishDomainAction(resp, "Domain retry queued.");
@@ -3392,6 +3603,10 @@
 
   $("domain-detach-btn")?.addEventListener("click", () => {
     if (!activeDomainInstanceId || !activeDomainCurrentValue) return;
+    if (activeDomainLockReason) {
+      setMsg($("domain-modal-msg"), activeDomainLockReason, true);
+      return;
+    }
     showConfirm(
       "Detach Domain",
       `Remove "${activeDomainCurrentValue}" from this instance?`,

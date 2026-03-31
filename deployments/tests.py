@@ -567,6 +567,141 @@ class OdooVersionedFlowTests(TestCase):
         self.assertEqual(payload["results"][0]["repo_name"], "stock-custom")
         self.assertEqual(payload["results"][0]["branch"], "18.0")
 
+    @patch("deployments.views._dispatch")
+    def test_instance_delete_is_blocked_while_instance_is_configuring(self, mock_dispatch):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-configuring",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            status=OdooServer.Status.PROVISIONED,
+            created_by=self.user,
+        )
+        instance = OdooInstance.objects.create(
+            organization=self.org,
+            server=server,
+            name="inventory",
+            db_name="inventory_db",
+            status=OdooInstance.Status.CONFIGURING,
+            created_by=self.user,
+        )
+
+        resp = self.client.post(
+            reverse("deployments:odoo-instance-delete", kwargs={"instance_id": instance.id}),
+            data={},
+        )
+
+        self.assertEqual(resp.status_code, 409)
+        self.assertIn("still in progress", resp.json()["error"])
+        mock_dispatch.assert_not_called()
+
+    def test_domain_attach_is_blocked_while_domain_provisioning_is_pending(self):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-domain-pending",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            status=OdooServer.Status.PROVISIONED,
+            created_by=self.user,
+        )
+        instance = OdooInstance.objects.create(
+            organization=self.org,
+            server=server,
+            name="sales",
+            db_name="sales_db",
+            status=OdooInstance.Status.RUNNING,
+            domain_status=OdooInstance.DomainStatus.PENDING,
+            created_by=self.user,
+        )
+
+        resp = self.client.post(
+            reverse("deployments:odoo-instance-domain-attach", kwargs={"instance_id": instance.id}),
+            data={"domain": "shop.example.com"},
+        )
+
+        self.assertEqual(resp.status_code, 409)
+        self.assertIn("Domain provisioning", resp.json()["error"])
+
+    @patch("deployments.views._dispatch")
+    def test_repo_sync_is_blocked_while_another_instance_job_is_running(self, mock_dispatch):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-repo-lock",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            status=OdooServer.Status.PROVISIONED,
+            created_by=self.user,
+        )
+        instance = OdooInstance.objects.create(
+            organization=self.org,
+            server=server,
+            name="crm",
+            db_name="crm_db",
+            status=OdooInstance.Status.RUNNING,
+            created_by=self.user,
+        )
+        repo = OdooInstanceGitRepo.objects.create(
+            instance=instance,
+            repo_name="crm-tools",
+            git_url="https://github.com/acme/crm-tools.git",
+            branch="main",
+            local_path="/odoo_instances/88/addons/crm-tools",
+            status=OdooInstanceGitRepo.Status.CONNECTED,
+            created_by=self.user,
+        )
+        DeploymentJob.objects.create(
+            organization=self.org,
+            job_type=DeploymentJob.JobType.UPDATE_INSTANCE_REPO,
+            status=DeploymentJob.Status.RUNNING,
+            odoo_instance=instance,
+            created_by=self.user,
+        )
+
+        resp = self.client.post(
+            reverse(
+                "deployments:odoo-instance-repo-sync",
+                kwargs={"instance_id": instance.id, "repo_id": repo.id},
+            ),
+            data={},
+        )
+
+        self.assertEqual(resp.status_code, 409)
+        self.assertIn("deployment job", resp.json()["error"])
+        mock_dispatch.assert_not_called()
+
+    def test_server_archive_is_blocked_while_server_is_provisioning(self):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-server-lock",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            status=OdooServer.Status.PROVISIONING,
+            created_by=self.user,
+        )
+
+        resp = self.client.post(
+            reverse("deployments:odoo-server-archive", kwargs={"server_id": server.id}),
+            data={},
+        )
+
+        self.assertEqual(resp.status_code, 409)
+        self.assertIn("Server provisioning", resp.json()["error"])
+        server.refresh_from_db()
+        self.assertTrue(server.is_active)
+        self.assertEqual(server.status, OdooServer.Status.PROVISIONING)
+
     def test_platform_admin_can_upload_enterprise_source(self):
         self.user.is_platform_admin = True
         self.user.save(update_fields=["is_platform_admin"])

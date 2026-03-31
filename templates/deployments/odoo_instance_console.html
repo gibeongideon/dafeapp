@@ -141,21 +141,31 @@
           </button>
           <button type="button"
                   @click="openRepoModal('github')"
+                  :disabled="instanceActionsLocked()"
+                  :title="instanceActionLockReason()"
                   class="inline-flex items-center justify-center px-3 py-2 text-xs font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800">
             Add From GitHub
           </button>
           <button type="button"
                   @click="openRepoModal('manual')"
+                  :disabled="instanceActionsLocked()"
+                  :title="instanceActionLockReason()"
                   class="inline-flex items-center justify-center px-3 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
             Add Git Repo
           </button>
           <button type="button"
                   @click="openRepoModal('upload')"
+                  :disabled="instanceActionsLocked()"
+                  :title="instanceActionLockReason()"
                   class="inline-flex items-center justify-center px-3 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
             Upload To GitHub
           </button>
         </div>
       </div>
+
+      <div x-show="instanceActionsLocked()"
+           class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+           x-text="instanceActionLockReason()"></div>
 
       <div class="rounded-2xl border border-gray-200 bg-gradient-to-br from-gray-50 via-white to-emerald-50/60 p-4">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -215,7 +225,8 @@
                     role="switch"
                     @click="activateEnterprise()"
                     :aria-checked="enterpriseToggleOn ? 'true' : 'false'"
-                    :disabled="enterpriseToggleDisabled()"
+                    :disabled="enterpriseToggleDisabled() || instanceActionsLocked()"
+                    :title="instanceActionLockReason()"
                     class="flex items-center justify-between gap-4 rounded-2xl border px-4 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-70"
                     :class="enterpriseToggleCardClass()">
               <div class="min-w-0">
@@ -232,7 +243,8 @@
             <button type="button"
                     x-show="enterpriseEnabled && enterpriseSourceAvailable && enterpriseStatusCode !== 'PENDING'"
                     @click="activateEnterprise()"
-                    :disabled="enterpriseBusy"
+                    :disabled="enterpriseBusy || instanceActionsLocked()"
+                    :title="instanceActionLockReason()"
                     class="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50">
               Re-sync Enterprise
             </button>
@@ -317,8 +329,12 @@
                 <div class="flex flex-wrap gap-2 text-xs">
                   <button x-show="repoNeedsGithubUpload(repo)"
                           @click="prepareGithubUpload(repo)"
+                          :disabled="instanceActionsLocked()"
+                          :title="instanceActionLockReason()"
                           class="text-emerald-700 hover:underline">Upload Zip</button>
                   <button @click="openRepoModal('edit', repo)"
+                          :disabled="instanceActionsLocked()"
+                          :title="instanceActionLockReason()"
                           class="text-blue-600 hover:underline">Settings</button>
                   <button @click="openRepoLog(repo)"
                           class="text-gray-600 hover:underline">Details</button>
@@ -372,7 +388,8 @@
                   <div class="flex flex-wrap items-center gap-3">
                     <button type="button"
                             @click="submitLinkedGithubUpload()"
-                            :disabled="githubUploadSaving"
+                            :disabled="githubUploadSaving || instanceActionsLocked()"
+                            :title="instanceActionLockReason()"
                             class="inline-flex items-center rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
                             x-text="githubUploadButtonLabel()"></button>
                     <button type="button"
@@ -647,19 +664,22 @@
               <div class="flex flex-wrap gap-3 border-t border-gray-100 pt-4">
                 <button type="button"
                         @click="syncRepo(repoById(repoForm.id))"
-                        :disabled="repoBusyId === repoForm.id"
+                        :disabled="repoBusyId === repoForm.id || instanceActionsLocked()"
+                        :title="instanceActionLockReason()"
                         class="text-sm text-blue-600 hover:underline disabled:opacity-50">
                   Sync now
                 </button>
                 <button type="button"
                         @click="rollbackRepo(repoById(repoForm.id))"
-                        :disabled="!repoById(repoForm.id)?.previous_commit || repoBusyId === repoForm.id"
+                        :disabled="!repoById(repoForm.id)?.previous_commit || repoBusyId === repoForm.id || instanceActionsLocked()"
+                        :title="instanceActionLockReason()"
                         class="text-sm text-amber-600 hover:underline disabled:opacity-40">
                   Rollback
                 </button>
                 <button type="button"
                         @click="removeRepo(repoById(repoForm.id))"
-                        :disabled="repoBusyId === repoForm.id"
+                        :disabled="repoBusyId === repoForm.id || instanceActionsLocked()"
+                        :title="instanceActionLockReason()"
                         class="text-sm text-red-600 hover:underline disabled:opacity-50">
                   Remove repo
                 </button>
@@ -668,7 +688,8 @@
           </div>
           <div class="flex items-center justify-end gap-3 px-5 py-4 border-t border-gray-200 bg-gray-50">
             <button @click="saveRepo()"
-                    :disabled="repoPrimaryActionDisabled()"
+                    :disabled="repoPrimaryActionDisabled() || instanceActionsLocked()"
+                    :title="instanceActionLockReason()"
                     class="px-4 py-2 text-sm text-white bg-gray-900 rounded-lg hover:bg-gray-800 disabled:opacity-50"
                     x-text="repoPrimaryActionLabel()"></button>
           </div>
@@ -812,7 +833,8 @@
                 <td class="py-2 pr-4 text-gray-500 text-xs" x-text="fmtDate(snap.deployed_at)"></td>
                 <td class="py-2">
                   <button @click="rollback(snap.id)"
-                          :disabled="rollbackLoading === snap.id"
+                          :disabled="rollbackLoading === snap.id || instanceActionsLocked()"
+                          :title="instanceActionLockReason()"
                           class="text-xs text-blue-600 hover:underline font-medium disabled:opacity-50"
                           x-text="rollbackLoading === snap.id ? 'Rolling back…' : 'Rollback'">
                   </button>
@@ -848,6 +870,8 @@ function instanceConsole(instanceId) {
 
     // Status
     instanceStatus: '{{ odoo_instance.get_status_display }}',
+    instanceDomainStatus: '{{ odoo_instance.domain_status|escapejs }}',
+    instanceSslStatus: '{{ odoo_instance.ssl_status|escapejs }}',
 
     // Health
     healthLoading: false,
@@ -942,6 +966,30 @@ function instanceConsole(instanceId) {
       };
     },
 
+    hasPendingInstanceStatus() {
+      const status = (this.instanceStatus || '').toUpperCase();
+      return status === 'PENDING' || status === 'PROVISIONING' || status === 'CONFIGURING';
+    },
+
+    instanceActionLockReason() {
+      if (this.hasPendingInstanceStatus()) return 'Instance provisioning is still in progress.';
+      if ((this.instanceDomainStatus || '').toUpperCase() === 'PENDING' || (this.instanceSslStatus || '').toUpperCase() === 'PENDING') {
+        return 'Domain provisioning is still in progress for this instance.';
+      }
+      if ((this.enterpriseStatusCode || '').toUpperCase() === 'PENDING') {
+        return 'Enterprise activation is still in progress for this instance.';
+      }
+      if ((this.addonsSyncStatus || '').toUpperCase() === 'PENDING') {
+        return 'Addons synchronization is still in progress for this instance.';
+      }
+      if (this.runningJobCount > 0) return 'Another deployment job is still running for this instance.';
+      return '';
+    },
+
+    instanceActionsLocked() {
+      return !!this.instanceActionLockReason();
+    },
+
     // ── WebSocket ──
     connectWS() {
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -971,6 +1019,12 @@ function instanceConsole(instanceId) {
           // Generic status update
           if (msg.status) {
             this.instanceStatus = msg.status;
+          }
+          if (msg.summary && msg.summary.domain_status) {
+            this.instanceDomainStatus = msg.summary.domain_status;
+          }
+          if (msg.summary && msg.summary.ssl_status) {
+            this.instanceSslStatus = msg.summary.ssl_status;
           }
           if (msg.type === 'repo.update' || msg.type === 'repo.synced' || msg.type === 'repo.removed' || msg.type === 'instance.addons_synced') {
             this.loadRepos(false);
@@ -1493,6 +1547,11 @@ function instanceConsole(instanceId) {
     },
 
     async submitLinkedGithubUpload() {
+      if (this.instanceActionsLocked()) {
+        this.repoMessageOk = false;
+        this.repoMessage = this.instanceActionLockReason();
+        return;
+      }
       if (!this.githubUploadTarget) {
         this.repoMessageOk = false;
         this.repoMessage = 'Choose a linked GitHub repository first.';
@@ -1672,6 +1731,11 @@ function instanceConsole(instanceId) {
     },
 
     async createGitHubRepo() {
+      if (this.instanceActionsLocked()) {
+        this.repoMessageOk = false;
+        this.repoMessage = this.instanceActionLockReason();
+        return null;
+      }
       if (!this.hasGitHubAccount()) {
         if (this.repoForm.upload_auth_type === 'GITHUB_OAUTH') {
           this.repoMessageOk = false;
@@ -1721,6 +1785,11 @@ function instanceConsole(instanceId) {
     },
 
     async saveRepo() {
+      if (this.instanceActionsLocked()) {
+        this.repoMessageOk = false;
+        this.repoMessage = this.instanceActionLockReason();
+        return;
+      }
       this.repoFormSaving = true;
       this.repoMessage = null;
       try {
@@ -1785,6 +1854,11 @@ function instanceConsole(instanceId) {
 
     async syncRepo(repo) {
       if (!repo) return;
+      if (this.instanceActionsLocked()) {
+        this.repoMessageOk = false;
+        this.repoMessage = this.instanceActionLockReason();
+        return;
+      }
       this.repoBusyId = repo.id;
       try {
         const res = await fetch(`/deployments/odoo/instances/${this.instanceId}/repos/${repo.id}/sync/`, {
@@ -1809,6 +1883,11 @@ function instanceConsole(instanceId) {
     async rollbackRepo(repo) {
       if (!repo) return;
       if (!repo.previous_commit) return;
+      if (this.instanceActionsLocked()) {
+        this.repoMessageOk = false;
+        this.repoMessage = this.instanceActionLockReason();
+        return;
+      }
       if (!confirm(`Roll back ${repo.repo_name} to ${repo.previous_commit}?`)) return;
       this.repoBusyId = repo.id;
       try {
@@ -1834,6 +1913,11 @@ function instanceConsole(instanceId) {
 
     async removeRepo(repo) {
       if (!repo) return;
+      if (this.instanceActionsLocked()) {
+        this.repoMessageOk = false;
+        this.repoMessage = this.instanceActionLockReason();
+        return;
+      }
       if (!confirm(`Remove ${repo.repo_name}? The repo folder will be deleted from the server.`)) return;
       this.repoBusyId = repo.id;
       try {
@@ -1938,6 +2022,12 @@ function instanceConsole(instanceId) {
     },
 
     async activateEnterprise() {
+      if (this.instanceActionsLocked()) {
+        this.enterpriseMessageOk = false;
+        this.enterpriseMessage = this.instanceActionLockReason();
+        this.syncEnterpriseToggle();
+        return;
+      }
       if (!this.enterpriseSourceAvailable) {
         this.enterpriseMessageOk = false;
         this.enterpriseMessage = 'No active Enterprise source is available for this Odoo version yet.';
@@ -2049,6 +2139,11 @@ function instanceConsole(instanceId) {
     },
 
     async rollback(historyId) {
+      if (this.instanceActionsLocked()) {
+        this.rollbackOk = false;
+        this.rollbackMsg = this.instanceActionLockReason();
+        return;
+      }
       if (!confirm('Roll back to this snapshot? The current instance will be reconfigured.')) return;
       this.rollbackLoading = historyId;
       this.rollbackMsg     = null;

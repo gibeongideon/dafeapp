@@ -261,6 +261,43 @@ def _default_tls_mode() -> str:
     return value if value in valid else OdooServer.TLSMode.LETS_ENCRYPT
 
 
+def _server_mutation_lock_reason(server: OdooServer) -> str:
+    if server.status in (OdooServer.Status.PROVISIONING, OdooServer.Status.CONFIGURING):
+        return "Server provisioning is still in progress."
+    return ""
+
+
+def _instance_mutation_lock_reason(instance: OdooInstance, *, include_jobs: bool = True) -> str:
+    server_reason = _server_mutation_lock_reason(instance.server)
+    if server_reason:
+        return server_reason
+
+    if instance.status in (OdooInstance.Status.PENDING, OdooInstance.Status.CONFIGURING):
+        return "Instance provisioning is still in progress."
+
+    if (
+        instance.domain_status == OdooInstance.DomainStatus.PENDING
+        or instance.ssl_status == OdooInstance.SSLStatus.PENDING
+        or instance.domain_assignments.exclude(status=DomainAssignment.Status.DELETED)
+        .filter(status=DomainAssignment.Status.PENDING)
+        .exists()
+    ):
+        return "Domain provisioning is still in progress for this instance."
+
+    if instance.enterprise_status == OdooInstance.EnterpriseStatus.PENDING:
+        return "Enterprise activation is still in progress for this instance."
+
+    if instance.addons_sync_status == OdooInstance.AddonsSyncStatus.PENDING:
+        return "Addons synchronization is still in progress for this instance."
+
+    if include_jobs and instance.jobs.filter(
+        status__in=[DeploymentJob.Status.QUEUED, DeploymentJob.Status.RUNNING]
+    ).exists():
+        return "Another deployment job is still running for this instance."
+
+    return ""
+
+
 def _resolve_managed_dns_zone(org, zone_id):
     if not zone_id:
         return None
@@ -1415,6 +1452,9 @@ class OdooServerCheckConnectivityView(LoginRequiredMixin, View):
             organization=org,
             is_active=True,
         )
+        lock_reason = _server_mutation_lock_reason(server)
+        if lock_reason:
+            return JsonResponse({"error": lock_reason}, status=409)
         logger.info("Manual reachability check requested by %s for server %s", request.user, server.id)
 
         host, port = _odoo_server_ssh_target(server)
@@ -1573,6 +1613,9 @@ class OdooInstanceDomainAttachAPIView(LoginRequiredMixin, View):
         )
         if instance.status == OdooInstance.Status.DELETED:
             return JsonResponse({"error": "Instance is deleted."}, status=400)
+        lock_reason = _instance_mutation_lock_reason(instance, include_jobs=False)
+        if lock_reason:
+            return JsonResponse({"error": lock_reason}, status=409)
 
         payload = _request_data(request)
         domain = normalize_domain_name(payload.get("domain") or "")
@@ -1606,6 +1649,9 @@ class OdooInstanceDomainDetachAPIView(LoginRequiredMixin, View):
             pk=instance_id,
             organization=org,
         )
+        lock_reason = _instance_mutation_lock_reason(instance, include_jobs=False)
+        if lock_reason:
+            return JsonResponse({"error": lock_reason}, status=409)
         payload = _request_data(request)
         domain = normalize_domain_name(payload.get("domain") or "")
         if not domain:
@@ -1632,6 +1678,9 @@ class OdooInstanceDomainRetryAPIView(LoginRequiredMixin, View):
             pk=instance_id,
             organization=org,
         )
+        lock_reason = _instance_mutation_lock_reason(instance, include_jobs=False)
+        if lock_reason:
+            return JsonResponse({"error": lock_reason}, status=409)
         if not instance.domain_assignments.exclude(status=DomainAssignment.Status.DELETED).exists():
             return JsonResponse({"error": "This instance has no domain to reprovision."}, status=400)
 
@@ -1704,6 +1753,9 @@ class OdooInstanceGitRepoListAPIView(LoginRequiredMixin, View):
             pk=instance_id,
             organization=org,
         )
+        lock_reason = _instance_mutation_lock_reason(instance)
+        if lock_reason:
+            return JsonResponse({"error": lock_reason}, status=409)
         payload = _request_data(request)
         repo_name = _derive_repo_name(payload.get("repo_name"), payload.get("git_url", ""))
         git_url = (payload.get("git_url") or "").strip()
@@ -1763,6 +1815,9 @@ class OdooInstanceGitRepoDetailAPIView(LoginRequiredMixin, View):
             instance_id=instance_id,
             instance__organization=org,
         )
+        lock_reason = _instance_mutation_lock_reason(repo.instance)
+        if lock_reason:
+            return JsonResponse({"error": lock_reason}, status=409)
         payload = _request_data(request)
 
         branch_changed = False
@@ -1848,6 +1903,9 @@ class OdooInstanceGitRepoSyncAPIView(LoginRequiredMixin, View):
             instance_id=instance_id,
             instance__organization=org,
         )
+        lock_reason = _instance_mutation_lock_reason(repo.instance)
+        if lock_reason:
+            return JsonResponse({"error": lock_reason}, status=409)
         job = _repo_job(
             org,
             job_type=DeploymentJob.JobType.UPDATE_INSTANCE_REPO,
@@ -1872,6 +1930,9 @@ class OdooInstanceGitRepoStatusAPIView(LoginRequiredMixin, View):
             instance_id=instance_id,
             instance__organization=org,
         )
+        lock_reason = _instance_mutation_lock_reason(repo.instance)
+        if lock_reason:
+            return JsonResponse({"error": lock_reason}, status=409)
         try:
             sync_instance_repo_status(repo.id)
         except Exception as exc:
@@ -1896,6 +1957,9 @@ class OdooInstanceGitRepoRollbackAPIView(LoginRequiredMixin, View):
             instance_id=instance_id,
             instance__organization=org,
         )
+        lock_reason = _instance_mutation_lock_reason(repo.instance)
+        if lock_reason:
+            return JsonResponse({"error": lock_reason}, status=409)
         payload = _request_data(request)
         target_commit = (payload.get("target_commit") or repo.previous_commit or "").strip()
         if not target_commit:
@@ -1924,6 +1988,9 @@ class OdooInstanceGitRepoDeleteAPIView(LoginRequiredMixin, View):
             instance_id=instance_id,
             instance__organization=org,
         )
+        lock_reason = _instance_mutation_lock_reason(repo.instance)
+        if lock_reason:
+            return JsonResponse({"error": lock_reason}, status=409)
         job = _repo_job(
             org,
             job_type=DeploymentJob.JobType.REMOVE_INSTANCE_REPO,
@@ -2137,6 +2204,9 @@ class OdooInstanceGitRepoCreateGitHubAPIView(LoginRequiredMixin, View):
             pk=instance_id,
             organization=org,
         )
+        lock_reason = _instance_mutation_lock_reason(instance)
+        if lock_reason:
+            return JsonResponse({"error": lock_reason}, status=409)
 
         payload = _request_data(request)
         repo_name = (payload.get("repo_name") or "").strip()
@@ -2220,6 +2290,9 @@ class OdooInstanceGitRepoUploadToGitHubAPIView(LoginRequiredMixin, View):
             pk=instance_id,
             organization=org,
         )
+        lock_reason = _instance_mutation_lock_reason(instance)
+        if lock_reason:
+            return JsonResponse({"error": lock_reason}, status=409)
 
         branch = (request.POST.get("branch") or "main").strip() or "main"
         zip_file = request.FILES.get("zip_file")
@@ -2420,6 +2493,9 @@ class OdooInstanceEnterpriseActivateAPIView(LoginRequiredMixin, View):
             pk=instance_id,
             organization=org,
         )
+        lock_reason = _instance_mutation_lock_reason(instance)
+        if lock_reason:
+            return JsonResponse({"error": lock_reason}, status=409)
         source = EnterpriseSource.active_for_version(instance.server.odoo_version)
         if source is None:
             return JsonResponse({"error": f"No active Enterprise source is available for Odoo {instance.server.odoo_version}."}, status=400)
@@ -2502,6 +2578,9 @@ class OdooInstanceDeleteAPIView(LoginRequiredMixin, View):
         instance = get_object_or_404(OdooInstance, pk=instance_id, organization=org)
         if instance.status == OdooInstance.Status.DELETED:
             return JsonResponse({"ok": True, "message": "Instance already deleted."})
+        lock_reason = _instance_mutation_lock_reason(instance)
+        if lock_reason:
+            return JsonResponse({"error": lock_reason}, status=409)
         # Dispatch async cleanup (stop service, drop DB, free port).
         _dispatch(delete_odoo_instance, instance.id)
         return JsonResponse({"ok": True, "message": "Instance deletion queued."})
@@ -2526,6 +2605,9 @@ class OdooServerArchiveAPIView(LoginRequiredMixin, View):
         )
         if not server.is_active:
             return JsonResponse({"ok": True, "message": "Server already archived."})
+        lock_reason = _server_mutation_lock_reason(server)
+        if lock_reason:
+            return JsonResponse({"error": lock_reason}, status=409)
 
         try:
             server.is_active = False
@@ -2557,6 +2639,9 @@ class OdooServerDeleteAPIView(LoginRequiredMixin, View):
             pk=server_id,
             organization=org,
         )
+        lock_reason = _server_mutation_lock_reason(server)
+        if lock_reason:
+            return JsonResponse({"error": lock_reason}, status=409)
         try:
             with transaction.atomic():
                 server.delete()
@@ -2678,6 +2763,9 @@ class OdooInstanceRollbackAPIView(LoginRequiredMixin, View):
             return JsonResponse({"error": "Permission denied."}, status=403)
 
         instance = get_object_or_404(OdooInstance, pk=instance_id, organization=org)
+        lock_reason = _instance_mutation_lock_reason(instance)
+        if lock_reason:
+            return JsonResponse({"error": lock_reason}, status=409)
         history_id = request.POST.get("history_id")
         if not history_id:
             return JsonResponse({"error": "history_id is required."}, status=400)
@@ -2742,6 +2830,9 @@ class ServerSSHKeyListCreateAPIView(LoginRequiredMixin, View):
         if not org:
             return None, JsonResponse({"error": "No active organization."}, status=400)
         server = get_object_or_404(OdooServer, pk=server_id, organization=org)
+        lock_reason = _server_mutation_lock_reason(server)
+        if lock_reason:
+            return JsonResponse({"error": lock_reason}, status=409)
         return server, None
 
     def get(self, request, server_id):
@@ -2803,6 +2894,9 @@ class ServerSSHKeyDeleteAPIView(LoginRequiredMixin, View):
         if not org:
             return JsonResponse({"error": "No active organization."}, status=400)
         server = get_object_or_404(OdooServer, pk=server_id, organization=org)
+        lock_reason = _server_mutation_lock_reason(server)
+        if lock_reason:
+            return JsonResponse({"error": lock_reason}, status=409)
         key_obj = get_object_or_404(ServerSSHKey, pk=key_id, server=server)
         key_obj.delete()
         return JsonResponse({"deleted": True})
