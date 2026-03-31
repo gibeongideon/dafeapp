@@ -28,7 +28,7 @@ from deployments.models import (
 from deployments.serializers import OdooInstanceSerializer
 from organizations.models import Organization, OrganizationMembership
 from subscriptions.models import Plan, Subscription
-from deployments.tasks import delete_odoo_instance, _mark_server_unreachable_from_ansible_log
+from deployments.tasks import delete_odoo_instance, _mark_server_unreachable_from_ansible_log, sync_instance_repo_status
 from users.models import VCSAccount
 
 User = get_user_model()
@@ -1091,6 +1091,56 @@ class OdooVersionedFlowTests(TestCase):
         mock_dispatch.assert_called_once()
         self.assertEqual(job.status, DeploymentJob.Status.QUEUED)
 
+    @patch("deployments.views.requests.post")
+    @patch("deployments.views.requests.get")
+    @patch("deployments.views._dispatch")
+    def test_instance_repo_create_auto_update_registers_github_webhook(self, mock_dispatch, mock_get, mock_post):
+        hooks_response = mock_get.return_value
+        hooks_response.raise_for_status.return_value = None
+        hooks_response.json.return_value = []
+        create_hook_response = mock_post.return_value
+        create_hook_response.raise_for_status.return_value = None
+
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-repo-auto-webhook",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            status=OdooServer.Status.PROVISIONED,
+            ip_address="203.0.113.27",
+            created_by=self.user,
+        )
+        instance = OdooInstance.objects.create(
+            organization=self.org,
+            server=server,
+            name="inventory",
+            db_name="inventory_db",
+            status=OdooInstance.Status.RUNNING,
+            created_by=self.user,
+        )
+
+        resp = self.client.post(
+            reverse("deployments:odoo-instance-repo-list", kwargs={"instance_id": instance.id}),
+            data=json.dumps({
+                "repo_name": "sales-tools",
+                "git_url": "https://github.com/acme/sales-tools.git",
+                "branch": "main",
+                "auth_type": "TOKEN",
+                "credential_name": "sales-pat",
+                "git_username": "oauth2",
+                "access_token": "ghp_secret_123",
+                "auto_update": "true",
+            }),
+            content_type="application/json",
+        )
+
+        self.assertEqual(resp.status_code, 201)
+        self.assertTrue(mock_get.called)
+        self.assertTrue(mock_post.called)
+
     @patch("deployments.views._dispatch")
     def test_instance_repo_update_branch_queues_branch_job(self, mock_dispatch):
         server = OdooServer.objects.create(
@@ -1243,6 +1293,57 @@ class OdooVersionedFlowTests(TestCase):
         self.assertEqual(repo.credential.access_token, vcs.access_token)
         mock_dispatch.assert_called_once()
 
+    @patch("deployments.tasks.update_instance_repo.delay")
+    @patch("deployments.tasks._ssh_run")
+    def test_repo_status_check_auto_queues_update_when_commits_differ(self, mock_ssh_run, mock_update_delay):
+        mock_ssh_run.return_value = (
+            0,
+            "LOCAL=252824e84182a0d975e81e09b98bbf8c6cfb5c57\nREMOTE=f4010010434caa8dcb8fb1dd8e48154c3244a455",
+        )
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-repo-status",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            status=OdooServer.Status.PROVISIONED,
+            ip_address="203.0.113.28",
+            created_by=self.user,
+        )
+        instance = OdooInstance.objects.create(
+            organization=self.org,
+            server=server,
+            name="inventory",
+            db_name="inventory_db",
+            status=OdooInstance.Status.RUNNING,
+            created_by=self.user,
+        )
+        repo = OdooInstanceGitRepo.objects.create(
+            instance=instance,
+            repo_name="stock-tools",
+            git_url="https://github.com/acme/stock-tools.git",
+            branch="main",
+            auth_type=OdooInstanceGitRepo.AuthType.PUBLIC,
+            local_path="/odoo/instances/inventory_db/addons/stock-tools",
+            auto_update=True,
+            status=OdooInstanceGitRepo.Status.CONNECTED,
+            created_by=self.user,
+        )
+
+        sync_instance_repo_status(repo.id)
+
+        repo.refresh_from_db()
+        self.assertEqual(repo.status, OdooInstanceGitRepo.Status.UPDATING)
+        self.assertEqual(repo.last_remote_commit, "f4010010434caa8dcb8fb1dd8e48154c3244a455")
+        job = DeploymentJob.objects.get(
+            odoo_instance=instance,
+            job_type=DeploymentJob.JobType.UPDATE_INSTANCE_REPO,
+        )
+        self.assertEqual(job.status, DeploymentJob.Status.QUEUED)
+        mock_update_delay.assert_called_once_with(repo.id, job.id)
+
     def test_git_credentials_endpoint_lists_github_accounts(self):
         VCSAccount.objects.create(
             user=self.user,
@@ -1266,6 +1367,113 @@ class OdooVersionedFlowTests(TestCase):
         self.assertEqual(payload["results"][0]["name"], "public-readonly")
         self.assertEqual(len(payload["github_accounts"]), 1)
         self.assertEqual(payload["github_accounts"][0]["username"], "octocat")
+
+    @patch("deployments.views._dispatch")
+    def test_github_push_webhook_queues_auto_update_for_matching_repo(self, mock_dispatch):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-webhook",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            status=OdooServer.Status.PROVISIONED,
+            ip_address="203.0.113.25",
+            created_by=self.user,
+        )
+        instance = OdooInstance.objects.create(
+            organization=self.org,
+            server=server,
+            name="inventory",
+            db_name="inventory_db",
+            status=OdooInstance.Status.RUNNING,
+            created_by=self.user,
+        )
+        repo = OdooInstanceGitRepo.objects.create(
+            instance=instance,
+            repo_name="stock-tools",
+            git_url="https://github.com/acme/stock-tools.git",
+            branch="main",
+            auth_type=OdooInstanceGitRepo.AuthType.PUBLIC,
+            auto_update=True,
+            status=OdooInstanceGitRepo.Status.CONNECTED,
+            created_by=self.user,
+        )
+
+        resp = self.client.post(
+            reverse("deployments:github-webhook"),
+            data=json.dumps(
+                {
+                    "ref": "refs/heads/main",
+                    "repository": {"full_name": "acme/stock-tools"},
+                }
+            ),
+            content_type="application/json",
+            HTTP_X_GITHUB_EVENT="push",
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.json()
+        self.assertEqual(payload["matched_repo_ids"], [repo.id])
+        self.assertEqual(payload["queued_repo_ids"], [repo.id])
+        job = DeploymentJob.objects.get(
+            odoo_instance=instance,
+            job_type=DeploymentJob.JobType.UPDATE_INSTANCE_REPO,
+        )
+        self.assertEqual(job.status, DeploymentJob.Status.QUEUED)
+        mock_dispatch.assert_called_once()
+
+    @patch("deployments.views._dispatch")
+    def test_github_push_webhook_ignores_non_matching_branch(self, mock_dispatch):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-webhook-branch",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            status=OdooServer.Status.PROVISIONED,
+            ip_address="203.0.113.26",
+            created_by=self.user,
+        )
+        instance = OdooInstance.objects.create(
+            organization=self.org,
+            server=server,
+            name="inventory",
+            db_name="inventory_db",
+            status=OdooInstance.Status.RUNNING,
+            created_by=self.user,
+        )
+        OdooInstanceGitRepo.objects.create(
+            instance=instance,
+            repo_name="stock-tools",
+            git_url="https://github.com/acme/stock-tools.git",
+            branch="18.0",
+            auth_type=OdooInstanceGitRepo.AuthType.PUBLIC,
+            auto_update=True,
+            status=OdooInstanceGitRepo.Status.CONNECTED,
+            created_by=self.user,
+        )
+
+        resp = self.client.post(
+            reverse("deployments:github-webhook"),
+            data=json.dumps(
+                {
+                    "ref": "refs/heads/main",
+                    "repository": {"full_name": "acme/stock-tools"},
+                }
+            ),
+            content_type="application/json",
+            HTTP_X_GITHUB_EVENT="push",
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.json()
+        self.assertEqual(payload["matched_repo_ids"], [])
+        self.assertEqual(payload["queued_repo_ids"], [])
+        mock_dispatch.assert_not_called()
 
     @patch("deployments.views.requests.get")
     def test_github_repo_list_defaults_to_connected_account(self, mock_get):

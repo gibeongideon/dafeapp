@@ -2,6 +2,8 @@ import logging
 import json
 import re
 import shlex
+import hashlib
+import hmac
 import tarfile
 import shutil
 import subprocess
@@ -20,7 +22,9 @@ from django.http import JsonResponse
 from django.urls import reverse
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
+from django.utils.decorators import method_decorator
 from django.views import View
+from django.views.decorators.csrf import csrf_exempt
 from django.views.generic import TemplateView
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
@@ -710,6 +714,108 @@ def _github_full_name_from_git_url(git_url: str) -> str:
 def _github_clone_url_for_full_name(full_name: str) -> str:
     normalized = (full_name or "").strip().strip("/")
     return f"https://github.com/{normalized}.git" if normalized else ""
+
+
+def _github_branch_from_ref(ref: str) -> str:
+    text = (ref or "").strip()
+    prefix = "refs/heads/"
+    return text[len(prefix):] if text.startswith(prefix) else text
+
+
+def _github_webhook_signature_valid(request) -> bool:
+    secret = str(getattr(settings, "GITHUB_WEBHOOK_SECRET", "") or "").strip()
+    if not secret:
+        return True
+    signature = (request.headers.get("X-Hub-Signature-256") or "").strip()
+    if not signature.startswith("sha256="):
+        return False
+    expected = "sha256=" + hmac.new(secret.encode(), request.body or b"", hashlib.sha256).hexdigest()
+    return hmac.compare_digest(signature, expected)
+
+
+def _github_webhook_target_url(request) -> str:
+    return request.build_absolute_uri(reverse("deployments:github-webhook"))
+
+
+def _github_webhook_actor_from_repo(repo: OdooInstanceGitRepo):
+    credential = repo.credential
+    if repo.auth_type == OdooInstanceGitRepo.AuthType.GITHUB_OAUTH:
+        if credential is None or not credential.github_account_id or not credential.github_account.is_active:
+            raise ValueError("Connect an active GitHub account to enable instant auto updates.")
+        return SimpleNamespace(access_token=credential.access_token)
+    if repo.auth_type == OdooInstanceGitRepo.AuthType.TOKEN:
+        if credential is None or not credential.access_token:
+            raise ValueError("Save a personal access token to enable instant auto updates.")
+        return SimpleNamespace(access_token=credential.access_token)
+    raise ValueError("Instant auto updates require GitHub OAuth or a personal access token.")
+
+
+def _ensure_github_push_webhook(*, repo: OdooInstanceGitRepo, request):
+    full_name = _github_full_name_from_git_url(repo.git_url)
+    if not full_name or not repo.auto_update:
+        return
+
+    actor = _github_webhook_actor_from_repo(repo)
+    target_url = _github_webhook_target_url(request)
+    hooks_url = f"https://api.github.com/repos/{full_name}/hooks"
+    secret = str(getattr(settings, "GITHUB_WEBHOOK_SECRET", "") or "").strip()
+    config = {
+        "url": target_url,
+        "content_type": "json",
+        "insecure_ssl": "0",
+    }
+    if secret:
+        config["secret"] = secret
+
+    try:
+        hooks_response = requests.get(
+            hooks_url,
+            headers=_github_api_headers(actor.access_token),
+            timeout=20,
+        )
+        hooks_response.raise_for_status()
+        existing_hook = next(
+            (
+                item
+                for item in hooks_response.json()
+                if ((item.get("config") or {}).get("url") or "").strip() == target_url
+            ),
+            None,
+        )
+        if existing_hook:
+            hook_id = existing_hook.get("id")
+            existing_events = sorted(existing_hook.get("events") or [])
+            needs_patch = (not existing_hook.get("active", True)) or existing_events != ["push"]
+            if needs_patch and hook_id:
+                patch_response = requests.patch(
+                    f"{hooks_url}/{hook_id}",
+                    headers=_github_api_headers(actor.access_token),
+                    json={"active": True, "events": ["push"], "config": config},
+                    timeout=20,
+                )
+                patch_response.raise_for_status()
+            return
+
+        create_response = requests.post(
+            hooks_url,
+            headers=_github_api_headers(actor.access_token),
+            json={
+                "name": "web",
+                "active": True,
+                "events": ["push"],
+                "config": config,
+            },
+            timeout=20,
+        )
+        create_response.raise_for_status()
+    except requests.RequestException as exc:
+        detail = ""
+        if getattr(exc, "response", None) is not None:
+            try:
+                detail = (exc.response.json() or {}).get("message", "")
+            except ValueError:
+                detail = exc.response.text
+        raise RuntimeError(detail or f"GitHub webhook setup failed: {exc}") from exc
 
 
 def _github_publish_actor_from_linked_repo(linked_repo: OdooInstanceGitRepo):
@@ -1899,7 +2005,11 @@ class OdooInstanceGitRepoListAPIView(LoginRequiredMixin, View):
                 is_enabled=str(payload.get("is_enabled", "true")).lower() not in ("0", "false", "no", "off"),
                 display_order=payload.get("display_order"),
             )
+            if repo.auto_update:
+                _ensure_github_push_webhook(repo=repo, request=request)
         except ValueError as exc:
+            return JsonResponse({"error": str(exc)}, status=400)
+        except RuntimeError as exc:
             return JsonResponse({"error": str(exc)}, status=400)
         data = OdooInstanceGitRepoSerializer(repo).data
         data["job_id"] = job.id
@@ -2009,6 +2119,12 @@ class OdooInstanceGitRepoDetailAPIView(LoginRequiredMixin, View):
                 user=request.user,
             )
             _dispatch(refresh_instance_addons, repo.instance_id, job.id)
+
+        try:
+            if repo.auto_update:
+                _ensure_github_push_webhook(repo=repo, request=request)
+        except (ValueError, RuntimeError) as exc:
+            return JsonResponse({"error": str(exc)}, status=400)
 
         data = OdooInstanceGitRepoSerializer(repo).data
         if job:
@@ -2385,7 +2501,11 @@ class OdooInstanceGitRepoCreateGitHubAPIView(LoginRequiredMixin, View):
                 credential=credential,
                 auth_type=actor.auth_type,
             )
+            if linked_repo.auto_update:
+                _ensure_github_push_webhook(repo=linked_repo, request=request)
         except ValueError as exc:
+            return JsonResponse({"error": str(exc)}, status=400)
+        except RuntimeError as exc:
             return JsonResponse({"error": str(exc)}, status=400)
 
         return JsonResponse(
@@ -2547,6 +2667,8 @@ class OdooInstanceGitRepoUploadToGitHubAPIView(LoginRequiredMixin, View):
                     auth_type=actor.auth_type,
                     credential=credential,
                 )
+            if repo.auto_update:
+                _ensure_github_push_webhook(repo=repo, request=request)
         except RuntimeError as exc:
             return JsonResponse(
                 {
@@ -2565,6 +2687,67 @@ class OdooInstanceGitRepoUploadToGitHubAPIView(LoginRequiredMixin, View):
             "html_url": f"https://github.com/{full_name}",
         }
         return JsonResponse(data, status=201)
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class GitHubWebhookAPIView(View):
+    def post(self, request):
+        if not _github_webhook_signature_valid(request):
+            return JsonResponse({"error": "Invalid GitHub webhook signature."}, status=403)
+
+        event = (request.headers.get("X-GitHub-Event") or "").strip().lower()
+        payload = _request_data(request)
+        if event == "ping":
+            return JsonResponse({"ok": True, "event": "ping"})
+        if event != "push":
+            return JsonResponse({"ok": True, "ignored": True, "event": event or "unknown"})
+
+        full_name = ((payload.get("repository") or {}).get("full_name") or "").strip()
+        branch = _github_branch_from_ref(payload.get("ref") or "")
+        if not full_name or not branch:
+            return JsonResponse({"error": "Missing repository full_name or branch ref."}, status=400)
+
+        repos = (
+            OdooInstanceGitRepo.objects.select_related("instance", "instance__organization")
+            .filter(
+                auto_update=True,
+                is_enabled=True,
+                instance__status=OdooInstance.Status.RUNNING,
+            )
+            .exclude(status=OdooInstanceGitRepo.Status.CLONING)
+        )
+
+        matched_repo_ids: list[int] = []
+        queued_repo_ids: list[int] = []
+        for repo in repos:
+            if repo.pinned_commit:
+                continue
+            if _github_full_name_from_git_url(repo.git_url).lower() != full_name.lower():
+                continue
+            if (repo.branch or "").strip() != branch:
+                continue
+            matched_repo_ids.append(repo.id)
+            if repo.status == OdooInstanceGitRepo.Status.UPDATING:
+                continue
+            job = DeploymentJob.objects.create(
+                organization=repo.instance.organization,
+                job_type=DeploymentJob.JobType.UPDATE_INSTANCE_REPO,
+                odoo_instance=repo.instance,
+                created_by=repo.created_by,
+            )
+            _dispatch(update_instance_repo, repo.id, job.id)
+            queued_repo_ids.append(repo.id)
+
+        return JsonResponse(
+            {
+                "ok": True,
+                "event": "push",
+                "repository": full_name,
+                "branch": branch,
+                "matched_repo_ids": matched_repo_ids,
+                "queued_repo_ids": queued_repo_ids,
+            }
+        )
 
 
 class OdooInstanceConsoleView(LoginRequiredMixin, TemplateView):

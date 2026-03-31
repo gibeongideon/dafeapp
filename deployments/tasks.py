@@ -523,26 +523,29 @@ def _instance_refresh_module_command(instance: OdooInstance, modules: list[str] 
         if modules:
             return (
                 f"docker exec {container} odoo -c /etc/odoo/odoo.conf -d {shlex.quote(instance.db_name)} "
-                f"-u {shlex.quote(','.join(modules))} --stop-after-init"
+                f"-u {shlex.quote(','.join(modules))} --stop-after-init --no-http"
             )
         shell_payload = "env['ir.module.module'].update_list(); env.cr.commit(); print('module list refreshed')"
         return (
             f"printf '%s\n' {shlex.quote(shell_payload)} | "
-            f"docker exec -i {container} odoo shell -c /etc/odoo/odoo.conf -d {shlex.quote(instance.db_name)}"
+            f"docker exec -i {container} odoo shell -c /etc/odoo/odoo.conf -d {shlex.quote(instance.db_name)} --no-http"
         )
 
     odoo_bin = runtime["odoo_bin"]
     config_file = runtime["config_file"]
+    service_user = runtime.get("service_user") or "odoo"
     if modules:
-        return (
+        command = (
             f"{odoo_bin} -c {shlex.quote(config_file)} -d {shlex.quote(instance.db_name)} "
-            f"-u {shlex.quote(','.join(modules))} --stop-after-init"
+            f"-u {shlex.quote(','.join(modules))} --stop-after-init --no-http"
         )
+        return f"su -s /bin/bash {shlex.quote(service_user)} -c {shlex.quote(command)}"
     shell_payload = "env['ir.module.module'].update_list(); env.cr.commit(); print('module list refreshed')"
-    return (
+    command = (
         f"printf '%s\n' {shlex.quote(shell_payload)} | "
-        f"{odoo_bin} shell -c {shlex.quote(config_file)} -d {shlex.quote(instance.db_name)}"
+        f"{odoo_bin} shell -c {shlex.quote(config_file)} -d {shlex.quote(instance.db_name)} --no-http"
     )
+    return f"su -s /bin/bash {shlex.quote(service_user)} -c {shlex.quote(command)}"
 
 
 def _detect_repo_modules(server: OdooServer, repo_path: str) -> list[str]:
@@ -675,20 +678,28 @@ def _restart_and_refresh_instance_addons(
     instance: OdooInstance,
     *,
     modules: list[str] | None = None,
+    allow_refresh_failure: bool = False,
     on_line=None,
 ) -> str:
     server = instance.server
     runtime = _instance_runtime_context(instance)
-    commands = [
-        runtime["restart_command"],
-        _instance_refresh_module_command(instance, modules=None),
-    ]
+    restart_code, restart_output = _ssh_run(server, runtime["restart_command"], on_line=on_line)
+    if restart_code != 0:
+        raise RuntimeError(restart_output or "Failed to restart Odoo after syncing addons.")
+
+    refresh_commands = [_instance_refresh_module_command(instance, modules=None)]
     if modules:
-        commands.append(_instance_refresh_module_command(instance, modules=modules))
-    code, output = _ssh_run(server, " && ".join(commands), on_line=on_line)
+        refresh_commands.append(_instance_refresh_module_command(instance, modules=modules))
+    code, output = _ssh_run(server, " && ".join(refresh_commands), on_line=on_line)
     if code != 0:
-        raise RuntimeError(output or "Failed to restart Odoo and refresh its module registry.")
-    return output
+        if not allow_refresh_failure:
+            raise RuntimeError(output or "Failed to refresh the Odoo module registry after restarting.")
+        warning = (
+            "Odoo restarted and addons_path was updated, but the module registry refresh did not complete yet. "
+            "You can retry the refresh after the database becomes available."
+        )
+        return _append_text(restart_output, _append_text(output, warning))
+    return _append_text(restart_output, output)
 
 
 def _prepare_remote_git_key(server: OdooServer, repo: OdooInstanceGitRepo) -> tuple[str, str]:
@@ -3143,6 +3154,7 @@ def _repo_follow_up_success(
     *,
     log_blob: str,
     modules: list[str] | None = None,
+    allow_refresh_failure: bool = False,
     on_line=None,
 ):
     _append_repo_log(repo, log_blob, reset=False)
@@ -3153,6 +3165,7 @@ def _repo_follow_up_success(
     refresh_log = _restart_and_refresh_instance_addons(
         repo.instance,
         modules=modules if repo.auto_upgrade_modules_on_update else None,
+        allow_refresh_failure=allow_refresh_failure,
         on_line=on_line,
     )
     _append_repo_log(repo, sync_log)
@@ -3207,6 +3220,36 @@ def _repo_mark_error(repo: OdooInstanceGitRepo, message: str, job_id: int | None
         finished=True,
     )
     _job_done(job_id, ok=False, log=message)
+
+
+def _queue_auto_update_for_repo(repo: OdooInstanceGitRepo) -> bool:
+    if not repo.auto_update or not repo.is_enabled or repo.pinned_commit:
+        return False
+    if repo.instance.status != OdooInstance.Status.RUNNING:
+        return False
+    if repo.status in (OdooInstanceGitRepo.Status.CLONING, OdooInstanceGitRepo.Status.UPDATING):
+        return False
+    if DeploymentJob.objects.filter(
+        odoo_instance=repo.instance,
+        job_type=DeploymentJob.JobType.UPDATE_INSTANCE_REPO,
+        status__in=[DeploymentJob.Status.QUEUED, DeploymentJob.Status.RUNNING],
+    ).exists():
+        return False
+
+    job = DeploymentJob.objects.create(
+        organization=repo.instance.organization,
+        job_type=DeploymentJob.JobType.UPDATE_INSTANCE_REPO,
+        odoo_instance=repo.instance,
+        created_by=repo.created_by or repo.instance.created_by,
+    )
+    repo.status = OdooInstanceGitRepo.Status.UPDATING
+    repo.last_error = ""
+    repo.save(update_fields=["status", "last_error", "updated_at"])
+    try:
+        update_instance_repo.delay(repo.id, job.id)
+    except Exception:
+        update_instance_repo(repo.id, job.id)
+    return True
 
 
 @shared_task(bind=True, max_retries=0)
@@ -3407,7 +3450,13 @@ def clone_instance_repo(self, repo_id: int, job_id: int | None = None):
             ]
         )
 
-        full_log = _repo_follow_up_success(repo, log_blob=log_blob, modules=None, on_line=lambda line: _broadcast_log_line(ws_group, line))
+        full_log = _repo_follow_up_success(
+            repo,
+            log_blob=log_blob,
+            modules=None,
+            allow_refresh_failure=True,
+            on_line=lambda line: _broadcast_log_line(ws_group, line),
+        )
         _job_done(job_id, ok=True, log=full_log)
     except Exception as exc:
         logger.exception("Repo clone failed for repo %s", repo.id)
@@ -3761,12 +3810,11 @@ def sync_instance_repo_status(repo_id: int):
         remote_match = re.search(r"REMOTE=([0-9a-fA-F]{7,64})", output)
         repo.last_remote_commit = remote_match.group(1) if remote_match else ""
         repo.last_error = ""
-        repo.status = (
-            OdooInstanceGitRepo.Status.CONNECTED
-            if local_match and remote_match and local_match.group(1) == remote_match.group(1)
-            else OdooInstanceGitRepo.Status.DISCONNECTED
-        )
+        in_sync = local_match and remote_match and local_match.group(1) == remote_match.group(1)
+        repo.status = OdooInstanceGitRepo.Status.CONNECTED if in_sync else OdooInstanceGitRepo.Status.DISCONNECTED
     repo.save(update_fields=["last_remote_commit", "last_error", "status", "updated_at"])
+    if code == 0 and repo.status == OdooInstanceGitRepo.Status.DISCONNECTED:
+        _queue_auto_update_for_repo(repo)
 
 
 @shared_task

@@ -310,34 +310,54 @@
           </thead>
           <tbody class="divide-y divide-gray-100">
             <template x-for="repo in repos" :key="repo.id">
-            <tr class="hover:bg-gray-50">
+            <tr :class="repoWorkingRowClass(repo)" class="transition-colors">
               <td class="px-4 py-3 align-top">
                 <p class="font-medium text-gray-900" x-text="repo.repo_name"></p>
                 <div class="mt-1 flex flex-wrap items-center gap-2">
                   <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium"
                         :class="repoStatusClass(repo.status)">
+                    <span x-show="repoIsWorking(repo)" class="mr-1.5 inline-flex h-3 w-3 rounded-full border-2 border-current border-r-transparent animate-spin"></span>
                     <span x-text="repoStatusLabel(repo.status)"></span>
                   </span>
                   <span class="text-[11px] text-gray-400" x-text="repo.credential_name ? ('Credential: ' + repo.credential_name) : authLabel(repo.auth_type)"></span>
                 </div>
+                <p x-show="repoIsWorking(repo)" class="mt-2 text-[11px] font-medium text-amber-700">
+                  Sync in progress. Refreshing code and addons on this instance...
+                </p>
               </td>
               <td class="px-4 py-3 align-top text-gray-700">
                 <p x-text="repo.branch"></p>
                 <p class="mt-1 text-[11px] text-gray-400" x-text="repo.auto_update ? 'Auto update when pushed' : 'Manual updates only'"></p>
               </td>
               <td class="px-4 py-3 align-top">
-                <div class="flex flex-wrap gap-2 text-xs">
+                <div class="flex flex-wrap items-center gap-2 text-xs">
+                  <button @click="openSyncRepoModal(repo)"
+                          :disabled="instanceActionsLocked() || repoIsWorking(repo)"
+                          :title="instanceActionLockReason()"
+                          class="text-blue-600 hover:underline disabled:opacity-50">Sync now</button>
+                  <button @click="rollbackRepo(repo)"
+                          :disabled="!repo.previous_commit || instanceActionsLocked() || repoIsWorking(repo)"
+                          :title="instanceActionLockReason()"
+                          class="text-amber-600 hover:underline disabled:opacity-40">Rollback</button>
+                  <button @click="removeRepo(repo)"
+                          :disabled="instanceActionsLocked() || repoIsWorking(repo)"
+                          :title="instanceActionLockReason()"
+                          class="text-red-600 hover:underline disabled:opacity-50">Remove repo</button>
                   <button x-show="repoNeedsGithubUpload(repo)"
                           @click="prepareGithubUpload(repo)"
-                          :disabled="instanceActionsLocked()"
+                          :disabled="instanceActionsLocked() || repoIsWorking(repo)"
                           :title="instanceActionLockReason()"
                           class="text-emerald-700 hover:underline">Upload Zip</button>
                   <button @click="openRepoModal('edit', repo)"
-                          :disabled="instanceActionsLocked()"
+                          :disabled="instanceActionsLocked() || repoIsWorking(repo)"
                           :title="instanceActionLockReason()"
                           class="text-blue-600 hover:underline">Settings</button>
                   <button @click="openRepoLog(repo)"
                           class="text-gray-600 hover:underline">Details</button>
+                  <span x-show="repoIsWorking(repo)" class="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-1 text-[11px] font-medium text-amber-800">
+                    <span class="inline-flex h-3 w-3 rounded-full border-2 border-current border-r-transparent animate-spin"></span>
+                    Working
+                  </span>
                 </div>
               </td>
             </tr>
@@ -618,53 +638,10 @@
             </div>
 
             <div x-show="repoForm.id" class="space-y-4">
-              <div x-show="repoFormUsesGitHubBranchSelector()" class="space-y-4">
-                <div>
-                  <label class="block text-xs font-medium text-gray-600 mb-1">Repository</label>
-                  <div class="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800">
-                    <p class="font-medium break-all" x-text="repoForm.github_repo_full_name || repoForm.repo_name || 'Linked GitHub repository'"></p>
-                  </div>
-                </div>
-              </div>
-
-              <div x-show="!repoFormUsesGitHubBranchSelector()">
+              <div>
                 <label class="block text-xs font-medium text-gray-600 mb-1">Repository Name</label>
                 <input x-model="repoForm.repo_name" type="text"
                        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
-              </div>
-
-              <div x-show="repoFormUsesGitHubBranchSelector()">
-                <label class="block text-xs font-medium text-gray-600 mb-1">Branch</label>
-                <div x-show="githubBranchesLoading" class="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                  Loading branches...
-                </div>
-                <select x-model="repoForm.branch"
-                        :disabled="githubBranchesLoading || !repoForm.github_repo_full_name"
-                        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
-                  <option value="" x-text="githubBranchesLoading ? 'Loading branches...' : (repoForm.github_repo_full_name ? 'Select branch' : 'Choose a repository first')"></option>
-                  <template x-for="branch in repoBranchOptions()" :key="branch.name">
-                    <option :value="branch.name" x-text="branch.name"></option>
-                  </template>
-                </select>
-              </div>
-
-              <div x-show="!repoFormUsesGitHubBranchSelector()">
-                <label class="block text-xs font-medium text-gray-600 mb-1">Branch</label>
-                <input x-model="repoForm.branch" type="text"
-                       class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
-              </div>
-
-              <div class="rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-xs font-mono text-gray-700 space-y-1">
-                <p x-show="repoRemoteStatusLoading" class="font-sans text-[11px] text-gray-500">Checking latest remote commit…</p>
-                <p x-text="`LOCAL=${repoForm.last_pulled_commit || '—'}`"></p>
-                <p x-text="`REMOTE=${repoForm.last_remote_commit || '—'}`"></p>
-                <a x-show="repoFormCompareUrl()"
-                   :href="repoFormCompareUrl()"
-                   target="_blank"
-                   rel="noopener noreferrer"
-                   class="inline-flex font-medium text-blue-600 hover:underline not-italic">
-                  Show differences on GitHub
-                </a>
               </div>
 
               <div class="grid gap-3">
@@ -685,29 +662,6 @@
                   <span>Enabled in addons path</span>
                 </label>
               </div>
-              <div class="flex flex-wrap gap-3 border-t border-gray-100 pt-4">
-                <button type="button"
-                        @click="syncRepo(repoById(repoForm.id))"
-                        :disabled="repoBusyId === repoForm.id || instanceActionsLocked()"
-                        :title="instanceActionLockReason()"
-                        class="text-sm text-blue-600 hover:underline disabled:opacity-50">
-                  Sync now
-                </button>
-                <button type="button"
-                        @click="rollbackRepo(repoById(repoForm.id))"
-                        :disabled="!repoById(repoForm.id)?.previous_commit || repoBusyId === repoForm.id || instanceActionsLocked()"
-                        :title="instanceActionLockReason()"
-                        class="text-sm text-amber-600 hover:underline disabled:opacity-40">
-                  Rollback
-                </button>
-                <button type="button"
-                        @click="removeRepo(repoById(repoForm.id))"
-                        :disabled="repoBusyId === repoForm.id || instanceActionsLocked()"
-                        :title="instanceActionLockReason()"
-                        class="text-sm text-red-600 hover:underline disabled:opacity-50">
-                  Remove repo
-                </button>
-              </div>
             </div>
           </div>
           <div class="flex items-center justify-end gap-3 px-5 py-4 border-t border-gray-200 bg-gray-50">
@@ -716,6 +670,64 @@
                     :title="instanceActionLockReason()"
                     class="px-4 py-2 text-sm text-white bg-gray-900 rounded-lg hover:bg-gray-800 disabled:opacity-50"
                     x-text="repoPrimaryActionLabel()"></button>
+          </div>
+        </div>
+      </div>
+
+      <div x-show="showSyncRepoModal" class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/50 px-4" x-cloak>
+        <div class="w-full max-w-xl rounded-2xl border border-gray-200 bg-white shadow-2xl">
+          <div class="flex items-center justify-between border-b border-gray-200 px-5 py-4">
+            <h3 class="text-base font-semibold text-gray-900">Sync Repository</h3>
+            <button @click="closeSyncRepoModal()" class="text-sm text-gray-500 hover:text-gray-700">Close</button>
+          </div>
+          <div class="space-y-5 p-5" x-show="syncRepoForm.id">
+            <div>
+              <label class="mb-1 block text-xs font-medium text-gray-600">Repository</label>
+              <div class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800">
+                <p class="font-medium break-all" x-text="syncRepoForm.github_repo_full_name || syncRepoForm.repo_name || 'Linked repository'"></p>
+              </div>
+            </div>
+
+            <div x-show="syncRepoUsesGitHubBranchSelector()">
+              <label class="mb-1 block text-xs font-medium text-gray-600">Branch</label>
+              <div x-show="githubBranchesLoading" class="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                Loading branches...
+              </div>
+              <select x-model="syncRepoForm.branch"
+                      :disabled="githubBranchesLoading || !syncRepoForm.github_repo_full_name"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
+                <option value="" x-text="githubBranchesLoading ? 'Loading branches...' : (syncRepoForm.github_repo_full_name ? 'Select branch' : 'Choose a repository first')"></option>
+                <template x-for="branch in syncRepoBranchOptions()" :key="branch.name">
+                  <option :value="branch.name" x-text="branch.name"></option>
+                </template>
+              </select>
+            </div>
+
+            <div x-show="!syncRepoUsesGitHubBranchSelector()">
+              <label class="mb-1 block text-xs font-medium text-gray-600">Branch</label>
+              <input x-model="syncRepoForm.branch" type="text" placeholder="Select branch"
+                     class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm">
+            </div>
+
+            <div class="rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-xs font-mono text-gray-700 space-y-1">
+              <p x-show="repoRemoteStatusLoading" class="font-sans text-[11px] text-gray-500">Checking latest remote commit…</p>
+              <p x-text="`LOCAL=${syncRepoForm.last_pulled_commit || '—'}`"></p>
+              <p x-text="`REMOTE=${syncRepoForm.last_remote_commit || '—'}`"></p>
+              <a x-show="syncRepoCompareUrl()"
+                 :href="syncRepoCompareUrl()"
+                 target="_blank"
+                 rel="noopener noreferrer"
+                 class="inline-flex font-medium not-italic text-blue-600 hover:underline">
+                Show differences on GitHub
+              </a>
+            </div>
+          </div>
+          <div class="flex items-center justify-end gap-3 border-t border-gray-200 bg-gray-50 px-5 py-4">
+            <button @click="submitSyncRepo()"
+                    :disabled="syncRepoPrimaryActionDisabled() || instanceActionsLocked()"
+                    :title="instanceActionLockReason()"
+                    class="rounded-lg bg-gray-900 px-4 py-2 text-sm text-white hover:bg-gray-800 disabled:opacity-50"
+                    x-text="syncRepoPrimaryActionLabel()"></button>
           </div>
         </div>
       </div>
@@ -937,9 +949,13 @@ function instanceConsole(instanceId) {
     repos: [],
     reposLoading: false,
     repoBusyId: null,
+    pendingRepoIds: [],
     selectedRepo: null,
     repoMessage: null,
     repoMessageOk: false,
+    showSyncRepoModal: false,
+    syncRepoSaving: false,
+    syncRepoForm: null,
     showAddonSummary: false,
     addonsRootPath: '{{ odoo_instance.addons_root_path|escapejs }}',
     addonsPathCache: '{{ odoo_instance.addons_path_cache|escapejs }}',
@@ -984,6 +1000,7 @@ function instanceConsole(instanceId) {
     // ── Init ──
     init() {
       this.resetRepoForm();
+      this.resetSyncRepoForm();
       this.applyInitialRouteState();
       this.syncEnterpriseToggle();
       this.connectWS();
@@ -1367,6 +1384,20 @@ function instanceConsole(instanceId) {
       this.githubBranchesLoading = false;
     },
 
+    resetSyncRepoForm() {
+      this.syncRepoForm = {
+        id: null,
+        repo_name: '',
+        git_url: '',
+        credential_id: '',
+        branch: 'main',
+        github_repo_full_name: '',
+        last_pulled_commit: '',
+        last_remote_commit: '',
+      };
+      this.syncRepoSaving = false;
+    },
+
     async loadRepos(showLoading = true) {
       if (showLoading) this.reposLoading = true;
       try {
@@ -1561,9 +1592,24 @@ function instanceConsole(instanceId) {
       return `https://github.com/${fullName}/compare/${this.repoForm.last_pulled_commit}...${this.repoForm.last_remote_commit}`;
     },
 
+    syncRepoCompareUrl() {
+      if (!this.syncRepoForm?.git_url || !this.syncRepoForm?.last_pulled_commit || !this.syncRepoForm?.last_remote_commit) return '';
+      const fullName = this.githubRepoFullName({ git_url: this.syncRepoForm.git_url });
+      if (!fullName || this.syncRepoForm.last_pulled_commit === this.syncRepoForm.last_remote_commit) return '';
+      return `https://github.com/${fullName}/compare/${this.syncRepoForm.last_pulled_commit}...${this.syncRepoForm.last_remote_commit}`;
+    },
+
     repoBranchOptions() {
       const branches = Array.isArray(this.githubBranches) ? [...this.githubBranches] : [];
       const currentBranch = (this.repoForm?.branch || '').trim();
+      if (!currentBranch) return branches;
+      if (branches.some(branch => (branch?.name || '').trim() === currentBranch)) return branches;
+      return [{ name: currentBranch }, ...branches];
+    },
+
+    syncRepoBranchOptions() {
+      const branches = Array.isArray(this.githubBranches) ? [...this.githubBranches] : [];
+      const currentBranch = (this.syncRepoForm?.branch || '').trim();
       if (!currentBranch) return branches;
       if (branches.some(branch => (branch?.name || '').trim() === currentBranch)) return branches;
       return [{ name: currentBranch }, ...branches];
@@ -1575,6 +1621,9 @@ function instanceConsole(instanceId) {
       if (index >= 0) {
         this.repos.splice(index, 1, repo);
       }
+      if (!this.repoHasActiveStatus(repo.status)) {
+        this.clearRepoPending(repo.id);
+      }
       if (this.selectedRepo && String(this.selectedRepo.id) === String(repo.id)) {
         this.selectedRepo = repo;
       }
@@ -1582,6 +1631,35 @@ function instanceConsole(instanceId) {
         this.repoForm.last_pulled_commit = repo.last_pulled_commit || '';
         this.repoForm.last_remote_commit = repo.last_remote_commit || '';
       }
+    },
+
+    repoHasActiveStatus(status) {
+      const normalized = String(status || '').toUpperCase();
+      return normalized === 'CLONING' || normalized === 'UPDATING';
+    },
+
+    markRepoPending(repoId) {
+      const value = String(repoId || '');
+      if (!value || this.pendingRepoIds.includes(value)) return;
+      this.pendingRepoIds.push(value);
+    },
+
+    clearRepoPending(repoId) {
+      const value = String(repoId || '');
+      if (!value) return;
+      this.pendingRepoIds = this.pendingRepoIds.filter(id => id !== value);
+    },
+
+    repoIsWorking(repo) {
+      if (!repo?.id) return false;
+      return this.repoHasActiveStatus(repo.status) || this.pendingRepoIds.includes(String(repo.id));
+    },
+
+    repoWorkingRowClass(repo) {
+      if (this.repoIsWorking(repo)) {
+        return 'bg-amber-50/70 animate-pulse';
+      }
+      return 'hover:bg-gray-50';
     },
 
     async refreshRepoRemoteStatus(repoId) {
@@ -1628,6 +1706,170 @@ function instanceConsole(instanceId) {
       this.$nextTick(() => {
         document.getElementById(`github-upload-inline-${repo.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       });
+    },
+
+    syncRepoUsesGitHubBranchSelector() {
+      if (!this.syncRepoForm?.id) return false;
+      return !!this.githubRepoFullName({ git_url: this.syncRepoForm.git_url });
+    },
+
+    syncRepoRequestSuffix(extra = {}) {
+      const params = new URLSearchParams();
+      if (this.syncRepoForm?.credential_id) {
+        params.set('credential_id', this.syncRepoForm.credential_id);
+      }
+      Object.entries(extra).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+          params.set(key, value);
+        }
+      });
+      const query = params.toString();
+      return query ? `?${query}` : '';
+    },
+
+    async openSyncRepoModal(repo) {
+      if (!repo) return;
+      this.resetSyncRepoForm();
+      this.syncRepoForm = {
+        id: repo.id,
+        repo_name: repo.repo_name || '',
+        git_url: repo.git_url || '',
+        credential_id: repo.credential ? String(repo.credential) : '',
+        branch: (repo.branch || 'main').trim() || 'main',
+        github_repo_full_name: this.githubRepoFullName(repo),
+        last_pulled_commit: repo.last_pulled_commit || '',
+        last_remote_commit: repo.last_remote_commit || '',
+      };
+      this.showSyncRepoModal = true;
+      if (this.syncRepoUsesGitHubBranchSelector() && this.syncRepoForm.github_repo_full_name) {
+        await this.loadGitHubBranchesForSyncRepo();
+      }
+      this.refreshSyncRepoRemoteStatus(repo.id);
+    },
+
+    closeSyncRepoModal() {
+      this.showSyncRepoModal = false;
+      this.resetSyncRepoForm();
+    },
+
+    async loadGitHubBranchesForSyncRepo() {
+      if (!this.syncRepoForm?.github_repo_full_name) {
+        this.githubBranches = [];
+        return;
+      }
+      const selectedBranch = (this.syncRepoForm.branch || '').trim();
+      this.githubBranchesLoading = true;
+      this.githubBranches = [];
+      try {
+        const res = await fetch(`/deployments/github/branches/${this.syncRepoRequestSuffix({ full_name: this.syncRepoForm.github_repo_full_name })}`);
+        const data = await res.json();
+        this.githubBranches = data.results ?? [];
+        if (selectedBranch) {
+          this.syncRepoForm.branch = selectedBranch;
+        } else if (res.ok && this.githubBranches.length) {
+          this.syncRepoForm.branch = this.githubBranches[0].name;
+        }
+      } catch (_) {
+        this.githubBranches = [];
+      } finally {
+        this.githubBranchesLoading = false;
+      }
+    },
+
+    async refreshSyncRepoRemoteStatus(repoId) {
+      if (!repoId) return;
+      this.repoRemoteStatusLoading = true;
+      try {
+        const res = await fetch(`/deployments/odoo/instances/${this.instanceId}/repos/${repoId}/status/`, {
+          method: 'POST',
+          headers: { 'X-CSRFToken': this.getCsrf() },
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          this.repoMessageOk = false;
+          this.repoMessage = data.error || 'Could not refresh the latest remote commit.';
+          return;
+        }
+        this.replaceRepoRecord(data);
+        if (this.syncRepoForm && String(this.syncRepoForm.id) === String(data.id)) {
+          this.syncRepoForm.last_pulled_commit = data.last_pulled_commit || '';
+          this.syncRepoForm.last_remote_commit = data.last_remote_commit || '';
+        }
+      } catch (err) {
+        this.repoMessageOk = false;
+        this.repoMessage = err?.message || 'Could not refresh the latest remote commit.';
+      } finally {
+        this.repoRemoteStatusLoading = false;
+      }
+    },
+
+    syncRepoPrimaryActionLabel() {
+      if (this.syncRepoSaving) return 'Updating…';
+      return 'Update';
+    },
+
+    syncRepoPrimaryActionDisabled() {
+      if (this.syncRepoSaving || !this.syncRepoForm?.id) return true;
+      if (this.syncRepoUsesGitHubBranchSelector()) {
+        return this.githubBranchesLoading || !this.syncRepoForm.github_repo_full_name;
+      }
+      return false;
+    },
+
+    async submitSyncRepo() {
+      if (!this.syncRepoForm?.id) return;
+      if (this.instanceActionsLocked()) {
+        this.repoMessageOk = false;
+        this.repoMessage = this.instanceActionLockReason();
+        return;
+      }
+      const repo = this.repoById(this.syncRepoForm.id);
+      if (!repo) {
+        this.repoMessageOk = false;
+        this.repoMessage = 'Repository not found.';
+        return;
+      }
+      this.syncRepoSaving = true;
+      this.repoBusyId = repo.id;
+      this.markRepoPending(repo.id);
+      try {
+        const requestedBranch = (this.syncRepoForm.branch || '').trim();
+        const currentBranch = (repo.branch || '').trim();
+        let res;
+        let data;
+        if (requestedBranch && requestedBranch !== currentBranch) {
+          res = await fetch(`/deployments/odoo/instances/${this.instanceId}/repos/${repo.id}/`, {
+            method: 'POST',
+            headers: {
+              'X-CSRFToken': this.getCsrf(),
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ branch: requestedBranch }),
+          });
+          data = await res.json();
+          this.repoMessageOk = res.ok;
+          this.repoMessage = data.error || (res.ok ? 'Branch change queued. Repository code will update to the selected branch.' : 'Repository update failed.');
+        } else {
+          res = await fetch(`/deployments/odoo/instances/${this.instanceId}/repos/${repo.id}/sync/`, {
+            method: 'POST',
+            headers: { 'X-CSRFToken': this.getCsrf() },
+          });
+          data = await res.json();
+          this.repoMessageOk = res.ok;
+          this.repoMessage = data.error || (res.ok ? 'Repository sync queued.' : 'Repository sync failed.');
+        }
+        if (res.ok) {
+          this.loadJobs();
+          this.openRepoLog(repo);
+          this.closeSyncRepoModal();
+        }
+      } catch (err) {
+        this.repoMessageOk = false;
+        this.repoMessage = err?.message || 'Something went wrong while updating the repository.';
+      } finally {
+        this.repoBusyId = null;
+        this.syncRepoSaving = false;
+      }
     },
 
     clearGithubUpload() {
@@ -1981,6 +2223,7 @@ function instanceConsole(instanceId) {
           this.repoMessage = 'Repository queued for clone.';
         }
         if (res.ok) {
+          if (data.id) this.markRepoPending(data.id);
           this.closeRepoModal();
           this.loadRepos();
           this.loadJobs();
@@ -2014,6 +2257,7 @@ function instanceConsole(instanceId) {
         return;
       }
       this.repoBusyId = repo.id;
+      this.markRepoPending(repo.id);
       try {
         const res = await fetch(`/deployments/odoo/instances/${this.instanceId}/repos/${repo.id}/sync/`, {
           method: 'POST',
@@ -2044,6 +2288,7 @@ function instanceConsole(instanceId) {
       }
       if (!confirm(`Roll back ${repo.repo_name} to ${repo.previous_commit}?`)) return;
       this.repoBusyId = repo.id;
+      this.markRepoPending(repo.id);
       try {
         const res = await fetch(`/deployments/odoo/instances/${this.instanceId}/repos/${repo.id}/rollback/`, {
           method: 'POST',
@@ -2074,6 +2319,7 @@ function instanceConsole(instanceId) {
       }
       if (!confirm(`Remove ${repo.repo_name}? The repo folder will be deleted from the server.`)) return;
       this.repoBusyId = repo.id;
+      this.markRepoPending(repo.id);
       try {
         const res = await fetch(`/deployments/odoo/instances/${this.instanceId}/repos/${repo.id}/delete/`, {
           method: 'POST',
