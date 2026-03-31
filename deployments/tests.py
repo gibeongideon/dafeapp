@@ -367,7 +367,7 @@ class OdooVersionedFlowTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         server_data = next(row for row in resp.json()["results"] if row["id"] == server.id)
         self.assertEqual(server_data["ssh_connection_status"], "disconnected")
-        self.assertEqual(server_data["ssh_connection_message"], "Reachability failed.")
+        self.assertEqual(server_data["ssh_connection_message"], "Disconnected.")
 
     def test_instance_list_relays_disconnected_parent_server_state(self):
         server = OdooServer.objects.create(
@@ -432,6 +432,37 @@ class OdooVersionedFlowTests(TestCase):
         mock_probe.assert_called_once()
 
     @patch("deployments.tasks._probe_server_ssh")
+    def test_manual_connectivity_check_marks_server_connected_when_ssh_validation_recovers(self, mock_probe):
+        mock_probe.return_value = (True, "Connected.")
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-recover",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            ip_address="203.0.113.142",
+            status=OdooServer.Status.PROVISIONED,
+            is_reachable=False,
+            last_checked_at=timezone.now() - timedelta(minutes=5),
+            created_by=self.user,
+        )
+
+        resp = self.client.post(
+            reverse("deployments:odoo-server-check", kwargs={"server_id": server.id}),
+            data={},
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["connectivity_status"], "connected")
+        self.assertEqual(resp.json()["message"], "Connected.")
+        server.refresh_from_db()
+        self.assertTrue(server.is_reachable)
+        self.assertIsNotNone(server.last_checked_at)
+        mock_probe.assert_called_once()
+
+    @patch("deployments.tasks._probe_server_ssh")
     def test_manual_connectivity_check_updates_pyos_external_server_state(self, mock_probe):
         mock_probe.return_value = (False, "Host unreachable for root@203.0.113.43:22: timed out")
         external_server = ExternalServer.objects.create(
@@ -479,6 +510,32 @@ class OdooVersionedFlowTests(TestCase):
             external_server.verification_error,
             "Host unreachable for root@203.0.113.43:22: timed out",
         )
+
+    def test_selected_server_instances_page_includes_disconnected_retry_loop(self):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-retry-ui",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            ip_address="203.0.113.45",
+            status=OdooServer.Status.PROVISIONED,
+            is_reachable=False,
+            last_checked_at=timezone.now(),
+            created_by=self.user,
+        )
+
+        resp = self.client.get(
+            reverse("deployments_ui:create-instance"),
+            {"server_id": server.id, "section": "instances"},
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "function retryDisconnectedVisibleServers()")
+        self.assertContains(resp, "setInterval(retryDisconnectedVisibleServers, DISCONNECTED_SERVER_RETRY_INTERVAL_MS)")
+        self.assertNotContains(resp, "Reachability")
 
     def test_ansible_unreachable_log_marks_server_and_external_server_disconnected(self):
         external_server = ExternalServer.objects.create(

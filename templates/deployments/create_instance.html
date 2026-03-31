@@ -383,7 +383,7 @@
             {% elif selected_server.infrastructure and selected_server.infrastructure.infra_type == 'PYOS' and selected_server.infrastructure.external_server and selected_server.infrastructure.external_server.last_verified_at %}
               {% if selected_server.infrastructure.external_server.is_verified %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}
             {% else %}bg-gray-50 text-gray-400{% endif %}">
-            Reachability:
+            Connection:
             {% if selected_server.status == 'PROVISIONING' or selected_server.status == 'CONFIGURING' %}
               {% if selected_server.last_checked_at %}
                 {% if selected_server.is_reachable %}Connected{% else %}Disconnected{% endif %}
@@ -665,22 +665,22 @@
             {% else %}bg-gray-50 text-gray-400{% endif %}">
             {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
               {% if s.last_checked_at %}
-                {% if s.is_reachable %}Reachability: Connected{% else %}Reachability: Disconnected{% endif %}
+                {% if s.is_reachable %}Connected{% else %}Disconnected{% endif %}
               {% elif s.infrastructure and s.infrastructure.infra_type == 'PYOS' and s.infrastructure.external_server and s.infrastructure.external_server.last_verified_at %}
-                {% if s.infrastructure.external_server.is_verified %}Reachability: Connected{% else %}Reachability: Disconnected{% endif %}
-              {% else %}Reachability: Checking…{% endif %}
+                {% if s.infrastructure.external_server.is_verified %}Connected{% else %}Disconnected{% endif %}
+              {% else %}Checking…{% endif %}
             {% elif s.last_checked_at %}
-              {% if s.is_reachable %}Reachability: Connected{% else %}Reachability: Disconnected{% endif %}
+              {% if s.is_reachable %}Connected{% else %}Disconnected{% endif %}
             {% elif s.infrastructure and s.infrastructure.infra_type == 'PYOS' and s.infrastructure.external_server and s.infrastructure.external_server.last_verified_at %}
-              {% if s.infrastructure.external_server.is_verified %}Reachability: Connected{% else %}Reachability: Disconnected{% endif %}
-            {% else %}Reachability: Unknown{% endif %}
+              {% if s.infrastructure.external_server.is_verified %}Connected{% else %}Disconnected{% endif %}
+            {% else %}Unknown{% endif %}
           </span>
           <span id="server-conn-msg-{{ s.id }}" class="text-[10px] text-gray-400 max-w-[11rem] text-right leading-tight">
             {% if s.last_checked_at %}
               {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
-                {% if s.is_reachable %}Reachability successful.{% else %}Reachability failed.{% endif %}
+                {% if s.is_reachable %}Connected.{% else %}Disconnected.{% endif %}
               {% else %}
-                {% if s.is_reachable %}Reachability successful.{% else %}Reachability failed.{% endif %}
+                {% if s.is_reachable %}Connected.{% else %}Disconnected.{% endif %}
               {% endif %}
             {% elif s.infrastructure and s.infrastructure.infra_type == 'PYOS' and s.infrastructure.external_server %}
               {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
@@ -688,25 +688,25 @@
                   {% if s.infrastructure.external_server.verification_error %}
                   {{ s.infrastructure.external_server.verification_error }}
                   {% elif s.infrastructure.external_server.is_verified %}
-                  Reachability successful.
+                  Connected.
                   {% else %}
-                  Reachability failed.
+                  Disconnected.
                   {% endif %}
                 {% else %}
-                Reachability is being verified...
+                Checking connection...
                 {% endif %}
               {% elif s.infrastructure.external_server.verification_error %}
               {{ s.infrastructure.external_server.verification_error }}
               {% elif s.infrastructure.external_server.is_verified %}
-              Reachability successful.
+              Connected.
               {% else %}
-              Reachability has not been verified yet.
+              Connection not checked yet.
               {% endif %}
             {% else %}
               {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
-              Reachability is being verified...
+              Checking connection...
               {% else %}
-              Reachability has not been checked yet.
+              Connection not checked yet.
               {% endif %}
             {% endif %}
           </span>
@@ -768,7 +768,7 @@
             <span id="server-instances-{{ s.id }}">{{ s.instances.count }}/{{ s.max_instances }}</span>
           </div>
           <div class="flex items-center justify-between gap-3">
-            <span class="text-gray-500">Reachability</span>
+            <span class="text-gray-500">Connection</span>
             <button type="button" class="check-connectivity-btn text-[10px] text-gray-400 hover:text-gray-600 underline"
                     data-server-id="{{ s.id }}"
                     data-server-status="{{ s.status }}">Check now</button>
@@ -788,7 +788,7 @@
         </div>
 
         <div id="server-progress-wrap-{{ s.id }}"
-             class="{% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' or s.provisioning_log %}{% else %}hidden{% endif %}">
+             class="{% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}{% else %}hidden{% endif %}">
           <p class="text-[10px] uppercase tracking-wide text-gray-400 mb-1.5">Live Progress</p>
           <p id="server-progress-note-{{ s.id }}"
              class="text-[10px] text-amber-500 mb-1.5 {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}{% else %}hidden{% endif %}">
@@ -1636,9 +1636,9 @@
 
   function connBadgeLabel(server) {
     const status = (server.ssh_connection_status || "").toLowerCase();
-    if (status === "checking") return "Reachability: Checking…";
-    if (!status || status === "unknown") return "Reachability: Unknown";
-    return status === "connected" ? "Reachability: Connected" : "Reachability: Disconnected";
+    if (status === "checking") return "Checking…";
+    if (!status || status === "unknown") return "Unknown";
+    return status === "connected" ? "Connected" : "Disconnected";
   }
 
   function connMessageLabel(server) {
@@ -1935,7 +1935,10 @@
     }
   });
 
+  const SERVER_REFRESH_INTERVAL_MS = 60000;
+  const DISCONNECTED_SERVER_RETRY_INTERVAL_MS = 10000;
   let liveServerRefreshTimer = null;
+  let disconnectedServerRetryTimer = null;
 
   function syncLiveServerPolling(servers) {
     const hasLiveServers = (servers || []).some((server) => {
@@ -1950,6 +1953,32 @@
     }
   }
 
+  function visibleDisconnectedServerIds() {
+    return visibleServerIds().filter((sid) => {
+      const serverBadge = document.getElementById(`server-badge-${sid}`);
+      const connBadge = document.getElementById(`server-conn-badge-${sid}`);
+      const serverStatus = (serverBadge && serverBadge.textContent ? serverBadge.textContent : "").trim().toLowerCase();
+      const connText = (connBadge && connBadge.textContent ? connBadge.textContent : "").trim().toLowerCase();
+      return serverStatus === "provisioned" && connText.includes("disconnected");
+    });
+  }
+
+  function syncDisconnectedServerRetry(servers = null) {
+    const hasDisconnectedServers = Array.isArray(servers)
+      ? servers.some((server) => {
+          const status = (server.status || "").toUpperCase();
+          return status === "PROVISIONED" && serverConnectivityStatus(server) === "disconnected";
+        })
+      : visibleDisconnectedServerIds().length > 0;
+
+    if (hasDisconnectedServers && !disconnectedServerRetryTimer) {
+      disconnectedServerRetryTimer = setInterval(retryDisconnectedVisibleServers, DISCONNECTED_SERVER_RETRY_INTERVAL_MS);
+    } else if (!hasDisconnectedServers && disconnectedServerRetryTimer) {
+      clearInterval(disconnectedServerRetryTimer);
+      disconnectedServerRetryTimer = null;
+    }
+  }
+
   function updateServerProgressFromApi(server) {
     const sid = server.id;
     const wrap = document.getElementById(`server-progress-wrap-${sid}`);
@@ -1960,12 +1989,12 @@
     const isLive = status === "PROVISIONING" || status === "CONFIGURING";
     const lines = extractProgressLines(server.provisioning_log, 4);
 
-    if (!lines.length && !isLive) {
+    if (!isLive) {
       wrap.classList.add("hidden");
       return;
     }
 
-    if (!isLive || !ul.children.length) {
+    if (!ul.children.length) {
       ul.innerHTML = "";
       lines.forEach((line) => addStepTo(ul, line, false));
       wrap.classList.remove("hidden");
@@ -2301,7 +2330,7 @@
     const sshPending = pendingServerChecks.has(String(sid));
     connBadges.forEach((connBadge) => {
       if (sshPending) {
-        connBadge.textContent = "Reachability: Checking…";
+        connBadge.textContent = "Checking…";
         connBadge.className = "px-1.5 py-0.5 rounded text-[10px] font-medium bg-yellow-50 text-yellow-600";
         connBadge.title = "Checking connection…";
       } else {
@@ -2312,7 +2341,7 @@
     });
     connMsgs.forEach((connMsg) => {
       if (sshPending) {
-        connMsg.textContent = "Reachability is being verified...";
+        connMsg.textContent = "Checking connection...";
         connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-yellow-600";
       } else {
         const msg = connMessageLabel(server);
@@ -2400,6 +2429,7 @@
         newInstanceBtn.dataset.serverLastCheckedAt = server.last_checked_at || "";
       }
     }
+    syncDisconnectedServerRetry();
     syncPageActionLocks(document.getElementById(`server-card-${sid}`) || document);
   }
 
@@ -2414,6 +2444,7 @@
       servers.forEach((server) => seenIds.add(String(server.id)));
       removeMissingServerCards(seenIds);
       syncLiveServerPolling(servers);
+      syncDisconnectedServerRetry(servers);
       syncPageActionLocks();
     } catch (err) {
       // Silent: the page still works with websocket updates and manual refresh.
@@ -2440,48 +2471,65 @@
     const connBadges = allById(`server-conn-badge-${sid}`);
     const connBadgeBase = "px-1.5 py-0.5 rounded text-[10px] font-medium";
     connBadges.forEach((connBadge) => {
-      connBadge.textContent = "Reachability: Checking…";
+      connBadge.textContent = "Checking…";
       connBadge.className = `${connBadgeBase} bg-yellow-50 text-yellow-600`;
       connBadge.title = "Checking connection…";
     });
     const connMsgs = allById(`server-conn-msg-${sid}`);
     connMsgs.forEach((connMsg) => {
-      connMsg.textContent = "Reachability is being verified...";
+      connMsg.textContent = "Checking connection...";
       connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-yellow-600";
     });
 
-    const resp = await postForm(`/api/deployments/odoo/servers/${sid}/check/`, {});
-    const existingTimeout = pendingServerCheckTimeouts.get(sid);
-    if (existingTimeout) clearTimeout(existingTimeout);
-    pendingServerCheckTimeouts.set(sid, setTimeout(() => {
-      pendingServerChecks.delete(sid);
-      pendingServerCheckTimeouts.delete(sid);
-      refreshServerCards();
-      if (updateInstances) refreshInstanceRows();
-    }, 1800));
+    const finishCheck = (delay = 250) => {
+      const existingTimeout = pendingServerCheckTimeouts.get(sid);
+      if (existingTimeout) clearTimeout(existingTimeout);
+      pendingServerCheckTimeouts.set(sid, setTimeout(() => {
+        pendingServerChecks.delete(sid);
+        pendingServerCheckTimeouts.delete(sid);
+        refreshServerCards();
+        if (updateInstances) refreshInstanceRows();
+      }, delay));
+    };
+
+    let resp;
+    try {
+      resp = await postForm(`/api/deployments/odoo/servers/${sid}/check/`, {});
+    } catch (err) {
+      resp = {
+        ok: false,
+        data: {
+          error: err instanceof Error ? err.message : "Connection check failed.",
+        },
+      };
+    }
 
     if (!resp.ok) {
-      const errorText = resp.data.message || resp.data.error || "Reachability: Error";
+      finishCheck(250);
+      const errorText = resp.data.message || resp.data.error || "Connection error";
       connBadges.forEach((connBadge) => {
-        connBadge.textContent = "Reachability: Checking…";
-        connBadge.className = `${connBadgeBase} bg-yellow-50 text-yellow-600`;
+        connBadge.textContent = "Disconnected";
+        connBadge.className = `${connBadgeBase} bg-red-50 text-red-600`;
         connBadge.title = errorText;
       });
       connMsgs.forEach((connMsg) => {
-        connMsg.textContent = "Reachability is being verified...";
-        connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-yellow-600";
+        connMsg.textContent = errorText;
+        connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-red-500";
         connMsg.title = errorText;
       });
+      return resp;
     }
+
+    finishCheck(250);
     if (resp.ok) {
       const connected = !!resp.data.is_reachable;
       connBadges.forEach((connBadge) => {
-        connBadge.textContent = connected ? "Reachability: Connected" : "Reachability: Disconnected";
+        connBadge.textContent = connected ? "Connected" : "Disconnected";
         connBadge.className = `${connBadgeBase} ${connected ? "bg-green-50 text-green-600" : "bg-red-50 text-red-600"}`;
         connBadge.title = resp.data.message || "";
       });
       connMsgs.forEach((connMsg) => {
-        connMsg.textContent = resp.data.message || (connected ? "Reachability successful." : "Reachability failed.");
+        connMsg.textContent = resp.data.message || (connected ? "Connected." : "Disconnected.");
         connMsg.className = `text-[10px] max-w-[11rem] text-right leading-tight ${connected ? "text-green-500" : "text-red-500"}`;
         connMsg.title = resp.data.message || "";
       });
@@ -2501,6 +2549,12 @@
       refreshServerCards();
       refreshInstanceRows();
     }, 900);
+  }
+
+  async function retryDisconnectedVisibleServers() {
+    const ids = visibleDisconnectedServerIds();
+    if (!ids.length) return;
+    await Promise.all(ids.map((sid) => triggerConnectivityCheck(sid)));
   }
 
   function connectServerProgress(serverId, ul) {
@@ -2531,20 +2585,20 @@
       if (connBadge && data.step) {
         const step = String(data.step);
         if (step.toLowerCase().includes("validating ssh connection") || step.toLowerCase().includes("using pyos infrastructure connection")) {
-          connBadge.textContent = "Reachability: Checking…";
+          connBadge.textContent = "Checking…";
           connBadge.className = "px-1.5 py-0.5 rounded text-[10px] font-medium bg-yellow-50 text-yellow-600";
           connBadge.title = step;
-          if (connMsg) { connMsg.textContent = "Reachability is being verified..."; connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-yellow-600"; }
+          if (connMsg) { connMsg.textContent = "Checking connection..."; connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-yellow-600"; }
           setTimeout(refreshServerCards, 800);
         } else
         if (step.toLowerCase().includes("ssh connection confirmed") || step.toLowerCase().includes("ssh connection successful")) {
-          connBadge.textContent = "Reachability: Connected";
+          connBadge.textContent = "Connected";
           connBadge.className = "px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-50 text-green-600";
           connBadge.title = step;
           if (connMsg) { connMsg.textContent = step; connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-green-500"; }
           setTimeout(refreshServerCards, 800);
         } else if (step.toLowerCase().includes("failed:") || step.toLowerCase().includes("authentication failed") || step.toLowerCase().includes("host unreachable")) {
-          connBadge.textContent = "Reachability: Disconnected";
+          connBadge.textContent = "Disconnected";
           connBadge.className = "px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-50 text-red-600";
           connBadge.title = step;
           if (connMsg) { connMsg.textContent = step; connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-red-500"; }
@@ -2555,8 +2609,6 @@
         const timeoutId = pendingServerCheckTimeouts.get(String(serverId));
         if (timeoutId) clearTimeout(timeoutId);
         pendingServerCheckTimeouts.delete(String(serverId));
-        const wrap = document.getElementById(`server-progress-wrap-${serverId}`);
-        if (wrap) wrap.classList.remove("hidden");
         const badge = document.getElementById(`server-badge-${serverId}`);
         if (badge) {
           badge.textContent = isFailed ? "Failed" : "Provisioned";
@@ -2627,7 +2679,7 @@
       : `Odoo ${odooVersion} · ${server.region || "-"} · ${server.size || "-"}`;
     const connBadgeText = connBadgeLabel(server);
     const connBadgeCls = connBadgeClass(server);
-    const connMsgText = connMessageLabel(server) || (isPyos ? "Reachability is being verified..." : "Reachability has not been checked yet.");
+    const connMsgText = connMessageLabel(server) || (isPyos ? "Checking connection..." : "Connection not checked yet.");
     const isBusy = isBusyStatus(server.status);
     const exampleAccessText = server.deployment_mode === "DOCKER"
       ? (platformBaseDomain ? `https://app.${platformBaseDomain}` : "https://domain.example.com")
@@ -2713,7 +2765,7 @@
             <span id="server-instances-${sid}">${typeof server.instance_count === "number" ? server.instance_count : 0}/${server.max_instances || "—"}</span>
           </div>
           <div class="flex items-center justify-between gap-3">
-            <span class="text-gray-500">Reachability</span>
+            <span class="text-gray-500">Connection</span>
             <button type="button" class="check-connectivity-btn text-[10px] text-gray-400 hover:text-gray-600 underline"
                     data-server-id="${sid}"
                     data-server-status="${escapeHtml(server.status || "")}">Check now</button>
@@ -2798,14 +2850,15 @@
 
   refreshServerCards();
   autoCheckVisibleServers();
+  syncDisconnectedServerRetry();
   syncPageActionLocks();
-  setInterval(refreshServerCards, 60000);
-  setInterval(autoCheckVisibleServers, 60000);
+  setInterval(refreshServerCards, SERVER_REFRESH_INTERVAL_MS);
+  setInterval(autoCheckVisibleServers, SERVER_REFRESH_INTERVAL_MS);
   refreshInstanceRows();
-  setInterval(refreshInstanceRows, 60000);
+  setInterval(refreshInstanceRows, SERVER_REFRESH_INTERVAL_MS);
   if (dnsDashboardEnabled) {
     loadDnsDashboard();
-    setInterval(loadDnsDashboard, 60000);
+    setInterval(loadDnsDashboard, SERVER_REFRESH_INTERVAL_MS);
   }
 
   const infrastructures = [

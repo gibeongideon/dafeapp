@@ -97,12 +97,12 @@ class OdooServerSerializer(serializers.ModelSerializer):
             return "Server is archived."
         reachable, checked_at, error = self._reachability_snapshot(obj)
         if obj.status in (OdooServer.Status.PROVISIONING, OdooServer.Status.CONFIGURING) and checked_at is None:
-            return "Reachability is being verified..."
+            return "Checking connection..."
         if checked_at is None:
-            return "Reachability has not been checked yet."
+            return "Connection not checked yet."
         if reachable:
-            return "Reachability successful."
-        return error or "Reachability failed."
+            return "Connected."
+        return error or "Disconnected."
 
     def get_ssh_last_checked_at(self, obj):
         _, checked_at, _ = self._reachability_snapshot(obj)

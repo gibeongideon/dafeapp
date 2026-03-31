@@ -2106,9 +2106,9 @@ def provision_odoo_server(self, server_id: int):
             ext.port or 22,
         )
         ext.last_verified_at = None
-        ext.verification_error = "Reachability is being verified..."
+        ext.verification_error = "Checking connection..."
         ext.save(update_fields=["last_verified_at", "verification_error"])
-        _broadcast_server(server.id, "Validating reachability…", server.status)
+        _broadcast_server(server.id, "Checking connection…", server.status)
         reachable, err = PyOSService(ext).validate()
         now = timezone.now()
         ext.is_verified = reachable
@@ -2121,7 +2121,7 @@ def provision_odoo_server(self, server_id: int):
         server.last_checked_at = now
         server.firewall_configured = True
         server.provisioning_log = _append_text(server.provisioning_log, "Using PYOS infrastructure connection.")
-        server.provisioning_log = _append_text(server.provisioning_log, "Reachability verified." if reachable else err)
+        server.provisioning_log = _append_text(server.provisioning_log, "Connection verified." if reachable else err)
         server.save(
             update_fields=[
                 "ip_address",
@@ -2149,7 +2149,7 @@ def provision_odoo_server(self, server_id: int):
         server.save(
             update_fields=["status", "updated_at"]
         )
-        _broadcast_server(server.id, f"Reachability confirmed ({ext.host}) — starting Odoo configuration…", server.status)
+        _broadcast_server(server.id, f"Connection confirmed ({ext.host}) — starting Odoo configuration…", server.status)
         logger.info(
             "Server %s: starting %s configuration",
             server.id,
