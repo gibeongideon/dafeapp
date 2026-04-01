@@ -1352,7 +1352,89 @@ def _default_docker_instance_playbook() -> str:
 
 
 def _default_enterprise_sync_playbook() -> str:
+    """Instance-level: server shared dir → instance path (local copy on server)."""
     return str(Path(settings.BASE_DIR) / "infra" / "ansible" / "sync_odoo_enterprise_addons.yml")
+
+
+def _default_enterprise_server_sync_playbook() -> str:
+    """Server-level: DafeApp host → server shared dir (network upload, done once per server)."""
+    return str(Path(settings.BASE_DIR) / "infra" / "ansible" / "sync_enterprise_to_server.yml")
+
+
+def _server_enterprise_shared_path(server: OdooServer) -> str:
+    """
+    Canonical path for the Enterprise shared directory on a server.
+    All instances on this server copy from here instead of from the DafeApp host.
+    """
+    if server.enterprise_shared_path:
+        return server.enterprise_shared_path
+    summary = server.installation_summary or {}
+    odoo_home = summary.get("odoo_home") or f"/opt/odoo{server.odoo_version}"
+    return f"{odoo_home}/enterprise_shared"
+
+
+def _sync_enterprise_to_server(
+    server: OdooServer,
+    source: "EnterpriseSource",
+    *,
+    on_line=None,
+) -> tuple[bool, str]:
+    """
+    Ensure the server's shared Enterprise directory is up-to-date with `source`.
+
+    - If server already has `source.release_code` synced, returns (True, "") immediately.
+    - Otherwise runs sync_enterprise_to_server.yml (DafeApp host → server shared dir).
+    - Updates server.enterprise_shared_path and server.enterprise_shared_release_code on success.
+
+    Returns (ok, log_blob).
+    """
+    release_code = (source.release_code or "").strip()
+
+    # Already up-to-date: skip the network transfer
+    if (
+        release_code
+        and server.enterprise_shared_release_code == release_code
+        and server.enterprise_shared_path
+    ):
+        msg = f"Server already has Enterprise release {release_code} at {server.enterprise_shared_path} — skipping upload."
+        if on_line:
+            on_line(msg)
+        return True, msg
+
+    if not source.addons_source_path or not Path(source.addons_source_path).exists():
+        return False, "Enterprise source addons path is missing from the DafeApp filesystem."
+
+    playbook = _default_enterprise_server_sync_playbook()
+    if not Path(playbook).exists():
+        return False, f"Server enterprise sync playbook not found: {playbook}"
+
+    shared_path = _server_enterprise_shared_path(server)
+    ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
+    try:
+        ok, log_blob = _run_ansible_playbook(
+            playbook,
+            str(server.ip_address),
+            {
+                "enterprise_src": source.addons_source_path,
+                "enterprise_dest": shared_path,
+                "odoo_user": "odoo",
+            },
+            ssh_user=ssh_user,
+            ssh_key_path=ssh_key,
+            ssh_password=ssh_password,
+            on_chunk=on_line,
+        )
+    finally:
+        if tmp_key:
+            with suppress(OSError):
+                os.unlink(tmp_key)
+
+    if ok:
+        server.enterprise_shared_path = shared_path
+        server.enterprise_shared_release_code = release_code
+        server.save(update_fields=["enterprise_shared_path", "enterprise_shared_release_code", "updated_at"])
+
+    return ok, log_blob
 
 
 def _default_bare_traefik_gateway_playbook() -> str:
@@ -2498,6 +2580,20 @@ def configure_odoo_server(self, server_id: int, job_id: int | None = None):
             deployed_by=server.created_by,
         )
 
+        # Pre-populate the server's Enterprise shared directory so the first
+        # instance activation is just a fast local copy (no network upload needed).
+        platform_source = EnterpriseSource.active_for_version(server.odoo_version)
+        if platform_source and platform_source.source_scope == EnterpriseSource.Scope.PLATFORM:
+            _broadcast_server(server.id, "Pre-syncing Enterprise addons to server shared directory…", server.status)
+            ent_ok, ent_log = _sync_enterprise_to_server(
+                server, platform_source,
+                on_line=lambda line: _broadcast_log_line(ws_group, line),
+            )
+            server.provisioning_log = _append_text(server.provisioning_log, f"[enterprise pre-sync]\n{ent_log}".strip())
+            server.save(update_fields=["provisioning_log", "updated_at"])
+            if not ent_ok:
+                logger.warning("Server %s: Enterprise pre-sync failed (non-fatal): %s", server.id, ent_log)
+
     log_audit(
         server.created_by,
         AuditLog.Action.OTHER,
@@ -3351,6 +3447,23 @@ def refresh_instance_addons(self, instance_id: int, job_id: int | None = None):
 
 @shared_task(bind=True, max_retries=0)
 def activate_enterprise_for_instance(self, instance_id: int, source_id: int | None = None, job_id: int | None = None):
+    """
+    Enterprise activation flow:
+
+    PLATFORM source
+    ---------------
+    1. Check if server already has this release in enterprise_shared_path.
+       - If not (or outdated): upload from DafeApp host → server shared dir  [network, once per server]
+       - If yes: skip upload entirely.
+    2. Local copy on server: shared dir → instance enterprise path            [disk only, fast]
+    3. Rewrite addons_path in instance config to include the enterprise path.
+    4. Restart service + refresh module list.
+
+    USER source
+    -----------
+    Same flow but skips the server-level shared dir — copies directly from the
+    DafeApp host to the instance path (user sources are per-user, not shared).
+    """
     instance = OdooInstance.objects.select_related(
         "organization",
         "server",
@@ -3361,8 +3474,11 @@ def activate_enterprise_for_instance(self, instance_id: int, source_id: int | No
     _job_start(job_id, self.request.id)
     lock_token = _acquire_repo_lock(instance.id)
     ws_group = f"odoo.instance.{instance.id}"
+    source = None
+    full_log = ""
+
     try:
-        source = None
+        # ── Resolve source ──────────────────────────────────────────────────
         if source_id:
             source = EnterpriseSource.objects.filter(pk=source_id, status=EnterpriseSource.Status.READY).first()
         if source is None:
@@ -3370,51 +3486,98 @@ def activate_enterprise_for_instance(self, instance_id: int, source_id: int | No
         if source is None:
             raise RuntimeError(f"No active Enterprise source is ready for Odoo {server.odoo_version}.")
         if not source.addons_source_path or not Path(source.addons_source_path).exists():
-            raise RuntimeError("The active Enterprise source is missing from the platform filesystem.")
+            raise RuntimeError("The Enterprise source package is missing from the DafeApp filesystem.")
 
-        playbook = _default_enterprise_sync_playbook()
-        if not Path(playbook).exists():
-            raise RuntimeError(f"Enterprise sync playbook not found: {playbook}")
-
-        remote_path = _enterprise_host_local_path(instance)
+        instance_path = _enterprise_host_local_path(instance)
         instance.enterprise_status = OdooInstance.EnterpriseStatus.PENDING
         instance.enterprise_error = ""
         instance.save(update_fields=["enterprise_status", "enterprise_error", "updated_at"])
-        _broadcast_instance(instance.id, "Syncing Enterprise addons to the server…", instance.status)
 
-        ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
-        extra_vars = {
-            "enterprise_src": source.addons_source_path,
-            "enterprise_dest": remote_path,
-            "odoo_user": "odoo",
-        }
-        try:
-            ok, log_blob = _run_ansible_playbook(
-                playbook,
-                str(server.ip_address),
-                extra_vars,
-                ssh_user=ssh_user,
-                ssh_key_path=ssh_key,
-                ssh_password=ssh_password,
-                on_chunk=lambda line: _broadcast_log_line(ws_group, line),
+        is_platform = source.source_scope == EnterpriseSource.Scope.PLATFORM
+
+        if is_platform:
+            # ── Step 1: Ensure server shared dir is up-to-date ──────────────
+            _broadcast_instance(instance.id, "Checking server Enterprise shared directory…", instance.status)
+            _broadcast_log_line(ws_group, "=== Step 1/3: Sync Enterprise to server shared directory ===")
+            server_ok, server_log = _sync_enterprise_to_server(
+                server, source,
+                on_line=lambda line: _broadcast_log_line(ws_group, line),
             )
-        finally:
-            if tmp_key:
-                os.unlink(tmp_key)
+            full_log = _append_text(full_log, server_log)
+            if not server_ok:
+                raise RuntimeError(server_log or "Failed to sync Enterprise package to server shared directory.")
 
-        if not ok:
-            raise RuntimeError(log_blob or "Enterprise sync failed.")
+            # ── Step 2: Local copy shared dir → instance path ────────────────
+            _broadcast_log_line(ws_group, "=== Step 2/3: Copy Enterprise from server shared dir to instance ===")
+            shared_src = _server_enterprise_shared_path(server)
+            playbook = _default_enterprise_sync_playbook()
+            if not Path(playbook).exists():
+                raise RuntimeError(f"Instance enterprise copy playbook not found: {playbook}")
+            ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
+            try:
+                ok, copy_log = _run_ansible_playbook(
+                    playbook,
+                    str(server.ip_address),
+                    {"enterprise_src": shared_src, "enterprise_dest": instance_path, "odoo_user": "odoo"},
+                    ssh_user=ssh_user,
+                    ssh_key_path=ssh_key,
+                    ssh_password=ssh_password,
+                    on_chunk=lambda line: _broadcast_log_line(ws_group, line),
+                )
+            finally:
+                if tmp_key:
+                    with suppress(OSError):
+                        os.unlink(tmp_key)
+            full_log = _append_text(full_log, copy_log)
+            if not ok:
+                raise RuntimeError(copy_log or "Local copy of Enterprise addons to instance path failed.")
+
+        else:
+            # ── USER source: direct DafeApp host → instance path ────────────
+            _broadcast_log_line(ws_group, "=== Step 1/2: Upload user Enterprise source to instance ===")
+            playbook = _default_enterprise_sync_playbook()
+            # For user sources reuse the same instance-copy playbook but point
+            # enterprise_src at the DafeApp-local addons path — Ansible will
+            # use its own synchronize (network transfer) since src is local.
+            # We swap back to the server-sync playbook which handles DafeApp→server.
+            upload_playbook = _default_enterprise_server_sync_playbook()
+            if not Path(upload_playbook).exists():
+                raise RuntimeError(f"Enterprise upload playbook not found: {upload_playbook}")
+            ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
+            try:
+                ok, upload_log = _run_ansible_playbook(
+                    upload_playbook,
+                    str(server.ip_address),
+                    {"enterprise_src": source.addons_source_path, "enterprise_dest": instance_path, "odoo_user": "odoo"},
+                    ssh_user=ssh_user,
+                    ssh_key_path=ssh_key,
+                    ssh_password=ssh_password,
+                    on_chunk=lambda line: _broadcast_log_line(ws_group, line),
+                )
+            finally:
+                if tmp_key:
+                    with suppress(OSError):
+                        os.unlink(tmp_key)
+            full_log = _append_text(full_log, upload_log)
+            if not ok:
+                raise RuntimeError(upload_log or "Failed to upload user Enterprise source to instance.")
+
+        # ── Step 3 (both paths): config + restart + refresh ──────────────────
+        step_label = "3/3" if is_platform else "2/2"
+        _broadcast_log_line(ws_group, f"=== Step {step_label}: Update config, restart, refresh modules ===")
 
         instance.enterprise_enabled = True
         instance.enterprise_source = source
-        instance.enterprise_remote_path = remote_path
+        instance.enterprise_remote_path = instance_path
         instance.enterprise_status = OdooInstance.EnterpriseStatus.ACTIVE
+        instance.enterprise_source_mode = source.source_scope
         instance.enterprise_error = ""
         instance.enterprise_last_synced_at = timezone.now()
         instance.save(
             update_fields=[
                 "enterprise_enabled",
                 "enterprise_source",
+                "enterprise_source_mode",
                 "enterprise_remote_path",
                 "enterprise_status",
                 "enterprise_error",
@@ -3425,18 +3588,23 @@ def activate_enterprise_for_instance(self, instance_id: int, source_id: int | No
 
         sync_log = _sync_instance_addons_config(instance, on_line=lambda line: _broadcast_log_line(ws_group, line))
         refresh_log = _restart_and_refresh_instance_addons(instance, on_line=lambda line: _broadcast_log_line(ws_group, line))
-        full_log = _append_text(log_blob, _append_text(sync_log, refresh_log))
+        full_log = _append_text(full_log, _append_text(sync_log, refresh_log))
+
         _broadcast_instance(
             instance.id,
             "Enterprise addons activated.",
             instance.status,
             summary={
                 "enterprise_enabled": True,
+                "enterprise_status": OdooInstance.EnterpriseStatus.ACTIVE,
                 "enterprise_source": source.package_name,
+                "enterprise_source_mode": instance.enterprise_source_mode,
                 "enterprise_remote_path": instance.enterprise_remote_path,
+                "enterprise_error": "",
             },
         )
         _job_done(job_id, ok=True, log=full_log)
+
     except Exception as exc:
         logger.exception("Enterprise activation failed for instance %s", instance.id)
         instance.enterprise_status = OdooInstance.EnterpriseStatus.ERROR
@@ -3458,7 +3626,7 @@ def activate_enterprise_for_instance(self, instance_id: int, source_id: int | No
                 "enterprise_remote_path": instance.enterprise_remote_path,
             },
         )
-        _job_done(job_id, ok=False, log=str(exc))
+        _job_done(job_id, ok=False, log=_append_text(full_log, str(exc)))
     finally:
         _release_repo_lock(instance.id, lock_token)
 

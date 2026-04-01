@@ -1,5 +1,17 @@
 ---
-- name: Sync Odoo Enterprise addons onto an existing instance
+# sync_odoo_enterprise_addons.yml
+#
+# Copies Enterprise addons from the server's shared directory to an
+# instance-specific path.  This is a fast local disk copy — no transfer
+# from the DafeApp host.  Run sync_enterprise_to_server.yml first to
+# ensure the shared directory is up-to-date.
+#
+# Extra vars (all required):
+#   enterprise_src   - shared dir on the server  (e.g. /opt/odoo19/enterprise_shared)
+#   enterprise_dest  - instance path             (e.g. /odoo/instances/mydb/addons/enterprise)
+#   odoo_user        - service user that owns the files (default: odoo)
+
+- name: Copy Enterprise addons from server shared dir to instance path
   hosts: all
   become: true
   gather_facts: false
@@ -10,24 +22,17 @@
     odoo_user: "{{ odoo_user | default('odoo') }}"
 
   tasks:
-    - name: Validate Enterprise source path
-      delegate_to: localhost
-      become: false
+    - name: Validate server-local Enterprise shared source exists
       stat:
         path: "{{ enterprise_src }}"
-      register: enterprise_source_stat
+      register: shared_stat
 
-    - name: Fail when Enterprise source path is missing
+    - name: Fail when server shared Enterprise directory is missing
       fail:
-        msg: "Enterprise source path does not exist on the DafeApp host: {{ enterprise_src }}"
-      when: not enterprise_source_stat.stat.exists
+        msg: "Server-local Enterprise shared directory not found: {{ enterprise_src }}. Run sync_enterprise_to_server.yml first."
+      when: not shared_stat.stat.exists
 
-    - name: Remove old Enterprise directory before sync
-      file:
-        path: "{{ enterprise_dest }}"
-        state: absent
-
-    - name: Recreate Enterprise directory
+    - name: Ensure instance Enterprise destination directory exists
       file:
         path: "{{ enterprise_dest }}"
         state: directory
@@ -35,11 +40,12 @@
         group: "{{ odoo_user }}"
         mode: "0755"
 
-    - name: Copy Enterprise addons from platform storage to target host
-      copy:
-        src: "{{ enterprise_src }}/"
-        dest: "{{ enterprise_dest }}/"
-        owner: "{{ odoo_user }}"
-        group: "{{ odoo_user }}"
-        mode: preserve
-
+    - name: Copy Enterprise addons from shared dir to instance path (local rsync)
+      # delegate_to: the target server itself so no DafeApp host involved
+      shell: >
+        rsync -a --delete --checksum
+        {{ enterprise_src }}/
+        {{ enterprise_dest }}/
+        && chown -R {{ odoo_user }}:{{ odoo_user }} {{ enterprise_dest }}
+      args:
+        executable: /bin/bash

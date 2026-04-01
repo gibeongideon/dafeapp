@@ -1,0 +1,53 @@
+---
+# sync_enterprise_to_server.yml
+#
+# Copies the Enterprise addons package from the DafeApp host to a shared
+# directory on the target server.  All instances on this server will later
+# do a fast local copy from this shared directory instead of downloading
+# the package again from the DafeApp host.
+#
+# Extra vars (all required):
+#   enterprise_src       - absolute path on DafeApp host (addons_source_path)
+#   enterprise_dest      - destination path on the server  (e.g. /opt/odoo19/enterprise_shared)
+#   odoo_user            - service user that owns the files (default: odoo)
+
+- name: Sync Enterprise addons package to server shared directory
+  hosts: all
+  become: true
+  gather_facts: false
+
+  vars:
+    enterprise_src: "{{ enterprise_src | default('') }}"
+    enterprise_dest: "{{ enterprise_dest | default('') }}"
+    odoo_user: "{{ odoo_user | default('odoo') }}"
+
+  tasks:
+    - name: Validate Enterprise source path exists on DafeApp host
+      delegate_to: localhost
+      become: false
+      stat:
+        path: "{{ enterprise_src }}"
+      register: enterprise_source_stat
+
+    - name: Fail when Enterprise source path is missing
+      fail:
+        msg: "Enterprise source path does not exist on the DafeApp host: {{ enterprise_src }}"
+      when: not enterprise_source_stat.stat.exists
+
+    - name: Ensure Enterprise shared directory exists on server
+      file:
+        path: "{{ enterprise_dest }}"
+        state: directory
+        owner: "{{ odoo_user }}"
+        group: "{{ odoo_user }}"
+        mode: "0755"
+
+    - name: Sync Enterprise addons to server shared directory (rsync)
+      synchronize:
+        src: "{{ enterprise_src }}/"
+        dest: "{{ enterprise_dest }}/"
+        delete: true
+        checksum: true
+        compress: true
+        rsync_opts:
+          - "--chown={{ odoo_user }}:{{ odoo_user }}"

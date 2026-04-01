@@ -306,6 +306,9 @@ class OdooServer(models.Model):
     installation_summary_text = models.TextField(blank=True)
     is_reachable = models.BooleanField(default=False)
     last_checked_at = models.DateTimeField(null=True, blank=True)
+    # Enterprise shared copy on this server (populated at provisioning time)
+    enterprise_shared_path = models.CharField(max_length=500, blank=True, default="")
+    enterprise_shared_release_code = models.CharField(max_length=32, blank=True, default="")
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,

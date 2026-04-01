@@ -191,13 +191,18 @@
                 <div class="rounded-xl border border-gray-200 bg-white px-3 py-3">
                   <p class="text-[11px] uppercase tracking-wide text-gray-400">Platform Source</p>
                   <p class="mt-1 text-sm font-medium text-gray-900 break-all"
-                     x-text="enterpriseActiveSourceName || 'No active Enterprise package uploaded yet'"></p>
+                     x-text="enterpriseActiveSourceName || 'No active platform package'"></p>
                 </div>
                 <div class="rounded-xl border border-gray-200 bg-white px-3 py-3">
-                  <p class="text-[11px] uppercase tracking-wide text-gray-400">Instance Path</p>
-                  <p class="mt-1 text-sm font-mono text-gray-800 break-all"
-                     x-text="enterpriseRemotePath || 'Will be created during activation'"></p>
+                  <p class="text-[11px] uppercase tracking-wide text-gray-400">Your Uploaded Source</p>
+                  <p class="mt-1 text-sm font-medium text-gray-900 break-all"
+                     x-text="enterpriseUserSourceName || 'None uploaded'"></p>
                 </div>
+              </div>
+              <div class="rounded-xl border border-gray-200 bg-white px-3 py-3">
+                <p class="text-[11px] uppercase tracking-wide text-gray-400">Instance Path on Server</p>
+                <p class="mt-1 text-sm font-mono text-gray-800 break-all"
+                   x-text="enterpriseRemotePath || 'Will be created during activation'"></p>
               </div>
               <div class="grid gap-3 md:grid-cols-2">
                 <div class="rounded-xl border border-gray-200 bg-white px-3 py-3">
@@ -241,12 +246,12 @@
               </span>
             </button>
             <button type="button"
-                    x-show="enterpriseEnabled && enterpriseSourceAvailable && enterpriseStatusCode !== 'PENDING'"
+                    x-show="(enterpriseEnabled || enterpriseStatusCode === 'ERROR') && enterpriseSourceAvailable && enterpriseStatusCode !== 'PENDING'"
                     @click="activateEnterprise()"
                     :disabled="enterpriseBusy || instanceActionsLocked()"
                     :title="instanceActionLockReason()"
-                    class="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50">
-              Re-sync Enterprise
+                    class="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    x-text="enterpriseStatusCode === 'ERROR' ? 'Retry Activation' : 'Re-sync Enterprise'">
             </button>
             <div x-show="showEnterpriseDetails" class="contents">
               <a href="/deployments/create/?section=enterprise"
@@ -254,8 +259,9 @@
                 Manage Platform Sources
               </a>
               <p class="text-xs text-gray-500 lg:max-w-[16rem]">
-                <span x-show="enterpriseSourceAvailable">This instance can use the currently active package for Odoo {{ odoo_server.odoo_version }}.</span>
-                <span x-show="!enterpriseSourceAvailable">A platform admin needs to upload and activate an Enterprise package for Odoo {{ odoo_server.odoo_version }} first.</span>
+                <span x-show="enterpriseActiveSourceName">Using platform source for Odoo {{ odoo_server.odoo_version }}.</span>
+                <span x-show="!enterpriseActiveSourceName && enterpriseUserSourceAvailable">Using your uploaded source for Odoo {{ odoo_server.odoo_version }}.</span>
+                <span x-show="!enterpriseSourceAvailable">No Enterprise package available. Upload one or ask a platform admin to activate one for Odoo {{ odoo_server.odoo_version }}.</span>
               </p>
             </div>
           </div>
@@ -1163,7 +1169,9 @@ function instanceConsole(instanceId) {
     enterpriseStatusCode: '{{ odoo_instance.enterprise_status|escapejs }}',
     enterpriseSourceName: '{% if odoo_instance.enterprise_source_id %}{{ odoo_instance.enterprise_source.package_name|escapejs }}{% endif %}',
     enterpriseActiveSourceName: '{% if enterprise_active_source %}{{ enterprise_active_source.package_name|escapejs }}{% endif %}',
-    enterpriseSourceAvailable: {% if enterprise_active_source %}true{% else %}false{% endif %},
+    enterpriseUserSourceName: '{% if enterprise_user_source %}{{ enterprise_user_source.package_name|escapejs }}{% endif %}',
+    enterpriseUserSourceAvailable: {% if enterprise_user_source %}true{% else %}false{% endif %},
+    enterpriseSourceAvailable: {% if enterprise_active_source or enterprise_user_source %}true{% else %}false{% endif %},
     enterpriseRemotePath: '{{ odoo_instance.enterprise_remote_path|escapejs }}',
     enterpriseLastSyncedAt: '{{ odoo_instance.enterprise_last_synced_at|date:"c"|default:"" }}',
     enterpriseError: '{{ odoo_instance.enterprise_error|escapejs }}',
@@ -1284,7 +1292,7 @@ function instanceConsole(instanceId) {
           // Streaming log line from Phase-2 _broadcast_log_line
           if (msg.type === 'log.line' || msg.line !== undefined) {
             const text = msg.line ?? msg.message ?? JSON.stringify(msg);
-            if (this.hasPendingInstanceStatus()) this.appendLogLine(text);
+            this.appendLogLine(text);
           }
           // Generic status update
           if (msg.status) {
@@ -1307,18 +1315,22 @@ function instanceConsole(instanceId) {
           }
           if (msg.summary && msg.summary.enterprise_enabled !== undefined) {
             this.enterpriseEnabled = !!msg.summary.enterprise_enabled;
-            this.enterpriseStatusCode = msg.summary.enterprise_status || (this.enterpriseEnabled ? 'ACTIVE' : this.enterpriseStatusCode);
-            this.enterpriseSourceName = msg.summary.enterprise_source || this.enterpriseSourceName;
-            this.enterpriseRemotePath = msg.summary.enterprise_remote_path || this.enterpriseRemotePath;
+            if (msg.summary.enterprise_status) {
+              this.enterpriseStatusCode = msg.summary.enterprise_status;
+            } else {
+              this.enterpriseStatusCode = this.enterpriseEnabled ? 'ACTIVE' : this.enterpriseStatusCode;
+            }
+            if (msg.summary.enterprise_source) this.enterpriseSourceName = msg.summary.enterprise_source;
+            if (msg.summary.enterprise_remote_path) this.enterpriseRemotePath = msg.summary.enterprise_remote_path;
             this.enterpriseError = msg.summary.enterprise_error || '';
             this.syncEnterpriseToggle();
-            if (!this.enterpriseError && this.enterpriseEnabled) {
+            if (this.enterpriseStatusCode === 'ERROR' || this.enterpriseError) {
+              this.enterpriseMessageOk = false;
+              this.enterpriseMessage = this.enterpriseError || 'Enterprise activation failed.';
+            } else if (this.enterpriseEnabled && this.enterpriseStatusCode === 'ACTIVE') {
               this.enterpriseLastSyncedAt = new Date().toISOString();
               this.enterpriseMessageOk = true;
               this.enterpriseMessage = 'Enterprise addons are active on this instance.';
-            } else if (this.enterpriseError) {
-              this.enterpriseMessageOk = false;
-              this.enterpriseMessage = this.enterpriseError;
             }
           }
           if (msg.type === 'removed') {
@@ -2588,6 +2600,9 @@ function instanceConsole(instanceId) {
       if (!this.enterpriseSourceAvailable) {
         return 'border-gray-200 bg-gray-100';
       }
+      if (this.enterpriseStatusCode === 'ERROR') {
+        return 'border-red-200 bg-red-50';
+      }
       if (this.enterpriseToggleOn) {
         return this.enterpriseStatusCode === 'PENDING'
           ? 'border-amber-200 bg-amber-50'
@@ -2598,6 +2613,7 @@ function instanceConsole(instanceId) {
 
     enterpriseToggleTrackClass() {
       if (this.enterpriseStatusCode === 'PENDING') return 'bg-amber-400';
+      if (this.enterpriseStatusCode === 'ERROR') return 'bg-red-400';
       if (this.enterpriseToggleOn) return 'bg-emerald-500';
       return this.enterpriseSourceAvailable ? 'bg-gray-300' : 'bg-gray-200';
     },
@@ -2605,6 +2621,7 @@ function instanceConsole(instanceId) {
     enterpriseToggleLabel() {
       if (!this.enterpriseSourceAvailable) return 'No platform source available';
       if (this.enterpriseStatusCode === 'PENDING') return 'Activating Enterprise…';
+      if (this.enterpriseStatusCode === 'ERROR') return 'Activation failed — retry below';
       if (this.enterpriseEnabled) return 'Enterprise is active';
       return 'Slide to activate';
     },
@@ -2625,10 +2642,13 @@ function instanceConsole(instanceId) {
       this.enterpriseBusy = true;
       this.enterpriseMessage = null;
       this.enterpriseToggleOn = true;
+      // Prefer platform source; fall back to user-uploaded source
+      const sourceMode = this.enterpriseActiveSourceName ? 'PLATFORM' : (this.enterpriseUserSourceAvailable ? 'USER' : 'PLATFORM');
       try {
         const res = await fetch(`/deployments/odoo/instances/${this.instanceId}/enterprise/activate/`, {
           method: 'POST',
-          headers: { 'X-CSRFToken': this.getCsrf() },
+          headers: { 'X-CSRFToken': this.getCsrf(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ source_mode: sourceMode }),
         });
         const data = await res.json();
         this.enterpriseMessageOk = res.ok;
