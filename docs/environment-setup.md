@@ -118,3 +118,11 @@ Services started:
    GITHUB_CLIENT_SECRET=...
    ```
 4. Configure in Django admin under **Social Applications**.
+
+
+
+
+COMMANDS
+
+celery -A dafeapp worker -l info
+celery -A dafeapp beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler

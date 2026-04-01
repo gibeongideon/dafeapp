@@ -7,6 +7,7 @@ import socket
 import subprocess
 import tempfile
 import time
+import traceback
 from contextlib import suppress
 from pathlib import Path
 from urllib.parse import quote, urlparse, urlunparse
@@ -17,6 +18,7 @@ from celery import shared_task
 from channels.layers import get_channel_layer
 from django.conf import settings
 from django.core.cache import cache
+from django.core.serializers.json import DjangoJSONEncoder
 from django.utils import timezone
 
 from audit.models import AuditLog
@@ -47,6 +49,11 @@ from deployments.models import (
 logger = logging.getLogger(__name__)
 
 
+def _channel_safe(value):
+    """Convert datetimes and other Django JSON values into msgpack-safe primitives."""
+    return json.loads(json.dumps(value, cls=DjangoJSONEncoder))
+
+
 def _broadcast_server(
     server_id: int,
     step: str,
@@ -64,7 +71,7 @@ def _broadcast_server(
     try:
         async_to_sync(channel_layer.group_send)(
             f"odoo.server.{server_id}",
-            {"type": "server.update", "payload": payload},
+            _channel_safe({"type": "server.update", "payload": payload}),
         )
     except Exception:
         logger.warning("Server broadcast skipped for server %s", server_id, exc_info=True)
@@ -80,13 +87,13 @@ def _broadcast_server_snapshot(server: OdooServer):
             return
         async_to_sync(channel_layer.group_send)(
             f"odoo.server.{server.id}",
-            {
+            _channel_safe({
                 "type": "server.update",
                 "payload": {
                     "type": "snapshot",
                     "server": OdooServerSerializer(server).data,
                 },
-            },
+            }),
         )
     except Exception:
         logger.warning("Server snapshot broadcast skipped for server %s", server.id, exc_info=True)
@@ -109,7 +116,7 @@ def _broadcast_instance(
     try:
         async_to_sync(channel_layer.group_send)(
             f"odoo.instance.{instance_id}",
-            {"type": "instance.update", "payload": payload},
+            _channel_safe({"type": "instance.update", "payload": payload}),
         )
     except Exception:
         logger.warning("Instance broadcast skipped for instance %s", instance_id, exc_info=True)
@@ -128,7 +135,7 @@ def _broadcast_instance_removed(instance_id: int, server_id: int):
     try:
         async_to_sync(channel_layer.group_send)(
             f"odoo.instance.{instance_id}",
-            {"type": "instance.update", "payload": payload},
+            _channel_safe({"type": "instance.update", "payload": payload}),
         )
     except Exception:
         logger.warning("Instance removal broadcast skipped for instance %s", instance_id, exc_info=True)
@@ -161,7 +168,7 @@ def _broadcast_run(run: TerraformRun):
     try:
         async_to_sync(channel_layer.group_send)(
             f"deployments.run.{run.id}",
-            {"type": "deployment.update", "payload": payload},
+            _channel_safe({"type": "deployment.update", "payload": payload}),
         )
     except Exception:
         logger.warning("Channels broadcast skipped: channel layer unavailable.", exc_info=True)
@@ -175,7 +182,7 @@ def _broadcast_log_line(group: str, line: str):
     try:
         async_to_sync(channel_layer.group_send)(
             group,
-            {"type": "log.line", "payload": {"type": "log_line", "line": line.rstrip()}},
+            _channel_safe({"type": "log.line", "payload": {"type": "log_line", "line": line.rstrip()}}),
         )
     except Exception:
         pass
@@ -889,6 +896,17 @@ def _append_text(current: str, msg: str) -> str:
 def _record_instance_progress(instance: OdooInstance, message: str):
     instance.provisioning_log = _append_text(instance.provisioning_log, message)
     instance.save(update_fields=["provisioning_log", "updated_at"])
+
+
+def _record_instance_step(instance: OdooInstance, step: str, detail: str = ""):
+    message = f"[step] {step}"
+    if detail:
+        message = f"{message}\n{detail}"
+    _record_instance_progress(instance, message)
+
+
+def _record_instance_error(instance: OdooInstance, heading: str, detail: str):
+    _record_instance_progress(instance, f"[error] {heading}\n{detail}".strip())
 
 
 def _extract_admin_password(log_blob: str) -> str:
@@ -2511,181 +2529,216 @@ def create_odoo_instance(self, instance_id: int, job_id: int | None = None):
     instance.installation_summary = {}
     instance.installation_summary_text = ""
     instance.save(update_fields=["installation_summary", "installation_summary_text", "updated_at"])
+    try:
+        _record_instance_step(
+            instance,
+            "Celery task accepted",
+            f"instance_id={instance.id}\nserver_id={server.id}\ndeployment_mode={server.deployment_mode}\nserver_ip={server.ip_address or '-'}",
+        )
 
-    if server.status != OdooServer.Status.PROVISIONED or not server.ip_address:
-        logger.error(
-            "Instance %s: server not ready for instance creation (status=%s ip=%s)",
+        if server.status != OdooServer.Status.PROVISIONED or not server.ip_address:
+            logger.error(
+                "Instance %s: server not ready for instance creation (status=%s ip=%s)",
+                instance.id,
+                server.status,
+                server.ip_address,
+            )
+            instance.status = OdooInstance.Status.FAILED
+            msg = f"Server is not ready for instance creation. status={server.status} ip={server.ip_address or '-'}"
+            _record_instance_error(instance, "Server readiness check failed", msg)
+            instance.save(update_fields=["status", "provisioning_log", "updated_at"])
+            _job_done(job_id, ok=False, log=msg)
+            return
+
+        instance.status = OdooInstance.Status.CONFIGURING
+        instance.installation_summary = {}
+        instance.installation_summary_text = ""
+        instance.save(update_fields=["status", "installation_summary", "installation_summary_text", "updated_at"])
+        _record_instance_step(instance, "Starting instance configuration")
+        _broadcast_instance(instance.id, "Starting instance configuration…", instance.status)
+
+        if server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
+            _record_instance_step(instance, "Delegating to Docker deployment flow")
+            _run_docker_instance_create(instance, server, job_id, self.request.id)
+            return
+
+        direct_playbook = os.getenv("ANSIBLE_ODOO_INSTANCE_DIRECT_PLAYBOOK", "").strip() or _default_odoo_instance_direct_playbook()
+        use_direct = True
+        playbook = direct_playbook
+
+        if not Path(playbook).exists():
+            logger.error("Instance %s: instance playbook not found: %s", instance.id, playbook)
+            instance.status = OdooInstance.Status.FAILED
+            msg = f"Instance playbook not found: {playbook}"
+            _record_instance_error(instance, "Playbook lookup failed", msg)
+            instance.save(update_fields=["status", "provisioning_log", "updated_at"])
+            _job_done(job_id, ok=False, log=msg)
+            return
+
+        extra_vars = {
+            "odoo_version": server.odoo_version,
+            "db_name": instance.db_name,
+            "instance_name": instance.name,
+            "http_port": instance.http_port,
+            "restart_policy": instance.restart_policy,
+            "proxy_mode": bool(instance.domain),
+        }
+
+        ws_group = f"odoo.instance.{instance.id}"
+        ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
+        logger.info(
+            "Instance %s: running Ansible playbook %s (direct=%s) against %s",
             instance.id,
-            server.status,
+            playbook,
+            use_direct,
             server.ip_address,
         )
-        instance.status = OdooInstance.Status.FAILED
-        instance.provisioning_log = "Server is not ready for instance creation."
-        instance.save(update_fields=["status", "provisioning_log", "updated_at"])
-        _job_done(job_id, ok=False, log="Server is not ready for instance creation.")
-        return
-
-    instance.status = OdooInstance.Status.CONFIGURING
-    instance.installation_summary = {}
-    instance.installation_summary_text = ""
-    instance.save(update_fields=["status", "installation_summary", "installation_summary_text", "updated_at"])
-    _record_instance_progress(instance, "Starting instance configuration…")
-    _broadcast_instance(instance.id, "Starting instance configuration…", instance.status)
-
-    if server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
-        _run_docker_instance_create(instance, server, job_id, self.request.id)
-        return
-
-    direct_playbook = os.getenv("ANSIBLE_ODOO_INSTANCE_DIRECT_PLAYBOOK", "").strip() or _default_odoo_instance_direct_playbook()
-    use_direct = True
-    playbook = direct_playbook
-
-    if not Path(playbook).exists():
-        logger.error("Instance %s: instance playbook not found: %s", instance.id, playbook)
-        instance.status = OdooInstance.Status.FAILED
-        msg = f"Instance playbook not found: {playbook}"
-        instance.provisioning_log = _append_text(instance.provisioning_log, msg)
-        instance.save(update_fields=["status", "provisioning_log", "updated_at"])
-        _job_done(job_id, ok=False, log=msg)
-        return
-
-    extra_vars = {
-        "odoo_version": server.odoo_version,
-        "db_name": instance.db_name,
-        "instance_name": instance.name,
-        "http_port": instance.http_port,
-        "restart_policy": instance.restart_policy,
-        "proxy_mode": bool(instance.domain),
-    }
-
-    ws_group = f"odoo.instance.{instance.id}"
-    ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
-    logger.info(
-        "Instance %s: running Ansible playbook %s (direct=%s) against %s",
-        instance.id,
-        playbook,
-        use_direct,
-        server.ip_address,
-    )
-    logger.info(
-        "Instance %s: playbook target details: server_ip=%s http_port=%s db_name=%s domain=%s ssh_user=%s",
-        instance.id,
-        server.ip_address,
-        instance.http_port,
-        instance.db_name,
-        instance.domain or "",
-        ssh_user,
-    )
-    playbook_name = playbook.split("/")[-1]
-    _record_instance_progress(instance, f"Running {playbook_name} against {server.ip_address}:{instance.http_port}…")
-    _broadcast_instance(instance.id, f"Running {playbook_name} against {server.ip_address}:{instance.http_port}…", instance.status)
-    try:
-        ok, log_blob = _run_ansible_playbook(
-            playbook,
-            str(server.ip_address),
-            extra_vars,
-            ssh_user=ssh_user,
-            ssh_key_path=ssh_key,
-            ssh_password=ssh_password,
-            on_chunk=lambda line: _broadcast_log_line(ws_group, line),
+        logger.info(
+            "Instance %s: playbook target details: server_ip=%s http_port=%s db_name=%s domain=%s ssh_user=%s",
+            instance.id,
+            server.ip_address,
+            instance.http_port,
+            instance.db_name,
+            instance.domain or "",
+            ssh_user,
         )
-    finally:
-        if tmp_key:
-            os.unlink(tmp_key)
-
-    instance.provisioning_log = f"[ansible instance]\n{log_blob}".strip()
-    summary = {}
-    summary_text = ""
-    domain_message = ""
-    if ok:
-        instance.status = OdooInstance.Status.RUNNING
-        instance.systemd_service = f"odoo-{instance.db_name}"
-        instance.nginx_site = ""
-        instance.ssl_enabled = False
-        if instance.domain:
-            domain_ok, domain_message = _reconcile_instance_domain(instance)
-            if not domain_ok:
-                logger.warning("Instance %s: domain overlay failed: %s", instance.id, domain_message)
-        else:
-            _save_instance_domain_state(
-                instance,
-                domain_status=OdooInstance.DomainStatus.NOT_CONFIGURED,
-                ssl_status=OdooInstance.SSLStatus.NOT_CONFIGURED,
-                ssl_enabled=False,
-                ssl_error="",
-                checked_at=timezone.now(),
-            )
-        summary, summary_text = _store_instance_installation_summary(
+        playbook_name = playbook.split("/")[-1]
+        _record_instance_step(
             instance,
-            server=server,
-            playbook=playbook,
-            ssh_user=ssh_user or "root",
-            use_direct=use_direct,
+            "Running instance playbook",
+            f"playbook={playbook_name}\nserver_ip={server.ip_address}\nhttp_port={instance.http_port}\ndb_name={instance.db_name}\ndomain={instance.domain or '-'}",
         )
-        _initialize_instance_addons_metadata(instance)
-    else:
-        instance.status = OdooInstance.Status.FAILED
-        reachable, message = _probe_server_ssh(server)
-        if not reachable:
-            _persist_server_reachability(server, reachable=False, message=message)
-    instance.provisioning_log = _append_text(
-        instance.provisioning_log,
-        "Instance created successfully — ready." if ok else "Instance creation failed.",
-    )
-    if domain_message:
-        instance.provisioning_log = _append_text(instance.provisioning_log, domain_message)
-    instance.save(
-        update_fields=[
-            "status",
-            "systemd_service",
-            "nginx_site",
-            "ssl_enabled",
-            "domain_status",
-            "domain_last_checked_at",
-            "ssl_status",
-            "ssl_error",
-            "provisioning_log",
-            "addons_root_path",
-            "addons_path_cache",
-            "addons_sync_status",
-            "addons_last_sync_at",
-            "updated_at",
-        ]
-    )
-    access_url = instance.access_url or (f"http://{server.ip_address}:{instance.http_port}" if server.ip_address else "")
-    logger.info(
-        "Instance %s: creation %s (access=%s)",
-        instance.id,
-        "succeeded" if ok else "failed",
-        access_url or "n/a",
-    )
-    _broadcast_instance(
-        instance.id,
-        f"Instance is running — {access_url}" if ok else "Instance creation failed.",
-        instance.status,
-        done=True,
-        log=log_blob,
-        summary={
-            "installation_summary": summary,
-            "installation_summary_text": summary_text,
-        } if ok else None,
-    )
-    _job_done(job_id, ok=ok, log=log_blob)
+        _broadcast_instance(instance.id, f"Running {playbook_name} against {server.ip_address}:{instance.http_port}…", instance.status)
+        try:
+            ok, log_blob = _run_ansible_playbook(
+                playbook,
+                str(server.ip_address),
+                extra_vars,
+                ssh_user=ssh_user,
+                ssh_key_path=ssh_key,
+                ssh_password=ssh_password,
+                on_chunk=lambda line: _broadcast_log_line(ws_group, line),
+            )
+        finally:
+            if tmp_key:
+                os.unlink(tmp_key)
 
-    if ok:
-        OdooInstanceHistory.objects.create(
-            instance=instance,
-            db_name=instance.db_name,
-            domain=instance.domain,
-            http_port=instance.http_port,
-            odoo_version=server.odoo_version,
-            server_ip=server.ip_address,
-            systemd_service=instance.systemd_service,
-            ssl_enabled=instance.ssl_enabled,
-            status=instance.status,
-            note="Created successfully.",
-            deployed_by=instance.created_by,
+        instance.provisioning_log = f"[ansible instance]\n{log_blob}".strip()
+        summary = {}
+        summary_text = ""
+        domain_message = ""
+        if ok:
+            _record_instance_step(instance, "Instance playbook finished", "Base Odoo instance created; applying post-provision steps.")
+            instance.status = OdooInstance.Status.RUNNING
+            instance.systemd_service = f"odoo-{instance.db_name}"
+            instance.nginx_site = ""
+            instance.ssl_enabled = False
+            if instance.domain:
+                _record_instance_step(instance, "Reconciling domain overlay", f"domain={instance.domain}")
+                domain_ok, domain_message = _reconcile_instance_domain(instance)
+                if not domain_ok:
+                    logger.warning("Instance %s: domain overlay failed: %s", instance.id, domain_message)
+                    _record_instance_error(instance, "Domain reconciliation failed", domain_message)
+                elif domain_message:
+                    _record_instance_step(instance, "Domain reconciliation finished", domain_message)
+            else:
+                _save_instance_domain_state(
+                    instance,
+                    domain_status=OdooInstance.DomainStatus.NOT_CONFIGURED,
+                    ssl_status=OdooInstance.SSLStatus.NOT_CONFIGURED,
+                    ssl_enabled=False,
+                    ssl_error="",
+                    checked_at=timezone.now(),
+                )
+            _record_instance_step(instance, "Building installation summary")
+            summary, summary_text = _store_instance_installation_summary(
+                instance,
+                server=server,
+                playbook=playbook,
+                ssh_user=ssh_user or "root",
+                use_direct=use_direct,
+            )
+            _initialize_instance_addons_metadata(instance)
+            _record_instance_step(instance, "Addon metadata initialized")
+        else:
+            instance.status = OdooInstance.Status.FAILED
+            _record_instance_error(instance, "Instance playbook failed", "Check the [ansible instance] section below for the full Ansible output.")
+            reachable, message = _probe_server_ssh(server)
+            if not reachable:
+                _persist_server_reachability(server, reachable=False, message=message)
+                _record_instance_error(instance, "Server reachability check failed", message)
+        instance.provisioning_log = _append_text(
+            instance.provisioning_log,
+            "Instance created successfully — ready." if ok else "Instance creation failed.",
         )
+        if domain_message:
+            instance.provisioning_log = _append_text(instance.provisioning_log, domain_message)
+        instance.save(
+            update_fields=[
+                "status",
+                "systemd_service",
+                "nginx_site",
+                "ssl_enabled",
+                "domain_status",
+                "domain_last_checked_at",
+                "ssl_status",
+                "ssl_error",
+                "provisioning_log",
+                "addons_root_path",
+                "addons_path_cache",
+                "addons_sync_status",
+                "addons_last_sync_at",
+                "updated_at",
+            ]
+        )
+        access_url = instance.access_url or (f"http://{server.ip_address}:{instance.http_port}" if server.ip_address else "")
+        logger.info(
+            "Instance %s: creation %s (access=%s)",
+            instance.id,
+            "succeeded" if ok else "failed",
+            access_url or "n/a",
+        )
+        _broadcast_instance(
+            instance.id,
+            f"Instance is running — {access_url}" if ok else "Instance creation failed.",
+            instance.status,
+            done=True,
+            log=log_blob,
+            summary={
+                "installation_summary": summary,
+                "installation_summary_text": summary_text,
+            } if ok else None,
+        )
+        _job_done(job_id, ok=ok, log=log_blob)
+
+        if ok:
+            OdooInstanceHistory.objects.create(
+                instance=instance,
+                db_name=instance.db_name,
+                domain=instance.domain,
+                http_port=instance.http_port,
+                odoo_version=server.odoo_version,
+                server_ip=server.ip_address,
+                systemd_service=instance.systemd_service,
+                ssl_enabled=instance.ssl_enabled,
+                status=instance.status,
+                note="Created successfully.",
+                deployed_by=instance.created_by,
+            )
+    except Exception:
+        error_log = traceback.format_exc()
+        logger.exception("Instance %s: creation task crashed unexpectedly", instance.id)
+        instance.status = OdooInstance.Status.FAILED
+        _record_instance_error(instance, "Unexpected Celery task error", error_log)
+        instance.save(update_fields=["status", "provisioning_log", "updated_at"])
+        _broadcast_instance(
+            instance.id,
+            "Instance creation crashed.",
+            instance.status,
+            done=True,
+            log=error_log,
+        )
+        _job_done(job_id, ok=False, log=error_log)
 
 
 @shared_task(bind=True, max_retries=0)
@@ -3854,14 +3907,14 @@ def _run_docker_instance_create(instance: OdooInstance, server: OdooServer, job_
     instance.installation_summary = {}
     instance.installation_summary_text = ""
     instance.save(update_fields=["installation_summary", "installation_summary_text", "updated_at"])
-    _record_instance_progress(instance, "Starting Docker instance creation…")
+    _record_instance_step(instance, "Starting Docker instance creation")
 
     playbook = os.getenv("ANSIBLE_DOCKER_INSTANCE_PLAYBOOK", "").strip() or _default_docker_instance_playbook()
     if not Path(playbook).exists():
         logger.error("Instance %s: Docker instance playbook not found: %s", instance.id, playbook)
         instance.status = OdooInstance.Status.FAILED
         msg = f"Docker instance playbook not found: {playbook}"
-        instance.provisioning_log = _append_text(instance.provisioning_log, msg)
+        _record_instance_error(instance, "Docker playbook lookup failed", msg)
         instance.save(update_fields=["status", "provisioning_log", "updated_at"])
         _job_done(job_id, ok=False, log=msg)
         return
@@ -3889,7 +3942,11 @@ def _run_docker_instance_create(instance: OdooInstance, server: OdooServer, job_
         ssh_user,
     )
     playbook_name = playbook.split("/")[-1]
-    _record_instance_progress(instance, f"Running {playbook_name} for {instance.domain or instance.db_name}…")
+    _record_instance_step(
+        instance,
+        "Running Docker playbook",
+        f"playbook={playbook_name}\nserver_ip={server.ip_address}\ndomain={instance.domain or '-'}\ndb_name={instance.db_name}",
+    )
     _broadcast_instance(instance.id, "Running Docker instance creation playbook…", instance.status)
     try:
         ok, log_blob = _run_ansible_playbook(
@@ -3910,12 +3967,17 @@ def _run_docker_instance_create(instance: OdooInstance, server: OdooServer, job_
     summary_text = ""
     domain_message = ""
     if ok:
+        _record_instance_step(instance, "Docker playbook finished", "Container setup completed; applying domain configuration.")
         instance.container_name = container_name
         instance.status = OdooInstance.Status.RUNNING
         if instance.domain:
+            _record_instance_step(instance, "Reconciling domain overlay", f"domain={instance.domain}")
             domain_ok, domain_message = _reconcile_instance_domain(instance)
             if not domain_ok:
                 logger.warning("Docker instance %s domain setup failed: %s", instance.id, domain_message)
+                _record_instance_error(instance, "Domain reconciliation failed", domain_message)
+            elif domain_message:
+                _record_instance_step(instance, "Domain reconciliation finished", domain_message)
         else:
             _save_instance_domain_state(
                 instance,
@@ -3933,11 +3995,14 @@ def _run_docker_instance_create(instance: OdooInstance, server: OdooServer, job_
             use_direct=False,
         )
         _initialize_instance_addons_metadata(instance)
+        _record_instance_step(instance, "Addon metadata initialized")
     else:
         instance.status = OdooInstance.Status.FAILED
+        _record_instance_error(instance, "Docker playbook failed", "Check the [docker create] section below for the full Ansible output.")
         reachable, message = _probe_server_ssh(server)
         if not reachable:
             _persist_server_reachability(server, reachable=False, message=message)
+            _record_instance_error(instance, "Server reachability check failed", message)
     instance.provisioning_log = _append_text(
         instance.provisioning_log,
         "Docker instance created successfully — ready." if ok else "Docker instance creation failed.",
