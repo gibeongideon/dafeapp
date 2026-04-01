@@ -83,10 +83,12 @@ from deployments.tasks import (
     provision_odoo_server,
     refresh_instance_addons,
     remove_instance_repo,
+    restart_odoo_instance,
     rollback_odoo_instance,
     rollback_instance_repo,
     sync_instance_repo_status,
     terraform_apply_instance,
+    update_instance_modules_all,
     update_instance_repo,
 )
 from subscriptions.exceptions import SubscriptionError, SubscriptionLimitError
@@ -3226,6 +3228,134 @@ class OdooInstanceHealthCheckView(LoginRequiredMixin, View):
             "last_health_check": now.isoformat(),
             "url_probed": url,
         })
+
+
+class OdooInstanceCommandsAPIView(LoginRequiredMixin, View):
+    """GET /api/deployments/odoo/instances/<id>/commands/ — generated shell commands for this instance."""
+
+    def get(self, request, instance_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if request.org_role not in ("SUPER_ADMIN", "ADMIN", "MANAGER"):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        instance = get_object_or_404(
+            OdooInstance.objects.select_related(
+                "server",
+                "server__infrastructure",
+                "server__infrastructure__external_server",
+            ),
+            pk=instance_id,
+            organization=org,
+        )
+        if instance.status == OdooInstance.Status.DELETED:
+            return JsonResponse({"error": "Instance is deleted."}, status=400)
+
+        from deployments.tasks import _instance_shell_commands
+        commands = _instance_shell_commands(instance)
+        return JsonResponse({"commands": commands})
+
+
+class OdooInstanceUpdateModulesAPIView(LoginRequiredMixin, View):
+    """POST /api/deployments/odoo/instances/<id>/maintenance/update-modules/ — update all Odoo modules."""
+
+    def post(self, request, instance_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if request.org_role not in ("SUPER_ADMIN", "ADMIN", "MANAGER"):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        instance = get_object_or_404(
+            OdooInstance.objects.select_related("server"),
+            pk=instance_id,
+            organization=org,
+        )
+        if instance.status == OdooInstance.Status.DELETED:
+            return JsonResponse({"error": "Instance is deleted."}, status=400)
+        if not instance.server.is_reachable:
+            return JsonResponse(
+                {"error": "Server is not reachable. Check connectivity before running updates."},
+                status=409,
+            )
+        lock_reason = _instance_mutation_lock_reason(instance)
+        if lock_reason:
+            return JsonResponse({"error": lock_reason}, status=409)
+
+        job = DeploymentJob.objects.create(
+            organization=org,
+            job_type=DeploymentJob.JobType.UPDATE_MODULES_ALL,
+            odoo_instance=instance,
+            odoo_server=instance.server,
+            created_by=request.user,
+        )
+        _dispatch(update_instance_modules_all, instance.id, job.id)
+
+        try:
+            from audit.models import AuditLog
+            AuditLog.objects.create(
+                user=request.user,
+                organization=org,
+                action=AuditLog.Action.ODOO_UPDATE_MODULES,
+                description=f"Queued update all modules for instance {instance.name!r}",
+                ip_address=request.META.get("REMOTE_ADDR"),
+                user_agent=request.META.get("HTTP_USER_AGENT", "")[:500],
+                metadata={"instance_id": instance.id, "job_id": job.id},
+            )
+        except Exception:
+            pass
+
+        return JsonResponse({"ok": True, "job_id": job.id})
+
+
+class OdooInstanceRestartAPIView(LoginRequiredMixin, View):
+    """POST /api/deployments/odoo/instances/<id>/maintenance/restart/ — restart the Odoo service."""
+
+    def post(self, request, instance_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if request.org_role not in ("SUPER_ADMIN", "ADMIN", "MANAGER"):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        instance = get_object_or_404(
+            OdooInstance.objects.select_related("server"),
+            pk=instance_id,
+            organization=org,
+        )
+        if instance.status == OdooInstance.Status.DELETED:
+            return JsonResponse({"error": "Instance is deleted."}, status=400)
+        if not instance.server.is_reachable:
+            return JsonResponse({"error": "Server is not reachable."}, status=409)
+        lock_reason = _instance_mutation_lock_reason(instance)
+        if lock_reason:
+            return JsonResponse({"error": lock_reason}, status=409)
+
+        job = DeploymentJob.objects.create(
+            organization=org,
+            job_type=DeploymentJob.JobType.RESTART_INSTANCE,
+            odoo_instance=instance,
+            odoo_server=instance.server,
+            created_by=request.user,
+        )
+        _dispatch(restart_odoo_instance, instance.id, job.id)
+
+        try:
+            from audit.models import AuditLog
+            AuditLog.objects.create(
+                user=request.user,
+                organization=org,
+                action=AuditLog.Action.ODOO_RESTART_INSTANCE,
+                description=f"Queued restart for instance {instance.name!r}",
+                ip_address=request.META.get("REMOTE_ADDR"),
+                user_agent=request.META.get("HTTP_USER_AGENT", "")[:500],
+                metadata={"instance_id": instance.id, "job_id": job.id},
+            )
+        except Exception:
+            pass
+
+        return JsonResponse({"ok": True, "job_id": job.id})
 
 
 class ServerSSHKeyListCreateAPIView(LoginRequiredMixin, View):

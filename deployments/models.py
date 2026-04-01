@@ -747,6 +747,9 @@ class DeploymentJob(models.Model):
         ACTIVATE_ENTERPRISE = "ACTIVATE_ENTERPRISE", "Activate Enterprise"
         ROLLBACK_INSTANCE_REPO = "ROLLBACK_INSTANCE_REPO", "Rollback Instance Repo"
         AUTO_SYNC_INSTANCE_REPOS = "AUTO_SYNC_INSTANCE_REPOS", "Auto Sync Instance Repos"
+        UPDATE_MODULES_ALL = "UPDATE_MODULES_ALL", "Update All Modules"
+        UPDATE_MODULES_SELECTED = "UPDATE_MODULES_SELECTED", "Update Selected Modules"
+        RESTART_INSTANCE = "RESTART_INSTANCE", "Restart Instance"
 
     class Status(models.TextChoices):
         QUEUED = "QUEUED", "Queued"

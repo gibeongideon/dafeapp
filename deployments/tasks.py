@@ -4321,3 +4321,229 @@ def deploy_server_ssh_key(self, ssh_key_id: int):
     key_obj.deployed = ok
     key_obj.save(update_fields=["deployed"])
     logger.info("deploy_server_ssh_key #%s: ok=%s", ssh_key_id, ok)
+
+
+# ---------------------------------------------------------------------------
+# Instance maintenance helpers and tasks
+# ---------------------------------------------------------------------------
+
+def _instance_shell_commands(instance: OdooInstance) -> dict:
+    """
+    Generate instance-specific shell commands for the UI Commands modal.
+    Returns a dict with keys: ssh, odoo_shell, update_all_modules,
+    restart_service, tail_logs, pip_install.
+    """
+    runtime = _instance_runtime_context(instance)
+    server = instance.server
+    db = shlex.quote(instance.db_name)
+    service_user = runtime.get("service_user") or "odoo"
+
+    # SSH access command
+    host, port = _odoo_server_ssh_target(server)
+    if host:
+        infra = getattr(server, "infrastructure", None)
+        if infra and infra.infra_type == Infrastructure.InfraType.PYOS and infra.external_server:
+            ext = infra.external_server
+            ssh_user = ext.username or "root"
+        else:
+            ssh_user = os.getenv("ANSIBLE_SSH_USER", "root").strip() or "root"
+        port_flag = f" -p {port}" if port and port != 22 else ""
+        ssh_cmd = f"ssh {ssh_user}@{host}{port_flag}"
+    else:
+        ssh_cmd = ""
+
+    if runtime["mode"] == "docker":
+        container = shlex.quote(runtime.get("container_name", ""))
+        odoo_shell_cmd = f"docker exec -it {container} odoo shell -c /etc/odoo/odoo.conf -d {db} --no-http"
+        update_cmd = (
+            f"docker exec {container} odoo -c /etc/odoo/odoo.conf -d {db} "
+            f"-u all --stop-after-init --no-http"
+        )
+        restart_cmd = runtime["restart_command"]
+        tail_cmd = f"docker logs -f {container}"
+        pip_cmd = ""
+    else:
+        odoo_bin = runtime.get("odoo_bin", "odoo-bin")
+        config = shlex.quote(runtime.get("config_file", ""))
+
+        shell_inner = f"{odoo_bin} shell -c {config} -d {db} --no-http"
+        odoo_shell_cmd = f"su -s /bin/bash {shlex.quote(service_user)} -c {shlex.quote(shell_inner)}"
+
+        update_inner = f"{odoo_bin} -c {config} -d {db} -u all --stop-after-init --no-http"
+        update_cmd = f"su -s /bin/bash {shlex.quote(service_user)} -c {shlex.quote(update_inner)}"
+
+        restart_cmd = runtime["restart_command"]
+        service = shlex.quote(instance.systemd_service or f"odoo-{instance.db_name}")
+        tail_cmd = f"journalctl -u {service} -f --output cat"
+
+        summary = instance.installation_summary or {}
+        if runtime["mode"] == "bare_direct":
+            venv = summary.get("venv_dir") or f"/odoo/instances/{instance.db_name}/venv"
+        else:
+            odoo_version = server.odoo_version or ""
+            odoo_home = f"/opt/odoo{odoo_version}"
+            venv = summary.get("venv_dir") or f"{odoo_home}/venv"
+        pip_cmd = f"{venv}/bin/pip install <package_name>"
+
+    return {
+        "ssh": ssh_cmd,
+        "odoo_shell": odoo_shell_cmd,
+        "update_all_modules": update_cmd,
+        "restart_service": restart_cmd,
+        "tail_logs": tail_cmd,
+        "pip_install": pip_cmd,
+    }
+
+
+@shared_task(bind=True, max_retries=0)
+def update_instance_modules_all(self, instance_id: int, job_id: int | None = None):
+    """
+    Update all Odoo modules for a bare-metal or Docker instance.
+    Runs odoo-bin -u all --stop-after-init --no-http, restarts the service,
+    then performs a health check. Progress is streamed over WebSocket.
+    """
+    import urllib.request
+
+    instance = OdooInstance.objects.select_related(
+        "organization",
+        "server",
+        "server__infrastructure",
+        "server__infrastructure__external_server",
+    ).get(pk=instance_id)
+    server = instance.server
+
+    _job_start(job_id, self.request.id)
+    ws_group = f"odoo.instance.{instance_id}"
+    log_parts: list[str] = []
+
+    def on_line(line: str):
+        log_parts.append(line)
+        _broadcast_log_line(ws_group, line)
+
+    try:
+        if not server.ip_address:
+            raise RuntimeError("Server has no IP address; cannot run module update.")
+
+        runtime = _instance_runtime_context(instance)
+        db = shlex.quote(instance.db_name)
+        service_user = runtime.get("service_user") or "odoo"
+
+        _broadcast_instance(instance_id, "update_modules", "RUNNING", log="Starting module update…")
+        on_line("=== Update All Modules ===")
+
+        if runtime["mode"] == "docker":
+            container = shlex.quote(runtime.get("container_name", ""))
+            update_cmd = (
+                f"docker exec {container} odoo -c /etc/odoo/odoo.conf -d {db} "
+                f"-u all --stop-after-init --no-http"
+            )
+        else:
+            odoo_bin = runtime.get("odoo_bin", "odoo-bin")
+            config = shlex.quote(runtime.get("config_file", ""))
+            inner = f"{odoo_bin} -c {config} -d {db} -u all --stop-after-init --no-http"
+            update_cmd = f"su -s /bin/bash {shlex.quote(service_user)} -c {shlex.quote(inner)}"
+
+        on_line(f"Command: {update_cmd}")
+        code, output = _ssh_run(server, update_cmd, on_line=on_line, timeout=3600)
+        log_parts.append(output)
+        if code != 0:
+            raise RuntimeError(output or "Module update command returned non-zero exit code.")
+
+        on_line("=== Restarting Service ===")
+        restart_cmd = runtime["restart_command"]
+        r_code, r_output = _ssh_run(server, restart_cmd, on_line=on_line, timeout=60)
+        log_parts.append(r_output)
+        if r_code != 0:
+            on_line(f"Warning: service restart returned exit code {r_code}; continuing…")
+
+        on_line("=== Health Check ===")
+        time.sleep(5)
+        health_url = f"http://{server.ip_address}:{instance.http_port}/web/health"
+        try:
+            with urllib.request.urlopen(health_url, timeout=30) as resp:
+                healthy = resp.status == 200
+        except Exception:
+            healthy = False
+        instance.is_reachable = healthy
+        instance.last_health_check = timezone.now()
+        instance.save(update_fields=["is_reachable", "last_health_check", "updated_at"])
+        on_line("Health check passed." if healthy else "Health check failed — instance may still be starting.")
+
+        full_log = "\n".join(log_parts)
+        _job_done(job_id, ok=True, log=full_log)
+        _broadcast_instance(
+            instance_id, "update_modules", "DONE", done=True,
+            log="All modules updated successfully." + (" Health OK." if healthy else ""),
+        )
+
+    except Exception as exc:
+        full_log = "\n".join(log_parts) + f"\nError: {exc}\n{traceback.format_exc()}"
+        _job_done(job_id, ok=False, log=full_log)
+        _broadcast_instance(instance_id, "update_modules", "FAILED", done=True, log=str(exc))
+        logger.exception("update_instance_modules_all failed for instance %s", instance_id)
+
+
+@shared_task(bind=True, max_retries=0)
+def restart_odoo_instance(self, instance_id: int, job_id: int | None = None):
+    """
+    Restart the Odoo service for an instance, then run a health check.
+    Progress is streamed over WebSocket.
+    """
+    import urllib.request
+
+    instance = OdooInstance.objects.select_related(
+        "organization",
+        "server",
+        "server__infrastructure",
+        "server__infrastructure__external_server",
+    ).get(pk=instance_id)
+    server = instance.server
+
+    _job_start(job_id, self.request.id)
+    ws_group = f"odoo.instance.{instance_id}"
+    log_parts: list[str] = []
+
+    def on_line(line: str):
+        log_parts.append(line)
+        _broadcast_log_line(ws_group, line)
+
+    try:
+        if not server.ip_address:
+            raise RuntimeError("Server has no IP address; cannot restart service.")
+
+        runtime = _instance_runtime_context(instance)
+        restart_cmd = runtime["restart_command"]
+
+        _broadcast_instance(instance_id, "restart", "RUNNING", log="Restarting instance…")
+        on_line(f"=== Restart Service ===")
+        on_line(f"Command: {restart_cmd}")
+        code, output = _ssh_run(server, restart_cmd, on_line=on_line, timeout=60)
+        log_parts.append(output)
+        if code != 0:
+            raise RuntimeError(output or "Service restart returned non-zero exit code.")
+
+        on_line("=== Health Check ===")
+        time.sleep(5)
+        health_url = f"http://{server.ip_address}:{instance.http_port}/web/health"
+        try:
+            with urllib.request.urlopen(health_url, timeout=30) as resp:
+                healthy = resp.status == 200
+        except Exception:
+            healthy = False
+        instance.is_reachable = healthy
+        instance.last_health_check = timezone.now()
+        instance.save(update_fields=["is_reachable", "last_health_check", "updated_at"])
+        on_line("Health check passed." if healthy else "Health check failed — instance may still be starting.")
+
+        full_log = "\n".join(log_parts)
+        _job_done(job_id, ok=True, log=full_log)
+        _broadcast_instance(
+            instance_id, "restart", "DONE", done=True,
+            log="Instance restarted." + (" Health OK." if healthy else " (Health check failed.)"),
+        )
+
+    except Exception as exc:
+        full_log = "\n".join(log_parts) + f"\nError: {exc}\n{traceback.format_exc()}"
+        _job_done(job_id, ok=False, log=full_log)
+        _broadcast_instance(instance_id, "restart", "FAILED", done=True, log=str(exc))
+        logger.exception("restart_odoo_instance failed for instance %s", instance_id)

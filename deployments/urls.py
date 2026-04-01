@@ -52,4 +52,8 @@ urlpatterns = [
     # SSH keys
     path("odoo/servers/<int:server_id>/ssh-keys/", views.ServerSSHKeyListCreateAPIView.as_view(), name="server-ssh-keys"),
     path("odoo/servers/<int:server_id>/ssh-keys/<int:key_id>/delete/", views.ServerSSHKeyDeleteAPIView.as_view(), name="server-ssh-key-delete"),
+    # Instance maintenance
+    path("odoo/instances/<int:instance_id>/commands/", views.OdooInstanceCommandsAPIView.as_view(), name="odoo-instance-commands"),
+    path("odoo/instances/<int:instance_id>/maintenance/update-modules/", views.OdooInstanceUpdateModulesAPIView.as_view(), name="odoo-instance-update-modules"),
+    path("odoo/instances/<int:instance_id>/maintenance/restart/", views.OdooInstanceRestartAPIView.as_view(), name="odoo-instance-restart"),
 ]

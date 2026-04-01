@@ -892,6 +892,181 @@
            x-text="rollbackMsg"></div>
     </div>
 
+    <!-- ── Tab: Operations ── -->
+    <div x-show="activeTab === 'operations'" class="p-5 space-y-6">
+
+      <!-- Lock warning -->
+      <div x-show="instanceActionsLocked()"
+           class="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        <svg class="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+          <path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/>
+        </svg>
+        <span x-text="instanceActionLockReason()"></span>
+      </div>
+
+      <!-- ── Action Cards ── -->
+      <div>
+        <h3 class="text-sm font-semibold text-gray-800 mb-3">Maintenance Actions</h3>
+        <div class="grid gap-4 sm:grid-cols-2">
+
+          <!-- Update All Modules -->
+          <div class="rounded-xl border border-gray-200 bg-white p-5 flex flex-col gap-3">
+            <div class="flex items-start gap-3">
+              <div class="mt-0.5 rounded-lg bg-blue-50 p-2">
+                <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+              </div>
+              <div>
+                <p class="text-sm font-semibold text-gray-900">Update All Modules</p>
+                <p class="text-xs text-gray-500 mt-0.5">Runs <code class="font-mono bg-gray-100 px-1 rounded">-u all --stop-after-init</code>, restarts service and runs a health check.</p>
+              </div>
+            </div>
+            <button @click="updateModules()"
+                    :disabled="updateModulesLoading || instanceActionsLocked()"
+                    class="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition">
+              <svg x-show="updateModulesLoading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+              </svg>
+              <span x-text="updateModulesLoading ? 'Queuing…' : 'Run Update'"></span>
+            </button>
+            <div x-show="updateModulesMsg"
+                 :class="updateModulesOk ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'"
+                 class="rounded-lg border px-3 py-2 text-xs"
+                 x-text="updateModulesMsg"></div>
+          </div>
+
+          <!-- Restart Instance -->
+          <div class="rounded-xl border border-gray-200 bg-white p-5 flex flex-col gap-3">
+            <div class="flex items-start gap-3">
+              <div class="mt-0.5 rounded-lg bg-orange-50 p-2">
+                <svg class="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/>
+                </svg>
+              </div>
+              <div>
+                <p class="text-sm font-semibold text-gray-900">Restart Instance</p>
+                <p class="text-xs text-gray-500 mt-0.5">Restarts the Odoo service and runs a health check. The instance will be briefly unavailable.</p>
+              </div>
+            </div>
+            <button @click="restartInstance()"
+                    :disabled="restartLoading || instanceActionsLocked()"
+                    class="inline-flex items-center justify-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition">
+              <svg x-show="restartLoading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+              </svg>
+              <span x-text="restartLoading ? 'Queuing…' : 'Restart'"></span>
+            </button>
+            <div x-show="restartMsg"
+                 :class="restartOk ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'"
+                 class="rounded-lg border px-3 py-2 text-xs"
+                 x-text="restartMsg"></div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ── Shell Commands ── -->
+      <div>
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-sm font-semibold text-gray-800">Shell Commands</h3>
+          <button @click="loadCommands()"
+                  :disabled="commandsLoading"
+                  class="text-xs text-blue-600 hover:underline disabled:opacity-50">
+            <span x-text="commandsLoading ? 'Loading…' : (commands ? 'Refresh' : 'Load Commands')"></span>
+          </button>
+        </div>
+
+        <div x-show="!commands && !commandsLoading"
+             class="rounded-lg border border-dashed border-gray-200 bg-gray-50 py-8 text-center text-sm text-gray-400">
+          Click <span class="font-medium text-gray-600">Load Commands</span> to generate instance-specific shell commands.
+        </div>
+
+        <div x-show="commandsLoading" class="text-center py-8 text-sm text-gray-400">Generating commands…</div>
+
+        <template x-if="commands">
+          <div class="space-y-3">
+
+            <!-- SSH -->
+            <template x-if="commands.ssh">
+              <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <div class="flex items-center justify-between mb-1.5">
+                  <p class="text-xs font-semibold text-gray-600 uppercase tracking-wide">SSH Access</p>
+                  <button @click="copyCommand(commands.ssh)"
+                          class="text-xs text-blue-600 hover:underline">Copy</button>
+                </div>
+                <pre class="font-mono text-xs text-gray-800 whitespace-pre-wrap break-all" x-text="commands.ssh"></pre>
+              </div>
+            </template>
+
+            <!-- Odoo Shell -->
+            <template x-if="commands.odoo_shell">
+              <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <div class="flex items-center justify-between mb-1.5">
+                  <p class="text-xs font-semibold text-gray-600 uppercase tracking-wide">Odoo Shell</p>
+                  <button @click="copyCommand(commands.odoo_shell)"
+                          class="text-xs text-blue-600 hover:underline">Copy</button>
+                </div>
+                <pre class="font-mono text-xs text-gray-800 whitespace-pre-wrap break-all" x-text="commands.odoo_shell"></pre>
+              </div>
+            </template>
+
+            <!-- Update All Modules -->
+            <template x-if="commands.update_all_modules">
+              <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <div class="flex items-center justify-between mb-1.5">
+                  <p class="text-xs font-semibold text-gray-600 uppercase tracking-wide">Update All Modules (manual)</p>
+                  <button @click="copyCommand(commands.update_all_modules)"
+                          class="text-xs text-blue-600 hover:underline">Copy</button>
+                </div>
+                <pre class="font-mono text-xs text-gray-800 whitespace-pre-wrap break-all" x-text="commands.update_all_modules"></pre>
+              </div>
+            </template>
+
+            <!-- Restart Service -->
+            <template x-if="commands.restart_service">
+              <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <div class="flex items-center justify-between mb-1.5">
+                  <p class="text-xs font-semibold text-gray-600 uppercase tracking-wide">Restart Service (manual)</p>
+                  <button @click="copyCommand(commands.restart_service)"
+                          class="text-xs text-blue-600 hover:underline">Copy</button>
+                </div>
+                <pre class="font-mono text-xs text-gray-800 whitespace-pre-wrap break-all" x-text="commands.restart_service"></pre>
+              </div>
+            </template>
+
+            <!-- Tail Logs -->
+            <template x-if="commands.tail_logs">
+              <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <div class="flex items-center justify-between mb-1.5">
+                  <p class="text-xs font-semibold text-gray-600 uppercase tracking-wide">Tail Logs</p>
+                  <button @click="copyCommand(commands.tail_logs)"
+                          class="text-xs text-blue-600 hover:underline">Copy</button>
+                </div>
+                <pre class="font-mono text-xs text-gray-800 whitespace-pre-wrap break-all" x-text="commands.tail_logs"></pre>
+              </div>
+            </template>
+
+            <!-- Pip Install -->
+            <template x-if="commands.pip_install">
+              <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <div class="flex items-center justify-between mb-1.5">
+                  <p class="text-xs font-semibold text-gray-600 uppercase tracking-wide">Pip Install (template)</p>
+                  <button @click="copyCommand(commands.pip_install)"
+                          class="text-xs text-blue-600 hover:underline">Copy</button>
+                </div>
+                <pre class="font-mono text-xs text-gray-800 whitespace-pre-wrap break-all" x-text="commands.pip_install"></pre>
+              </div>
+            </template>
+
+          </div>
+        </template>
+      </div>
+
+    </div><!-- /operations tab -->
+
   </div><!-- /card -->
 </div><!-- /max-w -->
 
@@ -901,11 +1076,12 @@ function instanceConsole(instanceId) {
     instanceId,
     activeTab: 'overview',
     tabs: [
-      { id: 'overview', label: 'Overview' },
-      { id: 'addons',   label: 'Addons' },
-      { id: 'jobs',     label: 'Jobs' },
-      { id: 'logs',     label: 'Live Logs' },
-      { id: 'history',  label: 'History' },
+      { id: 'overview',    label: 'Overview' },
+      { id: 'addons',      label: 'Addons' },
+      { id: 'jobs',        label: 'Jobs' },
+      { id: 'logs',        label: 'Live Logs' },
+      { id: 'history',     label: 'History' },
+      { id: 'operations',  label: 'Operations' },
     ],
 
     // Status
@@ -997,6 +1173,17 @@ function instanceConsole(instanceId) {
     enterpriseToggleOn: false,
     showEnterpriseDetails: false,
 
+    // Operations
+    commands: null,
+    commandsLoading: false,
+    showCommandsModal: false,
+    updateModulesLoading: false,
+    updateModulesOk: false,
+    updateModulesMsg: null,
+    restartLoading: false,
+    restartOk: false,
+    restartMsg: null,
+
     // ── Init ──
     init() {
       this.resetRepoForm();
@@ -1016,6 +1203,7 @@ function instanceConsole(instanceId) {
       if (tabId === 'jobs') this.loadJobs();
       if (tabId === 'history') this.loadHistory();
       if (tabId === 'addons') this.loadRepos();
+      if (tabId === 'operations') this.loadCommands();
       if (tabId === 'logs') {
         this.startRuntimeLogPolling();
       } else {
@@ -2563,6 +2751,77 @@ function instanceConsole(instanceId) {
       } finally {
         this.rollbackLoading = null;
       }
+    },
+
+    // ── Operations ──
+    async loadCommands() {
+      this.commandsLoading = true;
+      try {
+        const res  = await fetch(`/deployments/odoo/instances/${this.instanceId}/commands/`);
+        const data = await res.json();
+        this.commands = res.ok ? (data.commands ?? null) : null;
+      } catch (_) {
+        this.commands = null;
+      } finally {
+        this.commandsLoading = false;
+      }
+    },
+
+    async updateModules() {
+      if (this.instanceActionsLocked()) {
+        this.updateModulesOk  = false;
+        this.updateModulesMsg = this.instanceActionLockReason();
+        return;
+      }
+      if (!confirm('Update all Odoo modules? This will restart the service and may take several minutes.')) return;
+      this.updateModulesLoading = true;
+      this.updateModulesMsg     = null;
+      try {
+        const res  = await fetch(`/deployments/odoo/instances/${this.instanceId}/maintenance/update-modules/`, {
+          method: 'POST',
+          headers: { 'X-CSRFToken': this.getCsrf() },
+        });
+        const data = await res.json();
+        this.updateModulesOk  = res.ok;
+        this.updateModulesMsg = data.error ?? (res.ok ? 'Update queued — watch the Jobs tab for progress.' : 'Failed to queue update.');
+        if (res.ok) { this.loadJobs(); this.activeTab = 'jobs'; }
+      } catch (err) {
+        this.updateModulesOk  = false;
+        this.updateModulesMsg = 'Network error: ' + err.message;
+      } finally {
+        this.updateModulesLoading = false;
+      }
+    },
+
+    async restartInstance() {
+      if (this.instanceActionsLocked()) {
+        this.restartOk  = false;
+        this.restartMsg = this.instanceActionLockReason();
+        return;
+      }
+      if (!confirm('Restart this Odoo instance? The service will be briefly unavailable.')) return;
+      this.restartLoading = true;
+      this.restartMsg     = null;
+      try {
+        const res  = await fetch(`/deployments/odoo/instances/${this.instanceId}/maintenance/restart/`, {
+          method: 'POST',
+          headers: { 'X-CSRFToken': this.getCsrf() },
+        });
+        const data = await res.json();
+        this.restartOk  = res.ok;
+        this.restartMsg = data.error ?? (res.ok ? 'Restart queued — watch the Jobs tab for progress.' : 'Failed to queue restart.');
+        if (res.ok) { this.loadJobs(); this.activeTab = 'jobs'; }
+      } catch (err) {
+        this.restartOk  = false;
+        this.restartMsg = 'Network error: ' + err.message;
+      } finally {
+        this.restartLoading = false;
+      }
+    },
+
+    copyCommand(text) {
+      if (!text) return;
+      navigator.clipboard.writeText(text).catch(() => {});
     },
 
     // ── Helpers ──

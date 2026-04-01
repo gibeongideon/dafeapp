@@ -26,6 +26,9 @@ class AuditLog(models.Model):
         CLOUD_ACCT_VERIFY = "cloud_acct_verify", "Cloud Account Verified"
         DROPLET_PROVISION = "droplet_provision", "Droplet Provisioned"
         DROPLET_DESTROY = "droplet_destroy", "Droplet Destroyed"
+        # Odoo instance maintenance actions
+        ODOO_UPDATE_MODULES = "odoo_update_modules", "Odoo Update Modules"
+        ODOO_RESTART_INSTANCE = "odoo_restart_instance", "Odoo Restart Instance"
         # VCS / social auth actions
         SOCIAL_LOGIN = "social_login", "Social Login"
         VCS_CONNECT = "vcs_connect", "VCS Account Connected"
