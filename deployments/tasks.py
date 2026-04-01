@@ -1366,8 +1366,12 @@ def _server_enterprise_shared_path(server: OdooServer) -> str:
     Canonical path for the Enterprise shared directory on a server.
     All instances on this server copy from here instead of from the DafeApp host.
     """
-    if server.enterprise_shared_path:
-        return server.enterprise_shared_path
+    stored = server.enterprise_shared_path
+    # Reject any stored path that is actually on the DafeApp host filesystem —
+    # this can happen if a previous run accidentally stored source.addons_source_path.
+    dafeapp_root = str(settings.BASE_DIR)
+    if stored and not stored.startswith(dafeapp_root):
+        return stored
     summary = server.installation_summary or {}
     odoo_home = summary.get("odoo_home") or f"/opt/odoo{server.odoo_version}"
     return f"{odoo_home}/enterprise_shared"
@@ -1390,11 +1394,17 @@ def _sync_enterprise_to_server(
     """
     release_code = (source.release_code or "").strip()
 
-    # Already up-to-date: skip the network transfer
+    # Already up-to-date: skip the network transfer.
+    # Also guard against a stored path that is on the DafeApp host (not the server).
+    dafeapp_root = str(settings.BASE_DIR)
+    shared_path_ok = bool(
+        server.enterprise_shared_path
+        and not server.enterprise_shared_path.startswith(dafeapp_root)
+    )
     if (
         release_code
         and server.enterprise_shared_release_code == release_code
-        and server.enterprise_shared_path
+        and shared_path_ok
     ):
         msg = f"Server already has Enterprise release {release_code} at {server.enterprise_shared_path} — skipping upload."
         if on_line:
