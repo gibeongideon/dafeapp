@@ -1183,10 +1183,40 @@ def _active_instances_for_server(server: OdooServer):
     return server.instances.exclude(status=OdooInstance.Status.DELETED)
 
 
+def _remote_used_ports(server: OdooServer) -> set[int]:
+    if not server.ip_address:
+        return set()
+
+    from deployments.tasks import _ssh_run
+
+    command = f"""
+for port in $(seq {int(server.min_port)} {int(server.max_port)}); do
+  if ss -ltn "( sport = :$port )" 2>/dev/null | tail -n +2 | grep -q .; then
+    echo "$port"
+  fi
+done
+""".strip()
+    try:
+        code, output = _ssh_run(server, command, timeout=60)
+    except Exception:
+        logger.warning("Remote port scan failed for server %s", server.id, exc_info=True)
+        return set()
+
+    if code != 0:
+        logger.warning("Remote port scan returned %s for server %s: %s", code, server.id, output)
+        return set()
+
+    used: set[int] = set()
+    for line in (output or "").splitlines():
+        candidate = (line or "").strip()
+        if candidate.isdigit():
+            used.add(int(candidate))
+    return used
+
+
 def _next_available_port(server: OdooServer) -> int | None:
-    used = set(
-        _active_instances_for_server(server).values_list("http_port", flat=True)
-    )
+    used = set(_active_instances_for_server(server).values_list("http_port", flat=True))
+    used.update(_remote_used_ports(server))
     for port in range(server.min_port, server.max_port + 1):
         if port not in used:
             return port
@@ -1774,13 +1804,20 @@ class OdooInstanceCreateAPIView(LoginRequiredMixin, View):
         if custom_domain and _domain_in_use(org, custom_domain):
             return JsonResponse({"error": "Custom domain is already used by another instance."}, status=400)
 
-        port = int(port_raw) if port_raw else _next_available_port(server)
+        remote_used_ports: set[int] = set()
+        if port_raw:
+            port = int(port_raw)
+            remote_used_ports = _remote_used_ports(server)
+        else:
+            port = _next_available_port(server)
         if port is None:
             return JsonResponse({"error": "No available port on this server."}, status=400)
         if port < server.min_port or port > server.max_port:
             return JsonResponse({"error": f"Port must be within {server.min_port}-{server.max_port}."}, status=400)
         if _active_instances_for_server(server).filter(http_port=port).exists():
             return JsonResponse({"error": "Selected port is already in use on this server."}, status=400)
+        if port in remote_used_ports:
+            return JsonResponse({"error": f"Selected port {port} is already listening on the target server."}, status=400)
 
         ok, capacity_msg = _capacity_check(server, req_cpu, req_ram)
         if not ok:
