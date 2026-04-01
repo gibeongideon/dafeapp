@@ -30,11 +30,19 @@ def resolve_private_key_string(server) -> tuple[str | None, str]:
     key_path = (getattr(server, "ssh_key_path", "") or "").strip()
     if key_path:
         if looks_like_public_key_text(key_path):
-            raise paramiko.SSHException("SSH key path looks like a public key string, not a file path.")
-        path = Path(key_path).expanduser()
-        if not path.exists():
-            raise paramiko.SSHException(f"SSH key path not found: {path}")
-        return path.read_text(), str(path)
+            logger.warning(
+                "External server %s has public-key text saved in ssh_key_path; ignoring it and falling back.",
+                getattr(server, "pk", None),
+            )
+        else:
+            path = Path(key_path).expanduser()
+            if path.exists():
+                return path.read_text(), str(path)
+            logger.warning(
+                "External server %s ssh_key_path not found (%s); falling back to defaults.",
+                getattr(server, "pk", None),
+                path,
+            )
 
     try:
         from cloud.models import PyOSSSHSettings
@@ -43,13 +51,14 @@ def resolve_private_key_string(server) -> tuple[str | None, str]:
         default_path = (settings_obj.default_ssh_key_path or "").strip()
         if default_path:
             if looks_like_public_key_text(default_path):
-                raise paramiko.SSHException(
-                    "Default SSH key path looks like a public key string, not a file path."
+                logger.warning(
+                    "Default SSH key path is public-key text; ignoring it and falling back to system SSH key."
                 )
-            path = Path(default_path).expanduser()
-            if not path.exists():
-                raise paramiko.SSHException(f"Default SSH key path not found: {path}")
-            return path.read_text(), str(path)
+            else:
+                path = Path(default_path).expanduser()
+                if path.exists():
+                    return path.read_text(), str(path)
+                logger.warning("Default SSH key path not found (%s); falling back to system SSH key.", path)
     except ImportError:
         pass
 
