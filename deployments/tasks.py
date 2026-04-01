@@ -2557,6 +2557,19 @@ def create_odoo_instance(self, instance_id: int, job_id: int | None = None):
         _record_instance_step(instance, "Starting instance configuration")
         _broadcast_instance(instance.id, "Starting instance configuration…", instance.status)
 
+        if instance.domain:
+            try:
+                _record_instance_step(instance, "Prewarming domain overlay", f"domain={instance.domain}")
+                prewarm_ok, prewarm_message = _reconcile_instance_domain(instance, skip_probe=True)
+                if prewarm_message:
+                    if prewarm_ok:
+                        _record_instance_step(instance, "Domain overlay queued", prewarm_message)
+                    else:
+                        _record_instance_error(instance, "Prewarm domain overlay failed", prewarm_message)
+            except Exception as exc:
+                logger.warning("Instance %s: prewarm domain overlay failed", instance.id, exc_info=True)
+                _record_instance_error(instance, "Prewarm domain overlay failed", str(exc))
+
         if server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
             _record_instance_step(instance, "Delegating to Docker deployment flow")
             _run_docker_instance_create(instance, server, job_id, self.request.id)
@@ -3908,6 +3921,19 @@ def _run_docker_instance_create(instance: OdooInstance, server: OdooServer, job_
     instance.installation_summary_text = ""
     instance.save(update_fields=["installation_summary", "installation_summary_text", "updated_at"])
     _record_instance_step(instance, "Starting Docker instance creation")
+
+    if instance.domain:
+        try:
+            _record_instance_step(instance, "Prewarming domain overlay", f"domain={instance.domain}")
+            prewarm_ok, prewarm_message = _reconcile_instance_domain(instance, skip_probe=True)
+            if prewarm_message:
+                if prewarm_ok:
+                    _record_instance_step(instance, "Domain overlay queued", prewarm_message)
+                else:
+                    _record_instance_error(instance, "Prewarm domain overlay failed", prewarm_message)
+        except Exception as exc:
+            logger.warning("Docker instance %s: prewarm domain overlay failed", instance.id, exc_info=True)
+            _record_instance_error(instance, "Prewarm domain overlay failed", str(exc))
 
     playbook = os.getenv("ANSIBLE_DOCKER_INSTANCE_PLAYBOOK", "").strip() or _default_docker_instance_playbook()
     if not Path(playbook).exists():
