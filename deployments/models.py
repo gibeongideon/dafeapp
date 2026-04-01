@@ -116,7 +116,7 @@ class EnterpriseSource(models.Model):
         ordering = ["-created_at"]
         indexes = [
             models.Index(fields=["odoo_version", "is_active"], name="dep_ent_version_active_idx"),
-            models.Index(fields=["source_scope", "owner", "odoo_version"], name="dep_ent_scope_owner_version_idx"),
+            models.Index(fields=["source_scope", "owner", "odoo_version"], name="dep_ent_scope_owner_ver_idx"),
         ]
 
     def __str__(self):
