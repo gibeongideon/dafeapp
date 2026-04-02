@@ -67,6 +67,36 @@
         dest: "{{ instance_compose }}"
         mode: "0644"
 
+    - name: Initialize Odoo database schema (odoo-bin -i base --stop-after-init)
+      # Runs a throw-away container (synchronously) to install the base schema
+      # into the freshly created PostgreSQL database.  Must complete before the
+      # real container starts so that Odoo does not 404 with
+      # "ir_module_module does not exist".
+      # DB init on a fresh Odoo can take 5-15 min — keep SSH connection alive.
+      shell: |
+        docker run --rm \
+          --network odoo-network \
+          -e HOST=postgres \
+          -e PORT=5432 \
+          -e USER=odoo \
+          -e PASSWORD="{{ postgres_password }}" \
+          -v /data/odoo/{{ client_name }}:/var/lib/odoo \
+          -v {{ docker_compose_dir }}/instances/{{ client_name }}.conf:/etc/odoo/odoo.conf:ro \
+          odoo:{{ odoo_version }} \
+          odoo --config /etc/odoo/odoo.conf \
+               -d {{ db_name }} \
+               -i base \
+               --stop-after-init \
+               --no-http
+      register: db_init_result
+      failed_when: db_init_result.rc != 0
+
+    - name: Show DB init output on failure
+      debug:
+        msg: "{{ db_init_result.stdout_lines[-30:] | default([]) + db_init_result.stderr_lines[-30:] | default([]) }}"
+      when: db_init_result.rc != 0
+      ignore_errors: true
+
     - name: Start Odoo container
       command: >
         docker compose -f {{ instance_compose }} up -d
@@ -74,21 +104,47 @@
       failed_when: compose_result.rc != 0
 
     - name: Wait for Odoo container to be running
-      command: >
-        docker inspect --format="{{ '{{' }}.State.Status{{ '}}' }}" {{ container_name }}
+      shell: >
+        docker inspect --format="{{ '{{' }}.State.Status{{ '}}' }}" {{ container_name | quote }} 2>/dev/null || echo "missing"
       register: container_status
       until: container_status.stdout == "running"
-      retries: 12
+      retries: 24
       delay: 5
+      changed_when: false
+      failed_when: false
+
+    - name: Capture Docker diagnostics when container does not reach running state
+      shell: |
+        echo "docker compose ps:"
+        docker compose -f {{ instance_compose | quote }} ps || true
+        echo
+        echo "docker ps -a:"
+        docker ps -a --filter "name={{ container_name }}" || true
+        echo
+        echo "recent container logs:"
+        docker logs --tail 120 {{ container_name | quote }} 2>&1 || true
+      register: container_diagnostics
+      when: container_status.stdout != "running"
+      changed_when: false
+      failed_when: false
+
+    - name: Fail when Odoo container never reaches running state
+      fail:
+        msg: >-
+          Container {{ container_name }} did not reach running state in time
+          (last status: {{ container_status.stdout | default('unknown') | trim }}).
+          {{ container_diagnostics.stdout | default('') | trim }}
+      when: container_status.stdout != "running"
 
     - name: Wait for Odoo health check to pass
       # start_period is 300s — Odoo DB init on first boot takes 3-8 min.
       # Poll for up to 10 min (60 retries × 10s). ignore_errors so the
       # playbook still succeeds even if healthcheck stays in "starting".
-      command: >
-        docker inspect --format="{{ '{{' }}.State.Health.Status{{ '}}' }}" {{ container_name }}
+      shell: >
+        docker inspect --format="{{ '{{' }}.State.Health.Status{{ '}}' }}" {{ container_name | quote }} 2>/dev/null || echo "missing"
       register: health_status
       until: health_status.stdout in ["healthy", "starting", ""]
       retries: 60
       delay: 10
       ignore_errors: true
+      changed_when: false

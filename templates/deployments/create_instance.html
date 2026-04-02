@@ -363,7 +363,7 @@
           <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-500">Bare-metal</span>
           {% endif %}
           <span id="server-badge-{{ selected_server.id }}"
-                class="px-2 py-1 rounded-md text-[11px] font-medium
+                class="{% if selected_server.status == 'PROVISIONED' and selected_server.last_checked_at and selected_server.is_reachable %}hidden {% elif selected_server.status == 'PROVISIONED' and selected_server.infrastructure and selected_server.infrastructure.infra_type == 'PYOS' and selected_server.infrastructure.external_server and selected_server.infrastructure.external_server.last_verified_at and selected_server.infrastructure.external_server.is_verified %}hidden {% endif %}px-2 py-1 rounded-md text-[11px] font-medium
                 {% if selected_server.status == 'PROVISIONED' %}bg-green-100 text-green-700
                 {% elif selected_server.status == 'FAILED' %}bg-red-100 text-red-700
                 {% elif selected_server.status == 'CONFIGURING' or selected_server.status == 'PROVISIONING' %}bg-yellow-100 text-yellow-700 animate-pulse
@@ -647,7 +647,7 @@
           <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-500">Bare-metal</span>
           {% endif %}
           <div class="flex items-center gap-1">
-            <span id="server-badge-{{ s.id }}" class="px-2 py-1 rounded-md text-[11px] font-medium
+            <span id="server-badge-{{ s.id }}" class="{% if s.status == 'PROVISIONED' and s.last_checked_at and s.is_reachable %}hidden {% elif s.status == 'PROVISIONED' and s.infrastructure and s.infrastructure.infra_type == 'PYOS' and s.infrastructure.external_server and s.infrastructure.external_server.last_verified_at and s.infrastructure.external_server.is_verified %}hidden {% endif %}px-2 py-1 rounded-md text-[11px] font-medium
             {% if s.status == 'PROVISIONED' %}bg-green-100 text-green-700
             {% elif s.status == 'FAILED' %}bg-red-100 text-red-700
             {% elif s.status == 'CONFIGURING' or s.status == 'PROVISIONING' %}bg-yellow-100 text-yellow-700 animate-pulse
@@ -686,30 +686,18 @@
               {% if s.infrastructure.external_server.is_verified %}Connected{% else %}Disconnected{% endif %}
             {% else %}Unknown{% endif %}
           </span>
-          <span id="server-conn-msg-{{ s.id }}" class="text-[10px] text-gray-400 max-w-[11rem] text-right leading-tight">
+          <span id="server-conn-msg-{{ s.id }}" class="hidden text-[10px] text-gray-400 max-w-[11rem] text-right leading-tight">
             {% if s.last_checked_at %}
-              {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
-                {% if s.is_reachable %}Connected.{% else %}Disconnected.{% endif %}
-              {% else %}
-                {% if s.is_reachable %}Connected.{% else %}Disconnected.{% endif %}
-              {% endif %}
+              {% if s.is_reachable %}Connected.{% else %}Disconnected.{% endif %}
             {% elif s.infrastructure and s.infrastructure.infra_type == 'PYOS' and s.infrastructure.external_server %}
-              {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
-                {% if s.infrastructure.external_server.last_verified_at %}
-                  {% if s.infrastructure.external_server.verification_error %}
-                  {{ s.infrastructure.external_server.verification_error }}
-                  {% elif s.infrastructure.external_server.is_verified %}
-                  Connected.
-                  {% else %}
-                  Disconnected.
-                  {% endif %}
+              {% if s.infrastructure.external_server.last_verified_at %}
+                {% if s.infrastructure.external_server.is_verified %}
+                Connected.
                 {% else %}
-                Checking connection...
+                Disconnected.
                 {% endif %}
-              {% elif s.infrastructure.external_server.verification_error %}
-              {{ s.infrastructure.external_server.verification_error }}
-              {% elif s.infrastructure.external_server.is_verified %}
-              Connected.
+              {% elif s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
+              Checking connection...
               {% else %}
               Connection not checked yet.
               {% endif %}
@@ -1064,12 +1052,12 @@
      ═══════════════════════════════════════════════════════ -->
 <div id="server-source-modal" class="fixed inset-0 bg-black/40 hidden z-50">
   <div class="min-h-full flex items-center justify-center p-4">
-    <div class="w-full max-w-2xl bg-white rounded-xl border border-gray-200">
-      <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+    <div class="w-full max-w-xl max-h-[90vh] overflow-y-auto bg-white rounded-xl border border-gray-200">
+      <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
         <h3 class="text-sm font-semibold text-gray-900">Create Server · Select Infrastructure</h3>
         <button id="close-source-modal" class="text-gray-500 hover:text-gray-700 text-sm">Close</button>
       </div>
-      <div class="p-5 space-y-4">
+      <div class="p-4 space-y-3.5">
         <div class="grid grid-cols-2 gap-3">
           <button id="pick-cloud" type="button" class="px-3 py-2 rounded-lg border border-gray-300 text-sm font-medium hover:bg-gray-50">Cloud Provider</button>
           <button id="pick-pyos" type="button" class="px-3 py-2 rounded-lg border border-gray-300 text-sm font-medium hover:bg-gray-50">PYOS (SSH/VPS)</button>
@@ -1208,15 +1196,6 @@
             <input id="pyos-password" type="password" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg" placeholder="SSH password" />
           </div>
 
-          <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4 space-y-2">
-            <p class="text-xs uppercase tracking-wide text-emerald-600">Domains &amp; SSL</p>
-            <h4 class="text-sm font-semibold text-emerald-900">Managed Globally By DafeApp</h4>
-            <p class="text-[11px] text-emerald-800">
-              This server will use the shared DafeApp platform domain configuration. Each instance gets a default hostname under
-              <span class="font-mono">{{ PLATFORM_BASE_DOMAIN|default:"dafeapp.com" }}</span>, and optional customer domains can be added later per instance.
-            </p>
-          </div>
-
           <div class="flex justify-end">
             <button id="submit-create-pyos-server" type="button" class="px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700">
               Provision Server
@@ -1235,12 +1214,12 @@
      ═══════════════════════════════════════════════════════ -->
 <div id="server-details-modal" class="fixed inset-0 bg-black/40 hidden z-50">
   <div class="min-h-full flex items-center justify-center p-4">
-    <div class="w-full max-w-xl bg-white rounded-xl border border-gray-200">
-      <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+    <div class="w-full max-w-lg max-h-[90vh] overflow-y-auto bg-white rounded-xl border border-gray-200">
+      <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
         <h3 class="text-sm font-semibold text-gray-900">Create Server · Configuration</h3>
         <button id="close-details-modal" class="text-gray-500 hover:text-gray-700 text-sm">Close</button>
       </div>
-      <div class="p-5 space-y-4">
+      <div class="p-4 space-y-3.5">
         <p id="details-source-label" class="text-xs text-gray-500"></p>
 
         <div class="grid grid-cols-2 gap-3">
@@ -1293,22 +1272,13 @@
           </div>
         </div>
 
-        <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4 space-y-2">
-          <p class="text-xs uppercase tracking-wide text-emerald-600">Domains &amp; SSL</p>
-          <h4 class="text-sm font-semibold text-emerald-900">Managed Globally By DafeApp</h4>
-          <p class="text-[11px] text-emerald-800">
-            Server-level DNS settings are no longer configured here. New instances will automatically use the shared platform domain under
-            <span class="font-mono">{{ PLATFORM_BASE_DOMAIN|default:"dafeapp.com" }}</span>, with HTTPS handled globally by DafeApp.
-          </p>
-        </div>
-
         <div id="server-info-box" class="rounded-lg px-3 py-2 text-xs bg-blue-50 border border-blue-100 text-blue-700">
           Instances will be accessible via <strong>http://SERVER_IP:PORT</strong> (ports 8069–8100).
           They also get a default hostname under <strong>{{ PLATFORM_BASE_DOMAIN|default:"dafeapp.com" }}</strong>.
           This server will be dedicated to Odoo <span id="version-label">19</span> only.
         </div>
       </div>
-      <div class="px-5 py-4 border-t border-gray-100 flex items-center justify-between">
+      <div class="px-4 py-3 border-t border-gray-100 flex items-center justify-between">
         <p id="details-modal-msg" class="text-xs text-gray-500"></p>
         <button id="submit-create-server" type="button"
                 class="px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700">
@@ -1652,6 +1622,12 @@
     return value.charAt(0) + value.slice(1).toLowerCase();
   }
 
+  function shouldHideServerBadge(server) {
+    const value = ((server && server.status) || "").trim().toUpperCase();
+    if (value !== "PROVISIONED") return false;
+    return serverConnectivityStatus(server) === "connected";
+  }
+
   function isBusyStatus(status) {
     const value = (status || "").trim().toUpperCase();
     return value === "CONFIGURING" || value === "PROVISIONING";
@@ -1674,7 +1650,11 @@
   }
 
   function connMessageLabel(server) {
-    return server.ssh_connection_message || "";
+    const status = (server.ssh_connection_status || "").toLowerCase();
+    if (status === "connected") return "Connected.";
+    if (status === "disconnected") return "Disconnected.";
+    if (status === "checking") return "Checking connection...";
+    return "Connection not checked yet.";
   }
 
   function serverConnectivityStatus(server) {
@@ -2447,7 +2427,7 @@
     const isBusy = isBusyStatus(server.status);
     statusBadges.forEach((statusBadge) => {
       statusBadge.textContent = serverBadgeLabel(server.status);
-      statusBadge.className = serverBadgeClass(server.status);
+      statusBadge.className = `${shouldHideServerBadge(server) ? "hidden " : ""}${serverBadgeClass(server.status)}`;
     });
     if (busyIcon) {
       if (isBusy) {
@@ -2467,20 +2447,20 @@
       } else {
         connBadge.textContent = connBadgeLabel(server);
         connBadge.className = connBadgeClass(server);
-        connBadge.title = connMessageLabel(server);
+        connBadge.title = "";
       }
     });
     connMsgs.forEach((connMsg) => {
       if (sshPending) {
         connMsg.textContent = "Checking connection...";
-        connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-yellow-600";
+        connMsg.className = "hidden text-[10px] max-w-[11rem] text-right leading-tight text-yellow-600";
       } else {
         const msg = connMessageLabel(server);
         const sshStatus = (server.ssh_connection_status || "").toLowerCase();
         connMsg.textContent = msg;
         connMsg.className = msg
-          ? `text-[10px] max-w-[11rem] text-right leading-tight ${sshStatus === "connected" ? "text-green-500" : sshStatus === "checking" ? "text-yellow-600" : "text-red-500"}`
-          : "text-[10px] max-w-[11rem] text-right leading-tight text-gray-400";
+          ? `hidden text-[10px] max-w-[11rem] text-right leading-tight ${sshStatus === "connected" ? "text-green-500" : sshStatus === "checking" ? "text-yellow-600" : "text-red-500"}`
+          : "hidden text-[10px] max-w-[11rem] text-right leading-tight text-gray-400";
       }
     });
     if (ipEl) {
@@ -2609,7 +2589,7 @@
     const connMsgs = allById(`server-conn-msg-${sid}`);
     connMsgs.forEach((connMsg) => {
       connMsg.textContent = "Checking connection...";
-      connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-yellow-600";
+      connMsg.className = "hidden text-[10px] max-w-[11rem] text-right leading-tight text-yellow-600";
     });
 
     const finishCheck = (delay = 250) => {
@@ -2641,12 +2621,12 @@
       connBadges.forEach((connBadge) => {
         connBadge.textContent = "Disconnected";
         connBadge.className = `${connBadgeBase} bg-red-50 text-red-600`;
-        connBadge.title = errorText;
+        connBadge.title = "";
       });
       connMsgs.forEach((connMsg) => {
-        connMsg.textContent = errorText;
-        connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-red-500";
-        connMsg.title = errorText;
+        connMsg.textContent = "Disconnected.";
+        connMsg.className = "hidden text-[10px] max-w-[11rem] text-right leading-tight text-red-500";
+        connMsg.title = "";
       });
       return resp;
     }
@@ -2657,12 +2637,12 @@
       connBadges.forEach((connBadge) => {
         connBadge.textContent = connected ? "Connected" : "Disconnected";
         connBadge.className = `${connBadgeBase} ${connected ? "bg-green-50 text-green-600" : "bg-red-50 text-red-600"}`;
-        connBadge.title = resp.data.message || "";
+        connBadge.title = "";
       });
       connMsgs.forEach((connMsg) => {
-        connMsg.textContent = resp.data.message || (connected ? "Connected." : "Disconnected.");
-        connMsg.className = `text-[10px] max-w-[11rem] text-right leading-tight ${connected ? "text-green-500" : "text-red-500"}`;
-        connMsg.title = resp.data.message || "";
+        connMsg.textContent = connected ? "Connected." : "Disconnected.";
+        connMsg.className = `hidden text-[10px] max-w-[11rem] text-right leading-tight ${connected ? "text-green-500" : "text-red-500"}`;
+        connMsg.title = "";
       });
       if (updateInstances) {
         setTimeout(refreshInstanceRows, 200);
@@ -2719,20 +2699,20 @@
           connBadge.textContent = "Checking…";
           connBadge.className = "px-1.5 py-0.5 rounded text-[10px] font-medium bg-yellow-50 text-yellow-600";
           connBadge.title = step;
-          if (connMsg) { connMsg.textContent = "Checking connection..."; connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-yellow-600"; }
+          if (connMsg) { connMsg.textContent = "Checking connection..."; connMsg.className = "hidden text-[10px] max-w-[11rem] text-right leading-tight text-yellow-600"; }
           setTimeout(refreshServerCards, 800);
         } else
         if (step.toLowerCase().includes("ssh connection confirmed") || step.toLowerCase().includes("ssh connection successful")) {
           connBadge.textContent = "Connected";
           connBadge.className = "px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-50 text-green-600";
           connBadge.title = step;
-          if (connMsg) { connMsg.textContent = step; connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-green-500"; }
+          if (connMsg) { connMsg.textContent = step; connMsg.className = "hidden text-[10px] max-w-[11rem] text-right leading-tight text-green-500"; }
           setTimeout(refreshServerCards, 800);
         } else if (step.toLowerCase().includes("failed:") || step.toLowerCase().includes("authentication failed") || step.toLowerCase().includes("host unreachable")) {
           connBadge.textContent = "Disconnected";
           connBadge.className = "px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-50 text-red-600";
           connBadge.title = step;
-          if (connMsg) { connMsg.textContent = step; connMsg.className = "text-[10px] max-w-[11rem] text-right leading-tight text-red-500"; }
+          if (connMsg) { connMsg.textContent = step; connMsg.className = "hidden text-[10px] max-w-[11rem] text-right leading-tight text-red-500"; }
         }
       }
       if (data.type === "done") {
@@ -2841,7 +2821,7 @@
         </div>
         <div class="flex flex-col items-end gap-1">
           ${modeBadgeHtml}
-          <span id="server-badge-${sid}" class="${serverBadgeClass(server.status || "PROVISIONING")}">${serverBadgeLabel(server.status || "PROVISIONING")}</span>
+          <span id="server-badge-${sid}" class="${shouldHideServerBadge(server) ? "hidden " : ""}${serverBadgeClass(server.status || "PROVISIONING")}">${serverBadgeLabel(server.status || "PROVISIONING")}</span>
           <span id="server-busy-${sid}"
                 class="inline-flex items-center justify-center w-4 h-4 ${isBusyStatus(server.status) ? "text-yellow-500" : "hidden"}"
                 aria-hidden="true"
@@ -2849,7 +2829,7 @@
             <span class="block w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin"></span>
           </span>
           <span id="server-conn-badge-${sid}" class="${connBadgeCls}">${connBadgeText}</span>
-          <span id="server-conn-msg-${sid}" class="text-[10px] max-w-[11rem] text-right leading-tight ${((server.ssh_connection_status || "").toLowerCase() === "connected") ? "text-green-500" : ((server.ssh_connection_status || "").toLowerCase() === "disconnected" ? "text-red-500" : ((server.ssh_connection_status || "").toLowerCase() === "checking" ? "text-yellow-600" : "text-gray-400"))}">${connMsgText}</span>
+          <span id="server-conn-msg-${sid}" class="hidden text-[10px] max-w-[11rem] text-right leading-tight ${((server.ssh_connection_status || "").toLowerCase() === "connected") ? "text-green-500" : ((server.ssh_connection_status || "").toLowerCase() === "disconnected" ? "text-red-500" : ((server.ssh_connection_status || "").toLowerCase() === "checking" ? "text-yellow-600" : "text-gray-400"))}">${connMsgText}</span>
         </div>
       </div>
       <div class="mt-4 flex gap-2">

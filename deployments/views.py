@@ -317,7 +317,7 @@ if docker ps -a --format '{{{{.Names}}}}' | grep -Fx -- "$container" >/dev/null 
   docker logs --tail 120 "$container" 2>&1 | tail -n 120
   exit 0
 fi
-echo "Container $container not found."
+echo "Waiting for container logs..."
 """.strip(),
         )
 

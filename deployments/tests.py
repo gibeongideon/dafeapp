@@ -574,6 +574,45 @@ class OdooVersionedFlowTests(TestCase):
         self.assertContains(resp, "setInterval(retryDisconnectedVisibleServers, DISCONNECTED_SERVER_RETRY_INTERVAL_MS)")
         self.assertNotContains(resp, "Reachability")
 
+    def test_servers_page_hides_raw_connectivity_error_text(self):
+        external_server = ExternalServer.objects.create(
+            organization=self.org,
+            name="pyos-auth-error",
+            host="64.227.183.213",
+            port=22,
+            username="root",
+            auth_type=ExternalServer.AuthType.DAFEAPP_KEY,
+            is_verified=False,
+            last_verified_at=timezone.now(),
+            verification_error="Authentication failed for root@64.227.183.213:22 using DAFEAPP_KEY: Authentication failed.",
+        )
+        pyos_infra = Infrastructure.objects.create(
+            organization=self.org,
+            name="pyos-auth-error",
+            infra_type=Infrastructure.InfraType.PYOS,
+            external_server=external_server,
+            is_connected=True,
+            created_by=self.user,
+        )
+        OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=pyos_infra,
+            name="odoo19-auth-error",
+            odoo_version="19",
+            region="manual",
+            size="manual",
+            ip_address="64.227.183.213",
+            status=OdooServer.Status.PROVISIONED,
+            is_reachable=False,
+            created_by=self.user,
+        )
+
+        resp = self.client.get(reverse("deployments_ui:create-instance"), {"section": "servers"})
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, "Authentication failed for root@64.227.183.213:22 using DAFEAPP_KEY: Authentication failed.")
+        self.assertContains(resp, "Disconnected.")
+
     def test_servers_page_does_not_show_server_level_runtime_logs_panel(self):
         OdooServer.objects.create(
             organization=self.org,

@@ -35,14 +35,15 @@
       when: not enterprise_source_stat.stat.exists
 
     - name: Ensure Enterprise shared directory exists on server
+      # odoo_user may be empty on Docker hosts (no odoo OS user) — fall back to root.
       file:
         path: "{{ enterprise_dest }}"
         state: directory
-        owner: "{{ odoo_user }}"
-        group: "{{ odoo_user }}"
+        owner: "{{ odoo_user | default('root') or 'root' }}"
+        group: "{{ odoo_user | default('root') or 'root' }}"
         mode: "0755"
 
-    - name: Sync Enterprise addons to server shared directory (rsync)
+    - name: Sync Enterprise addons to server shared directory (rsync, with chown)
       synchronize:
         src: "{{ enterprise_src }}/"
         dest: "{{ enterprise_dest }}/"
@@ -51,3 +52,13 @@
         compress: true
         rsync_opts:
           - "--chown={{ odoo_user }}:{{ odoo_user }}"
+      when: odoo_user | default('') != ''
+
+    - name: Sync Enterprise addons to server shared directory (rsync, no chown)
+      synchronize:
+        src: "{{ enterprise_src }}/"
+        dest: "{{ enterprise_dest }}/"
+        delete: true
+        checksum: true
+        compress: true
+      when: odoo_user | default('') == ''

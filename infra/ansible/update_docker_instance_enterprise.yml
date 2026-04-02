@@ -1,0 +1,60 @@
+---
+# update_docker_instance_enterprise.yml
+#
+# Re-renders the instance docker-compose file with the enterprise addons bind-mount
+# and force-recreates the container to pick up the new volume.
+# Run after enterprise addons are in place on the server (via sync_enterprise_to_server.yml).
+#
+# Extra vars (required):
+#   client_name                  - instance slug  (e.g. acme-prod)
+#   domain                       - instance FQDN  (may be empty string)
+#   db_name                      - PostgreSQL database name
+#   odoo_version                 - Odoo image tag  (e.g. 19)
+#   postgres_password            - DB password
+#   restart_policy               - Docker restart policy  (e.g. unless-stopped)
+#   container_name               - container name  (e.g. odoo-acme-prod)
+#   cpu_limit                    - float  (e.g. 1.0)
+#   mem_limit_mb                 - int MB  (e.g. 1024)
+#   enterprise_addons_host_path  - absolute host path to enterprise addons dir on this server
+
+- name: Mount Enterprise addons into Docker Odoo instance
+  hosts: all
+  become: true
+  gather_facts: false
+
+  vars:
+    docker_compose_dir: /opt/odoo-docker
+    instance_compose: "{{ docker_compose_dir }}/instances/{{ client_name }}.yml"
+
+  tasks:
+    - name: Validate enterprise addons path exists on server
+      stat:
+        path: "{{ enterprise_addons_host_path }}"
+      register: ent_stat
+
+    - name: Fail if enterprise addons path is missing
+      fail:
+        msg: "Enterprise addons directory not found on server: {{ enterprise_addons_host_path }}. Run sync_enterprise_to_server.yml first."
+      when: not ent_stat.stat.exists
+
+    - name: Re-render instance docker-compose with enterprise volume
+      template:
+        src: "{{ playbook_dir }}/../docker/templates/docker-compose.instance.yml.j2"
+        dest: "{{ instance_compose }}"
+        mode: "0644"
+
+    - name: Force-recreate container to pick up enterprise volume mount
+      command: >
+        docker compose -f {{ instance_compose }} up -d --force-recreate
+      args:
+        chdir: "{{ docker_compose_dir }}"
+      register: compose_result
+      failed_when: compose_result.rc != 0
+
+    - name: Wait for Odoo container to return to running state
+      command: >
+        docker inspect --format="{{ '{{' }}.State.Status{{ '}}' }}" {{ container_name }}
+      register: container_status
+      until: container_status.stdout == "running"
+      retries: 12
+      delay: 5

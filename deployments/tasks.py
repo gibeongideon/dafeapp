@@ -293,12 +293,10 @@ def _enterprise_host_local_path(instance: OdooInstance) -> str:
 
 def _enterprise_config_path(instance: OdooInstance) -> str:
     runtime = _instance_runtime_context(instance)
-    host_path = _enterprise_host_local_path(instance)
     if runtime["mode"] == "docker":
-        prefix = runtime["addons_root_path"].rstrip("/")
-        suffix = host_path[len(prefix):].lstrip("/") if host_path.startswith(prefix) else "enterprise"
-        return f"{runtime['container_addons_root'].rstrip('/')}/{suffix}"
-    return host_path
+        # Enterprise addons are bind-mounted at /mnt/extra-addons inside the container.
+        return "/mnt/extra-addons"
+    return _enterprise_host_local_path(instance)
 
 
 def _instance_runtime_context(instance: OdooInstance) -> dict:
@@ -1366,6 +1364,11 @@ def _default_enterprise_sync_playbook() -> str:
     return str(Path(settings.BASE_DIR) / "infra" / "ansible" / "sync_odoo_enterprise_addons.yml")
 
 
+def _default_docker_enterprise_update_playbook() -> str:
+    """Docker: re-render compose + force-recreate container with enterprise bind-mount."""
+    return str(Path(settings.BASE_DIR) / "infra" / "ansible" / "update_docker_instance_enterprise.yml")
+
+
 def _default_enterprise_server_sync_playbook() -> str:
     """Server-level: DafeApp host → server shared dir (network upload, done once per server)."""
     return str(Path(settings.BASE_DIR) / "infra" / "ansible" / "sync_enterprise_to_server.yml")
@@ -1385,6 +1388,23 @@ def _server_enterprise_shared_path(server: OdooServer) -> str:
     summary = server.installation_summary or {}
     odoo_home = summary.get("odoo_home") or f"/opt/odoo{server.odoo_version}"
     return f"{odoo_home}/enterprise_shared"
+
+
+def _docker_instance_enterprise_host_path(
+    instance: OdooInstance,
+    server: OdooServer,
+    source: "EnterpriseSource",
+) -> str:
+    """
+    Host-side path on the Docker server where enterprise addons live for this instance.
+
+    PLATFORM sources: reuse the server shared dir (one copy, all instances mount it).
+    USER sources: per-instance directory so different users don't overwrite each other.
+    """
+    if source.source_scope == EnterpriseSource.Scope.PLATFORM:
+        return _server_enterprise_shared_path(server)
+    client_name = instance.db_name.replace("_", "-")
+    return f"/opt/odoo-docker/instances/{client_name}-enterprise"
 
 
 def _sync_enterprise_to_server(
@@ -1437,7 +1457,8 @@ def _sync_enterprise_to_server(
             {
                 "enterprise_src": source.addons_source_path,
                 "enterprise_dest": shared_path,
-                "odoo_user": "odoo",
+                # Docker hosts have no 'odoo' OS user — pass empty so the playbook uses root.
+                "odoo_user": "" if server.deployment_mode == OdooServer.DeploymentMode.DOCKER else "odoo",
             },
             ssh_user=ssh_user,
             ssh_key_path=ssh_key,
@@ -3514,8 +3535,59 @@ def activate_enterprise_for_instance(self, instance_id: int, source_id: int | No
         instance.save(update_fields=["enterprise_status", "enterprise_error", "updated_at"])
 
         is_platform = source.source_scope == EnterpriseSource.Scope.PLATFORM
+        is_docker = server.deployment_mode == OdooServer.DeploymentMode.DOCKER
 
-        if is_platform:
+        if is_docker:
+            # ── Docker: sync addons to server, then bind-mount into container ────
+            _broadcast_instance(instance.id, "Checking server Enterprise directory…", instance.status)
+            _broadcast_log_line(ws_group, "=== Step 1/3: Sync Enterprise to server ===")
+            server_ok, server_log = _sync_enterprise_to_server(
+                server, source,
+                on_line=lambda line: _broadcast_log_line(ws_group, line),
+            )
+            full_log = _append_text(full_log, server_log)
+            if not server_ok:
+                raise RuntimeError(server_log or "Failed to sync Enterprise to server.")
+
+            enterprise_host_path = _docker_instance_enterprise_host_path(instance, server, source)
+            instance_path = enterprise_host_path  # stored in enterprise_remote_path
+
+            _broadcast_log_line(ws_group, "=== Step 2/3: Mount Enterprise volume into container ===")
+            ent_playbook = _default_docker_enterprise_update_playbook()
+            if not Path(ent_playbook).exists():
+                raise RuntimeError(f"Docker enterprise update playbook not found: {ent_playbook}")
+            client_name = instance.db_name.replace("_", "-")
+            ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
+            try:
+                ok, mount_log = _run_ansible_playbook(
+                    ent_playbook,
+                    str(server.ip_address),
+                    {
+                        "client_name": client_name,
+                        "domain": instance.domain or "",
+                        "db_name": instance.db_name,
+                        "odoo_version": server.odoo_version,
+                        "postgres_password": server.docker_postgres_password,
+                        "restart_policy": instance.restart_policy or "unless-stopped",
+                        "container_name": instance.container_name or f"odoo-{client_name}",
+                        "cpu_limit": float(instance.requested_cpu_cores or 1),
+                        "mem_limit_mb": int(instance.requested_ram_mb or 1024),
+                        "enterprise_addons_host_path": enterprise_host_path,
+                    },
+                    ssh_user=ssh_user,
+                    ssh_key_path=ssh_key,
+                    ssh_password=ssh_password,
+                    on_chunk=lambda line: _broadcast_log_line(ws_group, line),
+                )
+            finally:
+                if tmp_key:
+                    with suppress(OSError):
+                        os.unlink(tmp_key)
+            full_log = _append_text(full_log, mount_log)
+            if not ok:
+                raise RuntimeError(mount_log or "Failed to mount Enterprise volume into container.")
+
+        elif is_platform:
             # ── Step 1: Ensure server shared dir is up-to-date ──────────────
             _broadcast_instance(instance.id, "Checking server Enterprise shared directory…", instance.status)
             _broadcast_log_line(ws_group, "=== Step 1/3: Sync Enterprise to server shared directory ===")
@@ -3582,8 +3654,8 @@ def activate_enterprise_for_instance(self, instance_id: int, source_id: int | No
             if not ok:
                 raise RuntimeError(upload_log or "Failed to upload user Enterprise source to instance.")
 
-        # ── Step 3 (both paths): config + restart + refresh ──────────────────
-        step_label = "3/3" if is_platform else "2/2"
+        # ── Step 3 (all paths): config + restart + refresh ───────────────────
+        step_label = "3/3" if (is_platform or is_docker) else "2/2"
         _broadcast_log_line(ws_group, f"=== Step {step_label}: Update config, restart, refresh modules ===")
 
         instance.enterprise_enabled = True
