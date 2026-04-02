@@ -1506,6 +1506,8 @@ class OdooServerCreateAPIView(LoginRequiredMixin, View):
                 host,
                 odoo_version,
             )
+            server.status = OdooServer.Status.CONNECTING
+            server.save(update_fields=["status", "updated_at"])
             _dispatch(provision_odoo_server, server.id)
             return JsonResponse(OdooServerSerializer(server).data, status=201)
 
@@ -1569,6 +1571,11 @@ class OdooServerCreateAPIView(LoginRequiredMixin, View):
             region,
             size,
         )
+        # Set CONNECTING before dispatching so the response already reflects the
+        # active state — the UI polls only for live statuses, so PENDING would
+        # cause the card to sit frozen until a manual refresh.
+        server.status = OdooServer.Status.CONNECTING
+        server.save(update_fields=["status", "updated_at"])
         _dispatch(provision_odoo_server, server.id)
         return JsonResponse(OdooServerSerializer(server).data, status=201)
 

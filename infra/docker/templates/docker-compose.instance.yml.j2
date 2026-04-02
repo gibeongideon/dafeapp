@@ -21,9 +21,9 @@ services:
     volumes:
       - /data/odoo/{{ client_name }}:/var/lib/odoo
       - /opt/odoo-docker/instances/{{ client_name }}.conf:/etc/odoo/odoo.conf:ro
-      {% if enterprise_addons_host_path is defined and enterprise_addons_host_path %}
+{% if enterprise_addons_host_path is defined and enterprise_addons_host_path %}
       - {{ enterprise_addons_host_path }}:/mnt/extra-addons:ro
-      {% endif %}
+{% endif %}
     networks:
       - odoo-network
     healthcheck:

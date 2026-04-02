@@ -483,7 +483,7 @@
               <span class="mt-0.5 inline-flex h-2.5 w-2.5 shrink-0 rounded-full
                 {% if s.status == 'FAILED' %}bg-red-400
                 {% elif s.status == 'PROVISIONED' %}bg-emerald-400
-                {% elif s.status == 'CONNECTING' or s.status == 'CONFIGURING' or s.status == 'PROVISIONING' %}bg-amber-400
+                {% elif s.status == 'PENDING' or s.status == 'CONNECTING' or s.status == 'CONFIGURING' or s.status == 'PROVISIONING' %}bg-amber-400
                 {% else %}bg-gray-300{% endif %}"></span>
             </div>
             <div class="mt-3 flex items-center justify-between gap-3 text-[11px]">
@@ -1748,7 +1748,7 @@
     const value = (status || "").trim().toUpperCase();
     if (value === "PROVISIONED") return "px-2 py-1 rounded-md text-[11px] font-medium bg-green-100 text-green-700";
     if (value === "FAILED") return "px-2 py-1 rounded-md text-[11px] font-medium bg-red-100 text-red-700";
-    if (value === "CONNECTING" || value === "CONFIGURING" || value === "PROVISIONING") return "px-2 py-1 rounded-md text-[11px] font-medium bg-yellow-100 text-yellow-700 animate-pulse";
+    if (value === "PENDING" || value === "CONNECTING" || value === "CONFIGURING" || value === "PROVISIONING") return "px-2 py-1 rounded-md text-[11px] font-medium bg-yellow-100 text-yellow-700 animate-pulse";
     if (value === "ARCHIVED") return "px-2 py-1 rounded-md text-[11px] font-medium bg-gray-100 text-gray-500";
     return "px-2 py-1 rounded-md text-[11px] font-medium bg-gray-100 text-gray-700";
   }
@@ -1767,7 +1767,7 @@
 
   function isBusyStatus(status) {
     const value = (status || "").trim().toUpperCase();
-    return value === "CONNECTING" || value === "CONFIGURING" || value === "PROVISIONING";
+    return value === "PENDING" || value === "CONNECTING" || value === "CONFIGURING" || value === "PROVISIONING";
   }
 
   function connBadgeClass(server) {
@@ -2132,10 +2132,10 @@
   function syncLiveServerPolling(servers) {
     const hasLiveServers = (servers || []).some((server) => {
       const status = (server.status || "").toUpperCase();
-      return status === "CONNECTING" || status === "PROVISIONING" || status === "CONFIGURING";
+      return status === "PENDING" || status === "CONNECTING" || status === "PROVISIONING" || status === "CONFIGURING";
     });
     if (hasLiveServers && !liveServerRefreshTimer) {
-      liveServerRefreshTimer = setInterval(refreshServerCards, 5000);
+      liveServerRefreshTimer = setInterval(refreshServerCards, 3000);
     } else if (!hasLiveServers && liveServerRefreshTimer) {
       clearInterval(liveServerRefreshTimer);
       liveServerRefreshTimer = null;
@@ -2175,7 +2175,7 @@
     if (!wrap || !ul) return;
 
     const status = (server.status || "").toUpperCase();
-    const isLive = status === "CONNECTING" || status === "PROVISIONING" || status === "CONFIGURING";
+    const isLive = status === "PENDING" || status === "CONNECTING" || status === "PROVISIONING" || status === "CONFIGURING";
     const lines = extractProgressLines(server.provisioning_log, 4);
 
     if (!isLive) {
@@ -3589,6 +3589,7 @@
     if (!resp.ok) { setMsg(msgEl, resp.data.error || "Server provisioning failed.", true); return; }
     hide(sourceModal);
     insertServerCard(resp.data, { name, odooVersion, deployMode, isPyos: true });
+    syncLiveServerPolling([resp.data]);
   });
 
   // ─── deployment mode radio toggle styling ────────────────────────────────
@@ -3641,6 +3642,7 @@
     if (!resp.ok) { setMsg(msgEl, resp.data.error || "Server creation failed.", true); return; }
     hide(detailsModal);
     insertServerCard(resp.data, { name, odooVersion: versionEl.value, deployMode, isPyos: false });
+    syncLiveServerPolling([resp.data]);
   });
 
   // ─── create instance modal ───────────────────────────────────────────────
