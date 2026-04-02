@@ -26,6 +26,17 @@
     postgres_password: "{{ postgres_password }}"
 
   tasks:
+    - name: Wait for apt lock to be released (cloud-init / unattended-upgrades)
+      shell: |
+        while fuser /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock /var/cache/apt/archives/lock >/dev/null 2>&1; do
+          echo "Waiting for apt lock…"
+          sleep 5
+        done
+      args:
+        executable: /bin/bash
+      changed_when: false
+      timeout: 300
+
     - name: Install prerequisites
       apt:
         name:
