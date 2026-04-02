@@ -1432,15 +1432,14 @@
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="block text-xs font-medium text-gray-600 mb-1">Region</label>
-            <select id="server-region" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white">
-              <option value="nyc3">New York 3 (nyc3)</option>
+            <select id="server-region" disabled class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white disabled:opacity-50">
+              <option value="">— select account first —</option>
             </select>
           </div>
           <div>
             <label class="block text-xs font-medium text-gray-600 mb-1">Size</label>
-            <select id="server-size" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white">
-              <option value="s-2vcpu-4gb">2 vCPU / 4 GB ($24/mo)</option>
-              <option value="s-4vcpu-8gb">4 vCPU / 8 GB ($48/mo)</option>
+            <select id="server-size" disabled class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white disabled:opacity-50">
+              <option value="">— select region first —</option>
             </select>
           </div>
         </div>
@@ -3630,14 +3629,66 @@
     });
   });
 
+  function setSelectLoading(el, msg) {
+    el.disabled = true;
+    el.innerHTML = `<option value="">${msg}</option>`;
+  }
+  function setSelectError(el, msg) {
+    el.disabled = true;
+    el.innerHTML = `<option value="">${msg}</option>`;
+  }
+
+  async function loadRegionsAndSizes(accountId) {
+    if (!accountId) return;
+    setSelectLoading(regionEl, "Loading regions…");
+    setSelectLoading(sizeEl, "— select region first —");
+    try {
+      const res = await fetch(`/cloud/accounts/${accountId}/options/`);
+      const data = await res.json();
+      if (!res.ok || !Array.isArray(data.regions) || !data.regions.length) {
+        setSelectError(regionEl, data.error || "Failed to load regions");
+        return;
+      }
+      setOptions(regionEl, data.regions);
+      regionEl.disabled = false;
+      // Load sizes for the default selected region
+      await loadSizesForRegion(accountId, regionEl.value);
+    } catch (_) {
+      setSelectError(regionEl, "Failed to load regions");
+    }
+  }
+
+  async function loadSizesForRegion(accountId, region) {
+    if (!accountId || !region) return;
+    setSelectLoading(sizeEl, "Loading sizes…");
+    try {
+      const url = `/cloud/accounts/${accountId}/options/?region=${encodeURIComponent(region)}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (!res.ok || !Array.isArray(data.sizes) || !data.sizes.length) {
+        setSelectError(sizeEl, data.error || "Failed to load sizes");
+        return;
+      }
+      setOptions(sizeEl, data.sizes);
+      sizeEl.disabled = false;
+    } catch (_) {
+      setSelectError(sizeEl, "Failed to load sizes");
+    }
+  }
+
   accountEl?.addEventListener("change", async () => {
     selectedAccountId = accountEl.value;
-    if (!selectedAccountId) return;
-    const res = await fetch(`/cloud/accounts/${selectedAccountId}/options/`);
-    if (!res.ok) return;
-    const data = await res.json();
-    if (Array.isArray(data.regions) && data.regions.length) setOptions(regionEl, data.regions);
-    if (Array.isArray(data.sizes)   && data.sizes.length)   setOptions(sizeEl,   data.sizes);
+    if (!selectedAccountId) {
+      setSelectLoading(regionEl, "— select account first —");
+      setSelectLoading(sizeEl, "— select region first —");
+      return;
+    }
+    await loadRegionsAndSizes(selectedAccountId);
+  });
+
+  regionEl?.addEventListener("change", async () => {
+    if (!selectedAccountId || !regionEl.value) return;
+    await loadSizesForRegion(selectedAccountId, regionEl.value);
   });
 
   document.querySelectorAll("input[name='pyos-auth']").forEach(r => {

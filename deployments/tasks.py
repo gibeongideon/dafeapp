@@ -2392,24 +2392,45 @@ def provision_odoo_server(self, server_id: int):
             _queue_or_run(configure_odoo_server, server.id)
         return
 
-    # CONNECTING phase: validate cloud credentials/connection before starting Terraform
-    logger.info("Server %s: validating managed infrastructure connection target", server.id)
-    _broadcast_server(server.id, "Validating cloud credentials…", server.status)
+    # CONNECTING phase: live API credential check before starting Terraform
+    logger.info("Server %s: validating managed cloud credentials via live API call", server.id)
+    _broadcast_server(server.id, "Connecting to cloud provider…", server.status)
+
+    # Step 1: DB sanity check (account exists and is marked verified)
     ok, err = infra.validate_connection_target()
     if not ok:
-        logger.warning("Server %s: infrastructure validation failed: %s", server.id, err)
+        logger.warning("Server %s: infrastructure DB validation failed: %s", server.id, err)
         server.status = OdooServer.Status.FAILED
         server.celery_task_id = ""
         server.provisioning_log = _append_text(server.provisioning_log, err)
         server.save(update_fields=["status", "celery_task_id", "provisioning_log", "updated_at"])
         _broadcast_server(server.id, f"Failed to connect: {err}", server.status, done=True)
         return
-    logger.info("Server %s: managed infrastructure connection confirmed", server.id)
 
-    # Transition to PROVISIONING for Terraform phase
+    # Step 2: live API call — actually test the credentials with the provider
+    cloud_account = infra.cloud_account
+    try:
+        from cloud.providers import get_provider
+        provider = get_provider(cloud_account)
+        api_ok, api_err = provider.validate_credentials()
+    except Exception as exc:
+        api_ok, api_err = False, str(exc)
+
+    if not api_ok:
+        logger.warning("Server %s: cloud API credential check failed: %s", server.id, api_err)
+        server.status = OdooServer.Status.FAILED
+        server.celery_task_id = ""
+        server.provisioning_log = _append_text(server.provisioning_log, api_err)
+        server.save(update_fields=["status", "celery_task_id", "provisioning_log", "updated_at"])
+        _broadcast_server(server.id, f"Failed to connect: {api_err}", server.status, done=True)
+        return
+
+    logger.info("Server %s: cloud API credentials confirmed (%s)", server.id, cloud_account.provider)
+
+    # Transition to PROVISIONING for Terraform / droplet creation phase
     server.status = OdooServer.Status.PROVISIONING
     server.save(update_fields=["status", "updated_at"])
-    _broadcast_server(server.id, "Credentials verified — starting infrastructure provisioning…", server.status)
+    _broadcast_server(server.id, f"Connected to {cloud_account.provider} — starting droplet creation…", server.status)
 
     state_root = Path(settings.BASE_DIR) / ".terraform_state" / f"org_{org.id}" / f"odoo_server_{server.id}"
     state_root.mkdir(parents=True, exist_ok=True)

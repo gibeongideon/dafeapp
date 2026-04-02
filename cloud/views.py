@@ -244,7 +244,8 @@ class CloudAccountOptionsView(CloudSuperAdminMixin, View):
         try:
             provider = get_provider(account)
             regions = provider.list_regions()
-            sizes = provider.list_sizes()
+            region = request.GET.get("region", "").strip()
+            sizes = provider.list_sizes(region=region)
             return JsonResponse({"regions": regions, "sizes": sizes, "provider": account.provider})
         except Exception as exc:
             return JsonResponse(
