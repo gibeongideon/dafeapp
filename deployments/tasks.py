@@ -1226,6 +1226,7 @@ def _provider_native_provision_server(server: OdooServer) -> tuple[bool, str, st
     if not server.cloud_account:
         return False, "", "", "Infrastructure has no managed cloud account."
     from cloud.models import SystemSSHKey
+    import requests as _requests
     provider = get_provider(server.cloud_account)
     system_key = SystemSSHKey.get_or_create_keypair()
     fingerprint = provider.ensure_dafeapp_ssh_key(system_key.public_key)
@@ -1236,7 +1237,21 @@ def _provider_native_provision_server(server: OdooServer) -> tuple[bool, str, st
             server.cloud_account.name,
         )
     ssh_key_ids = [fingerprint] if fingerprint else None
-    created = provider.create_server(name=server.name, region=server.region, size=server.size, ssh_key_ids=ssh_key_ids)
+    try:
+        created = provider.create_server(name=server.name, region=server.region, size=server.size, ssh_key_ids=ssh_key_ids)
+    except _requests.HTTPError as exc:
+        status_code = exc.response.status_code if exc.response is not None else "?"
+        if status_code == 401:
+            return False, "", "", "Cloud API returned 401 Unauthorized — check that the API token has write permissions."
+        if status_code == 422:
+            try:
+                detail = exc.response.json().get("message", str(exc))
+            except Exception:
+                detail = str(exc)
+            return False, "", "", f"Cloud API rejected the request ({status_code}): {detail}"
+        return False, "", "", f"Cloud API error ({status_code}): {exc}"
+    except Exception as exc:
+        return False, "", "", f"Failed to create server: {exc}"
     provider_id = str(created.get("id") or "")
     if not provider_id:
         return False, "", "", "Provider did not return a server id."
@@ -2585,6 +2600,35 @@ def configure_odoo_server(self, server_id: int, job_id: int | None = None):
         return
     logger.info("Server %s: running Ansible playbook %s", server.id, playbook)
 
+    # Wait for SSH to be ready before running Ansible.
+    # The cloud provider marks the server "active" as soon as the VM boots,
+    # but sshd can take another 30–90 s to start.
+    ws_group = f"odoo.server.{server.id}"
+    ip_str = str(server.ip_address)
+    _broadcast_server(server.id, "Waiting for SSH to become available…", server.status)
+    ssh_ready = False
+    for attempt in range(60):  # up to 5 minutes (60 × 5 s)
+        try:
+            with socket.create_connection((ip_str, 22), timeout=5):
+                ssh_ready = True
+                break
+        except OSError:
+            if attempt % 6 == 0:  # log every 30 s
+                logger.info("Server %s: SSH not ready yet (attempt %s/60)…", server.id, attempt + 1)
+            time.sleep(5)
+
+    if not ssh_ready:
+        logger.error("Server %s: SSH did not become available after 5 minutes.", server.id)
+        server.status = OdooServer.Status.FAILED
+        msg = "SSH port 22 did not become available within 5 minutes after server was running."
+        server.provisioning_log = _append_text(server.provisioning_log, msg)
+        server.save(update_fields=["status", "provisioning_log", "updated_at"])
+        _broadcast_server(server.id, msg, server.status, done=True)
+        _job_done(job_id, ok=False, log=msg)
+        return
+
+    logger.info("Server %s: SSH is ready — starting Ansible.", server.id)
+
     admin_email = os.getenv("ODOO_ADMIN_EMAIL", "odoo@example.com").strip()
     extra_vars = {
         "odoo_version": server.odoo_version,
@@ -2594,7 +2638,6 @@ def configure_odoo_server(self, server_id: int, job_id: int | None = None):
         "admin_email": admin_email,
     }
 
-    ws_group = f"odoo.server.{server.id}"
     _broadcast_server(server.id, "Running Ansible playbook — Odoo install takes 5–15 min…", server.status)
     ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
     try:
@@ -4462,6 +4505,33 @@ def configure_docker_host(self, server_id: int, job_id: int | None = None):
         _job_done(job_id, ok=False, log=msg)
         return
 
+    # Wait for SSH to be ready before running Ansible.
+    ws_group = f"odoo.server.{server.id}"
+    ip_str = str(server.ip_address)
+    _broadcast_server(server.id, "Waiting for SSH to become available…", server.status)
+    ssh_ready = False
+    for attempt in range(60):  # up to 5 minutes (60 × 5 s)
+        try:
+            with socket.create_connection((ip_str, 22), timeout=5):
+                ssh_ready = True
+                break
+        except OSError:
+            if attempt % 6 == 0:
+                logger.info("Server %s: SSH not ready yet (attempt %s/60)…", server.id, attempt + 1)
+            time.sleep(5)
+
+    if not ssh_ready:
+        logger.error("Server %s: SSH did not become available after 5 minutes.", server.id)
+        server.status = OdooServer.Status.FAILED
+        msg = "SSH port 22 did not become available within 5 minutes after server was running."
+        server.provisioning_log = _append_text(server.provisioning_log, msg)
+        server.save(update_fields=["status", "provisioning_log", "updated_at"])
+        _broadcast_server(server.id, msg, server.status, done=True)
+        _job_done(job_id, ok=False, log=msg)
+        return
+
+    logger.info("Server %s: SSH is ready — starting Docker host setup.", server.id)
+
     acme_email = os.getenv("ODOO_ADMIN_EMAIL", "odoo@example.com").strip()
     pg_password = server.docker_postgres_password or os.getenv("DOCKER_POSTGRES_PASSWORD", "odoo_secret")
     if not server.docker_postgres_password:
@@ -4473,7 +4543,6 @@ def configure_docker_host(self, server_id: int, job_id: int | None = None):
         "postgres_password": pg_password,
     }
 
-    ws_group = f"odoo.server.{server.id}"
     _broadcast_server(server.id, "Running Docker host setup playbook…", server.status)
     ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
     try:

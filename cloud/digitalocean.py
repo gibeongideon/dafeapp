@@ -74,16 +74,32 @@ class DigitalOceanProvider(AbstractCloudProvider):
     # ------------------------------------------------------------------
 
     def validate_credentials(self) -> tuple[bool, str]:
-        """GET /v2/account → 200 means valid token."""
+        """
+        Validate the API token has both read AND write access.
+        GET /v2/account checks the token is valid.
+        GET /v2/account/keys checks write scope (DO tokens with read-only scope
+        cannot create droplets and return 401 on POST /v2/droplets).
+        """
         try:
             resp = self._session.get(f"{API_BASE}/account", timeout=10)
-            if resp.status_code == 200:
-                return True, "Credentials valid."
             if resp.status_code == 401:
-                return False, "Invalid API token (401 Unauthorized)."
-            return False, f"Unexpected response: {resp.status_code}"
+                return False, "Invalid API token (401 Unauthorized) — regenerate your DigitalOcean token."
+            if resp.status_code != 200:
+                return False, f"DigitalOcean API returned {resp.status_code}."
         except requests.RequestException as exc:
-            return False, f"Network error: {exc}"
+            return False, f"Network error reaching DigitalOcean: {exc}"
+
+        # Also verify write scope — read-only tokens return 401 on POST /v2/droplets
+        try:
+            resp = self._session.get(f"{API_BASE}/account/keys", timeout=10)
+            if resp.status_code == 403:
+                return False, "API token lacks write permission — create a token with full read/write scope."
+            if resp.status_code == 401:
+                return False, "API token is invalid or expired (401)."
+        except requests.RequestException as exc:
+            return False, f"Network error reaching DigitalOcean: {exc}"
+
+        return True, "Credentials valid."
 
     def list_ssh_keys(self) -> list[str]:
         """GET /v2/account/keys — return fingerprints of all SSH keys in the DO account."""

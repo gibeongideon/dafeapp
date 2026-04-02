@@ -86,9 +86,14 @@ class OdooServerSerializer(serializers.ModelSerializer):
         if obj.status == OdooServer.Status.ARCHIVED:
             return "unknown"
         reachable, checked_at, _ = self._reachability_snapshot(obj)
-        if obj.status in (OdooServer.Status.PROVISIONING, OdooServer.Status.CONFIGURING) and checked_at is None:
-            return "checking"
         if checked_at is None:
+            # Still in-progress or never checked yet — show checking, not unknown
+            if obj.status in (
+                OdooServer.Status.PROVISIONING,
+                OdooServer.Status.CONFIGURING,
+                OdooServer.Status.PROVISIONED,
+            ):
+                return "checking"
             return "unknown"
         return "connected" if reachable else "disconnected"
 

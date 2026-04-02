@@ -372,30 +372,12 @@
             {{ selected_server.get_status_display }}
           </span>
           <span id="server-conn-badge-{{ selected_server.id }}" class="px-1.5 py-0.5 rounded text-[10px] font-medium
-            {% if selected_server.status == 'CONNECTING' %}bg-yellow-50 text-yellow-600
-            {% elif selected_server.status == 'PROVISIONING' or selected_server.status == 'CONFIGURING' %}
-              {% if selected_server.last_checked_at %}
-                {% if selected_server.is_reachable %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}
-              {% elif selected_server.infrastructure and selected_server.infrastructure.infra_type == 'PYOS' and selected_server.infrastructure.external_server and selected_server.infrastructure.external_server.last_verified_at %}
-                {% if selected_server.infrastructure.external_server.is_verified %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}
-              {% else %}bg-yellow-50 text-yellow-600{% endif %}
-            {% elif selected_server.last_checked_at %}
-              {% if selected_server.is_reachable %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}
-            {% elif selected_server.infrastructure and selected_server.infrastructure.infra_type == 'PYOS' and selected_server.infrastructure.external_server and selected_server.infrastructure.external_server.last_verified_at %}
-              {% if selected_server.infrastructure.external_server.is_verified %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}
-            {% else %}bg-gray-50 text-gray-400{% endif %}">
-            {% if selected_server.status == 'CONNECTING' %}Checking…
-            {% elif selected_server.status == 'PROVISIONING' or selected_server.status == 'CONFIGURING' %}
-              {% if selected_server.last_checked_at %}
-                {% if selected_server.is_reachable %}Connected{% else %}Disconnected{% endif %}
-              {% elif selected_server.infrastructure and selected_server.infrastructure.infra_type == 'PYOS' and selected_server.infrastructure.external_server and selected_server.infrastructure.external_server.last_verified_at %}
-                {% if selected_server.infrastructure.external_server.is_verified %}Connected{% else %}Disconnected{% endif %}
-              {% else %}Checking…{% endif %}
-            {% elif selected_server.last_checked_at %}
-              {% if selected_server.is_reachable %}Connected{% else %}Disconnected{% endif %}
-            {% elif selected_server.infrastructure and selected_server.infrastructure.infra_type == 'PYOS' and selected_server.infrastructure.external_server and selected_server.infrastructure.external_server.last_verified_at %}
-              {% if selected_server.infrastructure.external_server.is_verified %}Connected{% else %}Disconnected{% endif %}
-            {% else %}Unknown{% endif %}
+            {% if selected_server.last_checked_at and not selected_server.is_reachable %}bg-red-50 text-red-600
+            {% elif selected_server.infrastructure and selected_server.infrastructure.infra_type == 'PYOS' and selected_server.infrastructure.external_server and selected_server.infrastructure.external_server.last_verified_at and not selected_server.infrastructure.external_server.is_verified %}bg-red-50 text-red-600
+            {% else %}bg-yellow-50 text-yellow-600{% endif %}">
+            {% if selected_server.last_checked_at and not selected_server.is_reachable %}Disconnected
+            {% elif selected_server.infrastructure and selected_server.infrastructure.infra_type == 'PYOS' and selected_server.infrastructure.external_server and selected_server.infrastructure.external_server.last_verified_at and not selected_server.infrastructure.external_server.is_verified %}Disconnected
+            {% else %}Checking…{% endif %}
           </span>
         </div>
         <p class="mt-2 text-sm font-medium text-gray-900">{{ selected_server.name }}</p>
@@ -526,28 +508,12 @@
                 {{ selected_server.get_status_display }}
               </span>
               <span id="server-conn-badge-{{ selected_server.id }}" class="px-2 py-0.5 rounded-full text-[10px] font-medium
-                {% if selected_server.status == 'PROVISIONING' or selected_server.status == 'CONFIGURING' %}
-                  {% if selected_server.last_checked_at %}
-                    {% if selected_server.is_reachable %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}
-                  {% elif selected_server.infrastructure and selected_server.infrastructure.infra_type == 'PYOS' and selected_server.infrastructure.external_server and selected_server.infrastructure.external_server.last_verified_at %}
-                    {% if selected_server.infrastructure.external_server.is_verified %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}
-                  {% else %}bg-yellow-50 text-yellow-600{% endif %}
-                {% elif selected_server.last_checked_at %}
-                  {% if selected_server.is_reachable %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}
-                {% elif selected_server.infrastructure and selected_server.infrastructure.infra_type == 'PYOS' and selected_server.infrastructure.external_server and selected_server.infrastructure.external_server.last_verified_at %}
-                  {% if selected_server.infrastructure.external_server.is_verified %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}
-                {% else %}bg-gray-50 text-gray-400{% endif %}">
-                {% if selected_server.status == 'PROVISIONING' or selected_server.status == 'CONFIGURING' %}
-                  {% if selected_server.last_checked_at %}
-                    {% if selected_server.is_reachable %}Connected{% else %}Disconnected{% endif %}
-                  {% elif selected_server.infrastructure and selected_server.infrastructure.infra_type == 'PYOS' and selected_server.infrastructure.external_server and selected_server.infrastructure.external_server.last_verified_at %}
-                    {% if selected_server.infrastructure.external_server.is_verified %}Connected{% else %}Disconnected{% endif %}
-                  {% else %}Checking…{% endif %}
-                {% elif selected_server.last_checked_at %}
-                  {% if selected_server.is_reachable %}Connected{% else %}Disconnected{% endif %}
-                {% elif selected_server.infrastructure and selected_server.infrastructure.infra_type == 'PYOS' and selected_server.infrastructure.external_server and selected_server.infrastructure.external_server.last_verified_at %}
-                  {% if selected_server.infrastructure.external_server.is_verified %}Connected{% else %}Disconnected{% endif %}
-                {% else %}Unknown{% endif %}
+                {% if selected_server.last_checked_at and not selected_server.is_reachable %}bg-red-50 text-red-600
+                {% elif selected_server.infrastructure and selected_server.infrastructure.infra_type == 'PYOS' and selected_server.infrastructure.external_server and selected_server.infrastructure.external_server.last_verified_at and not selected_server.infrastructure.external_server.is_verified %}bg-red-50 text-red-600
+                {% else %}bg-yellow-50 text-yellow-600{% endif %}">
+                {% if selected_server.last_checked_at and not selected_server.is_reachable %}Disconnected
+                {% elif selected_server.infrastructure and selected_server.infrastructure.infra_type == 'PYOS' and selected_server.infrastructure.external_server and selected_server.infrastructure.external_server.last_verified_at and not selected_server.infrastructure.external_server.is_verified %}Disconnected
+                {% else %}Checking…{% endif %}
               </span>
             </div>
             <div>
@@ -805,51 +771,20 @@
             </span>
           </div>
           <span id="server-conn-badge-{{ s.id }}" class="px-1.5 py-0.5 rounded text-[10px] font-medium
-            {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
-              {% if s.last_checked_at %}
-                {% if s.is_reachable %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}
-              {% elif s.infrastructure and s.infrastructure.infra_type == 'PYOS' and s.infrastructure.external_server and s.infrastructure.external_server.last_verified_at %}
-                {% if s.infrastructure.external_server.is_verified %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}
-              {% else %}bg-yellow-50 text-yellow-600{% endif %}
-            {% elif s.last_checked_at %}
-              {% if s.is_reachable %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}
-            {% elif s.infrastructure and s.infrastructure.infra_type == 'PYOS' and s.infrastructure.external_server and s.infrastructure.external_server.last_verified_at %}
-              {% if s.infrastructure.external_server.is_verified %}bg-green-50 text-green-600{% else %}bg-red-50 text-red-600{% endif %}
-            {% else %}bg-gray-50 text-gray-400{% endif %}">
-            {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
-              {% if s.last_checked_at %}
-                {% if s.is_reachable %}Connected{% else %}Disconnected{% endif %}
-              {% elif s.infrastructure and s.infrastructure.infra_type == 'PYOS' and s.infrastructure.external_server and s.infrastructure.external_server.last_verified_at %}
-                {% if s.infrastructure.external_server.is_verified %}Connected{% else %}Disconnected{% endif %}
-              {% else %}Checking…{% endif %}
-            {% elif s.last_checked_at %}
-              {% if s.is_reachable %}Connected{% else %}Disconnected{% endif %}
-            {% elif s.infrastructure and s.infrastructure.infra_type == 'PYOS' and s.infrastructure.external_server and s.infrastructure.external_server.last_verified_at %}
-              {% if s.infrastructure.external_server.is_verified %}Connected{% else %}Disconnected{% endif %}
-            {% else %}Unknown{% endif %}
+            {% if s.last_checked_at and not s.is_reachable %}bg-red-50 text-red-600
+            {% elif s.infrastructure and s.infrastructure.infra_type == 'PYOS' and s.infrastructure.external_server and s.infrastructure.external_server.last_verified_at and not s.infrastructure.external_server.is_verified %}bg-red-50 text-red-600
+            {% else %}bg-yellow-50 text-yellow-600{% endif %}">
+            {% if s.last_checked_at and not s.is_reachable %}Disconnected
+            {% elif s.infrastructure and s.infrastructure.infra_type == 'PYOS' and s.infrastructure.external_server and s.infrastructure.external_server.last_verified_at and not s.infrastructure.external_server.is_verified %}Disconnected
+            {% else %}Checking…{% endif %}
           </span>
-          <span id="server-conn-msg-{{ s.id }}" class="hidden text-[10px] text-gray-400 max-w-[11rem] text-right leading-tight">
-            {% if s.last_checked_at %}
-              {% if s.is_reachable %}Connected.{% else %}Disconnected.{% endif %}
-            {% elif s.infrastructure and s.infrastructure.infra_type == 'PYOS' and s.infrastructure.external_server %}
-              {% if s.infrastructure.external_server.last_verified_at %}
-                {% if s.infrastructure.external_server.is_verified %}
-                Connected.
-                {% else %}
-                Disconnected.
-                {% endif %}
-              {% elif s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
-              Checking connection...
-              {% else %}
-              Connection not checked yet.
-              {% endif %}
-            {% else %}
-              {% if s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}
-              Checking connection...
-              {% else %}
-              Connection not checked yet.
-              {% endif %}
-            {% endif %}
+          <span id="server-conn-msg-{{ s.id }}" class="hidden text-[10px] max-w-[11rem] text-right leading-tight
+            {% if s.last_checked_at and not s.is_reachable %}text-red-500
+            {% elif s.infrastructure and s.infrastructure.infra_type == 'PYOS' and s.infrastructure.external_server and s.infrastructure.external_server.last_verified_at and not s.infrastructure.external_server.is_verified %}text-red-500
+            {% else %}text-yellow-600{% endif %}">
+            {% if s.last_checked_at and not s.is_reachable %}Disconnected.
+            {% elif s.infrastructure and s.infrastructure.infra_type == 'PYOS' and s.infrastructure.external_server and s.infrastructure.external_server.last_verified_at and not s.infrastructure.external_server.is_verified %}Disconnected.
+            {% else %}Checking connection...{% endif %}
           </span>
         </div>
       </div>
@@ -2796,9 +2731,10 @@
     if (card) {
       const prevStatus = card.dataset.serverStatus || "";
       card.dataset.serverStatus = (server.status || "").toUpperCase();
-      // Trigger immediate metrics fetch when server first becomes PROVISIONED
+      // When server first becomes PROVISIONED: fetch metrics and check connectivity
       if (card.dataset.serverStatus === "PROVISIONED" && prevStatus !== "PROVISIONED") {
         fetchServerMetrics(sid);
+        triggerConnectivityCheck(sid);
       }
     }
   }
@@ -2876,7 +2812,20 @@
 
     if (!resp.ok) {
       finishCheck(250);
-      const errorText = resp.data.message || resp.data.error || "Connection error";
+      // 409 means server is still provisioning — keep badge as "Checking…", not "Disconnected"
+      if (resp.status === 409) {
+        connBadges.forEach((connBadge) => {
+          connBadge.textContent = "Checking…";
+          connBadge.className = `${connBadgeBase} bg-yellow-50 text-yellow-600`;
+          connBadge.title = "Provisioning in progress…";
+        });
+        connMsgs.forEach((connMsg) => {
+          connMsg.textContent = "Provisioning in progress…";
+          connMsg.className = "hidden text-[10px] max-w-[11rem] text-right leading-tight text-yellow-600";
+          connMsg.title = "";
+        });
+        return resp;
+      }
       connBadges.forEach((connBadge) => {
         connBadge.textContent = "Disconnected";
         connBadge.className = `${connBadgeBase} bg-red-50 text-red-600`;
@@ -3253,12 +3202,35 @@
     wrap.classList.remove("hidden");
   }
 
+  function _applyConnBadge(sid, connected) {
+    const base = "px-1.5 py-0.5 rounded text-[10px] font-medium";
+    allById(`server-conn-badge-${sid}`).forEach((el) => {
+      el.textContent = connected ? "Connected" : "Disconnected";
+      el.className = `${base} ${connected ? "bg-green-50 text-green-600" : "bg-red-50 text-red-600"}`;
+      el.title = "";
+    });
+    allById(`server-conn-msg-${sid}`).forEach((el) => {
+      el.textContent = connected ? "Connected." : "Disconnected.";
+      el.className = `hidden text-[10px] max-w-[11rem] text-right leading-tight ${connected ? "text-green-500" : "text-red-500"}`;
+      el.title = "";
+    });
+  }
+
   async function fetchServerMetrics(sid) {
     try {
       const resp = await fetch(`/api/deployments/odoo/servers/${sid}/metrics/`);
-      if (!resp.ok) return;
+      if (!resp.ok) {
+        // 502 = SSH unreachable — mark as disconnected so badge stays truthful
+        if (resp.status === 502) _applyConnBadge(sid, false);
+        return;
+      }
       const data = await resp.json();
-      if (data.error) return;
+      if (data.error) {
+        _applyConnBadge(sid, false);
+        return;
+      }
+      // Don't set "Connected" here — triggerConnectivityCheck owns that state
+      // and will update the DB so refreshServerCards shows the correct badge.
       applyServerMetrics(sid, data);
     } catch (_) { /* silently skip unreachable servers */ }
   }
