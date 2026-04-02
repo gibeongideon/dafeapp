@@ -1307,8 +1307,7 @@ def _run_ansible_playbook(
     if ssh_password and not effective_key:
         merged_vars["ansible_ssh_pass"] = ssh_password
 
-    for key, value in merged_vars.items():
-        args.extend(["-e", f"{key}={value}"])
+    args.extend(["-e", json.dumps(merged_vars)])
 
     env = os.environ.copy()
     env["ANSIBLE_HOST_KEY_CHECKING"] = "False"
