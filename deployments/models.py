@@ -239,6 +239,7 @@ class OdooServer(models.Model):
 
     class Status(models.TextChoices):
         PENDING = "PENDING", "Pending"
+        CONNECTING = "CONNECTING", "Connecting"
         PROVISIONING = "PROVISIONING", "Provisioning"
         CONFIGURING = "CONFIGURING", "Configuring"
         PROVISIONED = "PROVISIONED", "Provisioned"
@@ -306,6 +307,8 @@ class OdooServer(models.Model):
     installation_summary_text = models.TextField(blank=True)
     is_reachable = models.BooleanField(default=False)
     last_checked_at = models.DateTimeField(null=True, blank=True)
+    # Celery task ID of the currently running provision/configure task (for cancellation)
+    celery_task_id = models.CharField(max_length=255, blank=True, default="")
     # Enterprise shared copy on this server (populated at provisioning time)
     enterprise_shared_path = models.CharField(max_length=500, blank=True, default="")
     enterprise_shared_release_code = models.CharField(max_length=32, blank=True, default="")

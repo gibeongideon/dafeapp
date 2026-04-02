@@ -1785,23 +1785,78 @@ class OdooServerReprovisionAPIView(LoginRequiredMixin, View):
                 {"error": f"Server must be in FAILED or PROVISIONED state to re-provision (current: {server.status})."},
                 status=409,
             )
-        if not server.ip_address:
+        if not server.ip_address and server.infrastructure and server.infrastructure.infra_type != "PYOS":
             return JsonResponse({"error": "Server has no IP address; cannot re-provision."}, status=400)
 
-        server.status = OdooServer.Status.CONFIGURING
-        server.provisioning_log = ""
-        server.save(update_fields=["status", "provisioning_log", "updated_at"])
-
-        if server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
-            job = _dispatch(configure_docker_host, server.id)
+        # For PYOS servers without an IP (connectivity never confirmed): run the full provision flow
+        # which includes the connectivity check. For servers that already have an IP, go straight
+        # to configure (skip Terraform re-run).
+        from deployments.tasks import provision_odoo_server
+        if not server.ip_address:
+            server.status = OdooServer.Status.CONNECTING
+            server.provisioning_log = ""
+            server.celery_task_id = ""
+            server.save(update_fields=["status", "celery_task_id", "provisioning_log", "updated_at"])
+            job = _dispatch(provision_odoo_server, server.id)
         else:
-            job = _dispatch(configure_odoo_server, server.id)
+            server.status = OdooServer.Status.CONNECTING
+            server.provisioning_log = ""
+            server.save(update_fields=["status", "provisioning_log", "updated_at"])
+
+            if server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
+                job = _dispatch(configure_docker_host, server.id)
+            else:
+                job = _dispatch(configure_odoo_server, server.id)
 
         logger.info(
             "Re-provision triggered for server %s (mode=%s) by user %s",
             server.id, server.deployment_mode, request.user,
         )
         return JsonResponse({"ok": True, "message": "Re-provisioning started.", "task_id": str(getattr(job, "id", ""))})
+
+
+class OdooServerCancelProvisionAPIView(LoginRequiredMixin, View):
+    """POST /odoo/servers/<server_id>/cancel/ — cancel a running CONNECTING/PROVISIONING task."""
+
+    def post(self, request, server_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if request.org_role not in ("SUPER_ADMIN", "ADMIN", "MANAGER"):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        server = get_object_or_404(
+            OdooServer,
+            pk=server_id,
+            organization=org,
+            is_active=True,
+        )
+
+        cancellable = {OdooServer.Status.CONNECTING, OdooServer.Status.PROVISIONING, OdooServer.Status.CONFIGURING}
+        if server.status not in cancellable:
+            return JsonResponse(
+                {"error": f"Server is not in a cancellable state (current: {server.status})."},
+                status=409,
+            )
+
+        task_id = server.celery_task_id
+        if task_id:
+            try:
+                from dafeapp.celery import app as celery_app
+                celery_app.control.revoke(task_id, terminate=True, signal="SIGTERM")
+            except Exception as exc:
+                logger.warning("Could not revoke celery task %s for server %s: %s", task_id, server_id, exc)
+
+        server.status = OdooServer.Status.FAILED
+        server.celery_task_id = ""
+        server.provisioning_log = (server.provisioning_log or "") + "\n[Cancelled by user]"
+        server.save(update_fields=["status", "celery_task_id", "provisioning_log", "updated_at"])
+
+        from deployments.tasks import _broadcast_server
+        _broadcast_server(server.id, "Provisioning cancelled by user.", server.status, done=True)
+
+        logger.info("Server %s provisioning cancelled by user %s", server.id, request.user)
+        return JsonResponse({"ok": True, "message": "Provisioning cancelled."})
 
 
 class OdooInstanceCreateAPIView(LoginRequiredMixin, View):

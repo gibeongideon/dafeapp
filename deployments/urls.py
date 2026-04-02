@@ -17,6 +17,7 @@ urlpatterns = [
     path("odoo/servers/<int:server_id>/delete/", views.OdooServerDeleteAPIView.as_view(), name="odoo-server-delete"),
     path("odoo/servers/<int:server_id>/check/", views.OdooServerCheckConnectivityView.as_view(), name="odoo-server-check"),
     path("odoo/servers/<int:server_id>/reprovision/", views.OdooServerReprovisionAPIView.as_view(), name="odoo-server-reprovision"),
+    path("odoo/servers/<int:server_id>/cancel/", views.OdooServerCancelProvisionAPIView.as_view(), name="odoo-server-cancel"),
     path("pyos/vps/create/", views.PyosVpsCreateAPIView.as_view(), name="pyos-vps-create"),
     path("odoo/instances/", views.OdooInstanceListAPIView.as_view(), name="odoo-instance-list"),
     path("odoo/instances/<int:instance_id>/runtime-logs/", views.OdooInstanceRuntimeLogsAPIView.as_view(), name="odoo-instance-runtime-logs"),

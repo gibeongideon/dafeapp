@@ -2294,11 +2294,12 @@ def provision_odoo_server(self, server_id: int):
     ).get(pk=server_id)
     org = server.organization
 
-    server.status = OdooServer.Status.PROVISIONING
+    server.status = OdooServer.Status.CONNECTING
+    server.celery_task_id = self.request.id or ""
     server.installation_summary = {}
     server.installation_summary_text = ""
     server.provisioning_log = ""
-    server.save(update_fields=["status", "installation_summary", "installation_summary_text", "provisioning_log", "updated_at"])
+    server.save(update_fields=["status", "celery_task_id", "installation_summary", "installation_summary_text", "provisioning_log", "updated_at"])
     infra = server.infrastructure
     logger.info(
         "Server provisioning started: id=%s name=%s version=%s mode=%s infra=%s",
@@ -2308,12 +2309,13 @@ def provision_odoo_server(self, server_id: int):
         server.deployment_mode,
         getattr(infra, "infra_type", "unknown"),
     )
-    _broadcast_server(server.id, "Starting provisioning…", server.status)
+    _broadcast_server(server.id, "Checking connectivity…", server.status)
     if not infra:
         logger.error("Server %s provisioning aborted: missing infrastructure record.", server.id)
         server.status = OdooServer.Status.FAILED
         server.provisioning_log = _append_text(server.provisioning_log, "Server is missing infrastructure.")
-        server.save(update_fields=["status", "provisioning_log", "updated_at"])
+        server.celery_task_id = ""
+        server.save(update_fields=["status", "celery_task_id", "provisioning_log", "updated_at"])
         _broadcast_server(server.id, "Failed: server is missing infrastructure.", server.status, done=True)
         return
 
@@ -2363,8 +2365,9 @@ def provision_odoo_server(self, server_id: int):
         if not reachable:
             logger.warning("Server %s: PYOS reachability failed: %s", server.id, err)
             server.status = OdooServer.Status.FAILED
-            server.save(update_fields=["status", "provisioning_log", "updated_at"])
-            _broadcast_server(server.id, f"Failed: {err}", server.status, done=True)
+            server.celery_task_id = ""
+            server.save(update_fields=["status", "celery_task_id", "provisioning_log", "updated_at"])
+            _broadcast_server(server.id, f"Failed to connect: {err}", server.status, done=True)
             return
 
         logger.info(
@@ -2373,7 +2376,7 @@ def provision_odoo_server(self, server_id: int):
             ext.host,
             ext.port or 22,
         )
-        server.status = OdooServer.Status.CONFIGURING
+        server.status = OdooServer.Status.PROVISIONING
         server.save(
             update_fields=["status", "updated_at"]
         )
@@ -2485,7 +2488,8 @@ def provision_odoo_server(self, server_id: int):
         if code != 0:
             server.provisioning_log = _append_text(server.provisioning_log, "DNS hook failed (non-blocking).")
 
-    server.status = OdooServer.Status.CONFIGURING
+    # Transition to CONNECTING and probe SSH before starting configuration
+    server.status = OdooServer.Status.CONNECTING
     server.save(
         update_fields=[
             "status",
@@ -2496,6 +2500,26 @@ def provision_odoo_server(self, server_id: int):
             "updated_at",
         ]
     )
+    _broadcast_server(server.id, f"Infrastructure ready ({server.ip_address}) — checking SSH connectivity…", server.status)
+
+    reachable, conn_err = _probe_server_ssh(server)
+    now = timezone.now()
+    server.is_reachable = reachable
+    server.last_checked_at = now
+    server.provisioning_log = _append_text(
+        server.provisioning_log,
+        "SSH connectivity confirmed." if reachable else f"SSH connectivity failed: {conn_err}",
+    )
+    if not reachable:
+        server.status = OdooServer.Status.FAILED
+        server.celery_task_id = ""
+        server.save(update_fields=["status", "celery_task_id", "is_reachable", "last_checked_at", "provisioning_log", "updated_at"])
+        _broadcast_server(server.id, f"Failed to connect: {conn_err}", server.status, done=True)
+        return
+
+    server.status = OdooServer.Status.PROVISIONING
+    server.save(update_fields=["status", "is_reachable", "last_checked_at", "provisioning_log", "updated_at"])
+    _broadcast_server(server.id, "Connected — starting configuration…", server.status)
 
     if server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
         _queue_or_run(configure_docker_host, server.id)
