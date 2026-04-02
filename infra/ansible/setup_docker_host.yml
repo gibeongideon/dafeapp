@@ -170,4 +170,5 @@
       loop:
         - "80"
         - "443"
+        - "8069:8100"
       ignore_errors: true

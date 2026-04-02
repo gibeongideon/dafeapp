@@ -18,6 +18,8 @@ services:
       PORT: "5432"
       USER: odoo
       PASSWORD: "{{ postgres_password }}"
+    ports:
+      - "{{ http_port }}:8069"
     volumes:
       - /data/odoo/{{ client_name }}:/var/lib/odoo
       - /opt/odoo-docker/instances/{{ client_name }}.conf:/etc/odoo/odoo.conf:ro

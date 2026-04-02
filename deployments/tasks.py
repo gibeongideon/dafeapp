@@ -4304,7 +4304,8 @@ def _run_docker_instance_create(instance: OdooInstance, server: OdooServer, job_
     mem_limit_mb = int(instance.requested_ram_mb or 1024)
     extra_vars = {
         "client_name": client_name,
-        "domain": instance.domain,
+        "domain": instance.domain or "",
+        "http_port": instance.http_port,
         "db_name": instance.db_name,
         "odoo_version": server.odoo_version,
         "postgres_password": server.docker_postgres_password,
