@@ -2655,6 +2655,12 @@ def configure_odoo_server(self, server_id: int, job_id: int | None = None):
             os.unlink(tmp_key)
 
     server.provisioning_log = _append_text(server.provisioning_log, f"[ansible server]\n{log_blob}".strip())
+    if ok:
+        # Ansible ran successfully over SSH — mark server as reachable so the
+        # connectivity badge shows "Connected" and instance creation is unblocked.
+        server.is_reachable = True
+        server.last_checked_at = timezone.now()
+        server.save(update_fields=["is_reachable", "last_checked_at", "updated_at"])
     if ok and server.deployment_mode == OdooServer.DeploymentMode.BARE_METAL and (
         server.domain_routing_enabled or server.managed_dns_enabled
     ):
@@ -4563,7 +4569,12 @@ def configure_docker_host(self, server_id: int, job_id: int | None = None):
     server.status = OdooServer.Status.PROVISIONED if ok else OdooServer.Status.FAILED
     final_msg = "Docker host ready — Traefik + PostgreSQL running." if ok else "Docker host setup failed."
     server.provisioning_log = _append_text(server.provisioning_log, final_msg)
-    server.save(update_fields=["status", "provisioning_log", "updated_at"])
+    if ok:
+        # Ansible ran successfully over SSH — mark server as reachable so the
+        # connectivity badge shows "Connected" and instance creation is unblocked.
+        server.is_reachable = True
+        server.last_checked_at = timezone.now()
+    server.save(update_fields=["status", "is_reachable", "last_checked_at", "provisioning_log", "updated_at"])
     _broadcast_server(
         server.id,
         final_msg,
