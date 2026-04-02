@@ -2,7 +2,7 @@
 # Playbook: create_docker_odoo_instance.yml
 # Purpose:  Create a new Odoo Docker container on a pre-configured Docker host.
 #           Provisions the PostgreSQL database, filestore directory, per-instance
-#           odoo.conf (with db_filter + list_db=False), and starts the container
+#           odoo.conf (with dbfilter + list_db=False), and starts the container
 #           with Traefik labels for automatic HTTPS routing.
 #
 # Extra vars (required):

@@ -476,9 +476,14 @@
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0">
                 <p class="truncate text-sm font-semibold {% if selected_server and s.id == selected_server.id %}text-white{% else %}text-gray-900{% endif %}">{{ s.name }}</p>
-                <p class="mt-1 truncate text-[11px] {% if selected_server and s.id == selected_server.id %}text-gray-300{% else %}text-gray-500{% endif %}">
-                  {% if s.infrastructure and s.infrastructure.infra_type == 'PYOS' %}PYOS · existing server{% else %}Odoo {{ s.odoo_version }} · {{ s.region }}{% endif %}
-                </p>
+                <div class="mt-1 flex flex-wrap items-center gap-1.5">
+                  <span class="inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium {% if selected_server and s.id == selected_server.id %}border-white/20 bg-white/10 text-white{% else %}border-gray-200 bg-gray-50 text-gray-600{% endif %}">
+                    {% if s.deployment_mode == 'DOCKER' %}Docker{% else %}Bare-metal{% endif %}
+                  </span>
+                  <p class="truncate text-[11px] {% if selected_server and s.id == selected_server.id %}text-gray-300{% else %}text-gray-500{% endif %}">
+                    {% if s.infrastructure and s.infrastructure.infra_type == 'PYOS' %}PYOS · existing server{% else %}Odoo {{ s.odoo_version }} · {{ s.region }}{% endif %}
+                  </p>
+                </div>
               </div>
               <span class="mt-0.5 inline-flex h-2.5 w-2.5 shrink-0 rounded-full
                 {% if s.status == 'FAILED' %}bg-red-400
@@ -742,7 +747,7 @@
   {% else %}
   <div id="server-kanban" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
     {% for s in odoo_servers %}
-    <article id="server-card-{{ s.id }}" class="bg-white border border-gray-200 rounded-xl p-4">
+    <article id="server-card-{{ s.id }}" data-server-status="{{ s.status|upper }}" class="bg-white border border-gray-200 rounded-xl p-4">
       <div class="flex items-start justify-between gap-3">
         <div class="flex items-center gap-2">
           {% if s.cloud_account and s.cloud_account.provider == "DIGITALOCEAN" %}
@@ -846,6 +851,30 @@
               {% endif %}
             {% endif %}
           </span>
+        </div>
+      </div>
+
+      <!-- Server metrics bars (populated via JS polling every 30s) -->
+      <div id="server-metrics-{{ s.id }}" class="mt-3 space-y-1.5 hidden">
+        <div class="flex items-center gap-2">
+          <span class="w-12 text-[10px] text-gray-400 shrink-0">CPU</span>
+          <div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div id="server-metrics-cpu-bar-{{ s.id }}" class="h-full rounded-full bg-green-400 transition-all duration-500" style="width:0%"></div></div>
+          <span id="server-metrics-cpu-val-{{ s.id }}" class="w-9 text-right text-[10px] text-gray-500 tabular-nums">—</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-12 text-[10px] text-gray-400 shrink-0">Memory</span>
+          <div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div id="server-metrics-mem-bar-{{ s.id }}" class="h-full rounded-full bg-green-400 transition-all duration-500" style="width:0%"></div></div>
+          <span id="server-metrics-mem-val-{{ s.id }}" class="w-9 text-right text-[10px] text-gray-500 tabular-nums">—</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-12 text-[10px] text-gray-400 shrink-0">Disk</span>
+          <div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div id="server-metrics-disk-bar-{{ s.id }}" class="h-full rounded-full bg-green-400 transition-all duration-500" style="width:0%"></div></div>
+          <span id="server-metrics-disk-val-{{ s.id }}" class="w-9 text-right text-[10px] text-gray-500 tabular-nums">—</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="w-12 text-[10px] text-gray-400 shrink-0">Conn.</span>
+          <div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div id="server-metrics-conn-bar-{{ s.id }}" class="h-full rounded-full bg-green-400 transition-all duration-500" style="width:0%"></div></div>
+          <span id="server-metrics-conn-val-{{ s.id }}" class="w-9 text-right text-[10px] text-gray-500 tabular-nums">—</span>
         </div>
       </div>
 
@@ -982,7 +1011,14 @@
             <div class="font-medium text-gray-900">{{ oi.name }}</div>
             <div class="text-xs text-gray-500">{{ oi.db_name }}</div>
           </td>
-          <td class="px-5 py-3 text-gray-700 text-xs">{{ oi.server.name }}</td>
+          <td class="px-5 py-3">
+            <div class="flex flex-wrap items-center gap-2 text-xs text-gray-700">
+              <span>{{ oi.server.name }}</span>
+              <span class="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">
+                {% if oi.server.deployment_mode == 'DOCKER' %}Docker{% else %}Bare-metal{% endif %}
+              </span>
+            </div>
+          </td>
           <td class="px-5 py-3">
             {% if oi.server.deployment_mode == 'DOCKER' %}
             <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700">
@@ -2755,7 +2791,17 @@
       }
     }
     syncDisconnectedServerRetry();
-    syncPageActionLocks(document.getElementById(`server-card-${sid}`) || document);
+    const card = document.getElementById(`server-card-${sid}`);
+    syncPageActionLocks(card || document);
+    // Track status on card for reliable metrics polling
+    if (card) {
+      const prevStatus = card.dataset.serverStatus || "";
+      card.dataset.serverStatus = (server.status || "").toUpperCase();
+      // Trigger immediate metrics fetch when server first becomes PROVISIONED
+      if (card.dataset.serverStatus === "PROVISIONED" && prevStatus !== "PROVISIONED") {
+        fetchServerMetrics(sid);
+      }
+    }
   }
 
   async function refreshServerCards() {
@@ -2996,6 +3042,7 @@
     const newCard = document.createElement("article");
     newCard.id = `server-card-${sid}`;
     newCard.className = "bg-white border border-gray-200 rounded-xl p-4";
+    newCard.dataset.serverStatus = (server.status || "").toUpperCase();
     const modeBadgeHtml = deployMode === "DOCKER"
       ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-100 text-purple-700">Docker</span>`
       : `<span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500">Bare-metal</span>`;
@@ -3045,6 +3092,12 @@
           <span id="server-conn-badge-${sid}" class="${connBadgeCls}">${connBadgeText}</span>
           <span id="server-conn-msg-${sid}" class="hidden text-[10px] max-w-[11rem] text-right leading-tight ${((server.ssh_connection_status || "").toLowerCase() === "connected") ? "text-green-500" : ((server.ssh_connection_status || "").toLowerCase() === "disconnected" ? "text-red-500" : ((server.ssh_connection_status || "").toLowerCase() === "checking" ? "text-yellow-600" : "text-gray-400"))}">${connMsgText}</span>
         </div>
+      </div>
+      <div id="server-metrics-${sid}" class="mt-3 space-y-1.5 hidden">
+        <div class="flex items-center gap-2"><span class="w-12 text-[10px] text-gray-400 shrink-0">CPU</span><div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div id="server-metrics-cpu-bar-${sid}" class="h-full rounded-full bg-green-400 transition-all duration-500" style="width:0%"></div></div><span id="server-metrics-cpu-val-${sid}" class="w-9 text-right text-[10px] text-gray-500 tabular-nums">—</span></div>
+        <div class="flex items-center gap-2"><span class="w-12 text-[10px] text-gray-400 shrink-0">Memory</span><div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div id="server-metrics-mem-bar-${sid}" class="h-full rounded-full bg-green-400 transition-all duration-500" style="width:0%"></div></div><span id="server-metrics-mem-val-${sid}" class="w-9 text-right text-[10px] text-gray-500 tabular-nums">—</span></div>
+        <div class="flex items-center gap-2"><span class="w-12 text-[10px] text-gray-400 shrink-0">Disk</span><div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div id="server-metrics-disk-bar-${sid}" class="h-full rounded-full bg-green-400 transition-all duration-500" style="width:0%"></div></div><span id="server-metrics-disk-val-${sid}" class="w-9 text-right text-[10px] text-gray-500 tabular-nums">—</span></div>
+        <div class="flex items-center gap-2"><span class="w-12 text-[10px] text-gray-400 shrink-0">Conn.</span><div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div id="server-metrics-conn-bar-${sid}" class="h-full rounded-full bg-green-400 transition-all duration-500" style="width:0%"></div></div><span id="server-metrics-conn-val-${sid}" class="w-9 text-right text-[10px] text-gray-500 tabular-nums">—</span></div>
       </div>
       <div class="mt-4 flex gap-2">
         <button type="button" disabled
@@ -3173,6 +3226,52 @@
   let activeDomainServerMode = "BARE_METAL";
   let activeDomainLockReason = "";
 
+  // ─── Server metrics polling ──────────────────────────────────────────────
+  function metricColor(pct) {
+    if (pct >= 80) return "bg-red-400";
+    if (pct >= 60) return "bg-yellow-400";
+    return "bg-green-400";
+  }
+
+  function applyServerMetrics(sid, data) {
+    const wrap = document.getElementById(`server-metrics-${sid}`);
+    if (!wrap) return;
+    const metrics = [
+      { key: "cpu",  val: data.cpu,    label: `${data.cpu}%` },
+      { key: "mem",  val: data.memory, label: `${data.memory}%` },
+      { key: "disk", val: data.disk,   label: `${data.disk}%` },
+      { key: "conn", val: Math.min(data.connections / 2, 100), label: `${data.connections}` },
+    ];
+    metrics.forEach(({ key, val, label }) => {
+      const bar = document.getElementById(`server-metrics-${key}-bar-${sid}`);
+      const valEl = document.getElementById(`server-metrics-${key}-val-${sid}`);
+      if (bar) {
+        bar.style.width = `${Math.min(val, 100)}%`;
+        bar.className = `h-full rounded-full transition-all duration-500 ${metricColor(val)}`;
+      }
+      if (valEl) valEl.textContent = label;
+    });
+    wrap.classList.remove("hidden");
+  }
+
+  async function fetchServerMetrics(sid) {
+    try {
+      const resp = await fetch(`/api/deployments/odoo/servers/${sid}/metrics/`);
+      if (!resp.ok) return;
+      const data = await resp.json();
+      if (data.error) return;
+      applyServerMetrics(sid, data);
+    } catch (_) { /* silently skip unreachable servers */ }
+  }
+
+  function refreshAllServerMetrics() {
+    document.querySelectorAll("#server-kanban article[id^='server-card-']").forEach((card) => {
+      if ((card.dataset.serverStatus || "") === "PROVISIONED") {
+        fetchServerMetrics(card.id.replace("server-card-", ""));
+      }
+    });
+  }
+
   refreshServerCards();
   autoCheckVisibleServers();
   syncDisconnectedServerRetry();
@@ -3181,6 +3280,9 @@
   setInterval(autoCheckVisibleServers, SERVER_REFRESH_INTERVAL_MS);
   refreshInstanceRows();
   setInterval(refreshInstanceRows, SERVER_REFRESH_INTERVAL_MS);
+  // Metrics: fetch immediately then every 30s
+  setTimeout(refreshAllServerMetrics, 1500);
+  setInterval(refreshAllServerMetrics, 30000);
   if (dnsDashboardEnabled) {
     loadDnsDashboard();
     setInterval(loadDnsDashboard, SERVER_REFRESH_INTERVAL_MS);

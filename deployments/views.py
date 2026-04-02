@@ -1774,6 +1774,86 @@ class OdooServerCheckConnectivityView(LoginRequiredMixin, View):
         return JsonResponse(payload)
 
 
+# Metrics SSH command: samples CPU over 0.3s, reads /proc/meminfo, df /, ss active connections.
+_METRICS_CMD = (
+    "python3 -c \""
+    "import subprocess,time;"
+    "r1=open('/proc/stat').readline().split();time.sleep(0.3);r2=open('/proc/stat').readline().split();"
+    "i1,t1=int(r1[4]),sum(int(x) for x in r1[1:]);"
+    "i2,t2=int(r2[4]),sum(int(x) for x in r2[1:]);"
+    "cpu=round((1-(i2-i1)/(t2-t1))*100,1) if t2!=t1 else 0.0;"
+    "m=open('/proc/meminfo').read();"
+    "mt=int(next(l for l in m.split(chr(10)) if 'MemTotal' in l).split()[1]);"
+    "mf=int(next(l for l in m.split(chr(10)) if 'MemAvailable' in l).split()[1]);"
+    "mem=round((mt-mf)/mt*100,1);"
+    "d=subprocess.run(['df','/'],capture_output=True,text=True).stdout.split(chr(10))[1].split();"
+    "disk=int(d[4].rstrip('%'));"
+    "c=subprocess.run(['ss','-tn'],capture_output=True,text=True).stdout.strip().split(chr(10));"
+    "conn=max(0,len(c)-1);"
+    "print(f'{cpu},{mem},{disk},{conn}')\""
+)
+
+
+class OdooServerMetricsAPIView(LoginRequiredMixin, View):
+    """GET /odoo/servers/<server_id>/metrics/ — collect live CPU/memory/disk/connections via SSH."""
+
+    def get(self, request, server_id):
+        from django.core.cache import cache
+        from deployments.tasks import _connect_ssh_client
+
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+
+        server = get_object_or_404(
+            OdooServer.objects.select_related("infrastructure", "infrastructure__external_server"),
+            pk=server_id,
+            organization=org,
+            is_active=True,
+        )
+
+        if server.status != OdooServer.Status.PROVISIONED:
+            return JsonResponse({"error": "Server is not provisioned."}, status=409)
+
+        cache_key = f"server_metrics_{server_id}"
+        cached = cache.get(cache_key)
+        if cached:
+            return JsonResponse(cached)
+
+        client = tmp_key = None
+        try:
+            client, tmp_key = _connect_ssh_client(server)
+            _, stdout, stderr = client.exec_command(_METRICS_CMD, timeout=10)
+            out = stdout.read().decode().strip()
+            parts = out.split(",")
+            if len(parts) != 4:
+                raise ValueError(f"Unexpected output: {out!r}")
+            result = {
+                "cpu": float(parts[0]),
+                "memory": float(parts[1]),
+                "disk": int(parts[2]),
+                "connections": int(parts[3]),
+            }
+        except Exception as exc:
+            logger.warning("Server %s metrics collection failed: %s", server_id, exc)
+            return JsonResponse({"error": str(exc)}, status=502)
+        finally:
+            if client:
+                try:
+                    client.close()
+                except Exception:
+                    pass
+            if tmp_key:
+                try:
+                    import os
+                    os.unlink(tmp_key)
+                except Exception:
+                    pass
+
+        cache.set(cache_key, result, timeout=30)
+        return JsonResponse(result)
+
+
 class OdooServerReprovisionAPIView(LoginRequiredMixin, View):
     """POST /odoo/servers/<server_id>/reprovision/ — re-run server configuration on a FAILED server."""
 
