@@ -363,7 +363,11 @@ echo "No runtime logs found for $service."
 
 
 def _server_mutation_lock_reason(server: OdooServer) -> str:
-    if server.status in (OdooServer.Status.PROVISIONING, OdooServer.Status.CONFIGURING):
+    if server.status in (
+        OdooServer.Status.CONNECTING,
+        OdooServer.Status.PROVISIONING,
+        OdooServer.Status.CONFIGURING,
+    ):
         return "Server provisioning is still in progress."
     return ""
 

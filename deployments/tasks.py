@@ -2392,17 +2392,24 @@ def provision_odoo_server(self, server_id: int):
             _queue_or_run(configure_odoo_server, server.id)
         return
 
+    # CONNECTING phase: validate cloud credentials/connection before starting Terraform
     logger.info("Server %s: validating managed infrastructure connection target", server.id)
-    _broadcast_server(server.id, "Validating infrastructure connection…", server.status)
+    _broadcast_server(server.id, "Validating cloud credentials…", server.status)
     ok, err = infra.validate_connection_target()
     if not ok:
         logger.warning("Server %s: infrastructure validation failed: %s", server.id, err)
         server.status = OdooServer.Status.FAILED
+        server.celery_task_id = ""
         server.provisioning_log = _append_text(server.provisioning_log, err)
-        server.save(update_fields=["status", "provisioning_log", "updated_at"])
-        _broadcast_server(server.id, f"Failed: {err}", server.status, done=True)
+        server.save(update_fields=["status", "celery_task_id", "provisioning_log", "updated_at"])
+        _broadcast_server(server.id, f"Failed to connect: {err}", server.status, done=True)
         return
     logger.info("Server %s: managed infrastructure connection confirmed", server.id)
+
+    # Transition to PROVISIONING for Terraform phase
+    server.status = OdooServer.Status.PROVISIONING
+    server.save(update_fields=["status", "updated_at"])
+    _broadcast_server(server.id, "Credentials verified — starting infrastructure provisioning…", server.status)
 
     state_root = Path(settings.BASE_DIR) / ".terraform_state" / f"org_{org.id}" / f"odoo_server_{server.id}"
     state_root.mkdir(parents=True, exist_ok=True)
@@ -2431,7 +2438,9 @@ def provision_odoo_server(self, server_id: int):
         server.save(update_fields=["provisioning_log"])
         if code != 0:
             server.status = OdooServer.Status.FAILED
-            server.save(update_fields=["status", "updated_at"])
+            server.celery_task_id = ""
+            server.save(update_fields=["status", "celery_task_id", "updated_at"])
+            _broadcast_server(server.id, "Terraform init failed — check logs.", server.status, done=True)
             return
 
         code, out, err = _run_cmd(
@@ -2450,7 +2459,9 @@ def provision_odoo_server(self, server_id: int):
         server.save(update_fields=["provisioning_log"])
         if code != 0:
             server.status = OdooServer.Status.FAILED
-            server.save(update_fields=["status", "updated_at"])
+            server.celery_task_id = ""
+            server.save(update_fields=["status", "celery_task_id", "updated_at"])
+            _broadcast_server(server.id, "Terraform apply failed — check logs.", server.status, done=True)
             return
 
         ip = _extract_public_ip(module_dir, extra_env=tf_env)
@@ -2458,8 +2469,10 @@ def provision_odoo_server(self, server_id: int):
             ok, provider_id, ip, err = _provider_native_provision_server(server)
             if not ok:
                 server.status = OdooServer.Status.FAILED
+                server.celery_task_id = ""
                 server.provisioning_log = _append_text(server.provisioning_log, err)
-                server.save(update_fields=["status", "provisioning_log", "updated_at"])
+                server.save(update_fields=["status", "celery_task_id", "provisioning_log", "updated_at"])
+                _broadcast_server(server.id, "Failed to provision server.", server.status, done=True)
                 return
             server.provider_server_id = provider_id
         else:
@@ -2469,9 +2482,11 @@ def provision_odoo_server(self, server_id: int):
         ok, provider_id, ip, err = _provider_native_provision_server(server)
         if not ok:
             server.status = OdooServer.Status.FAILED
+            server.celery_task_id = ""
             server.provisioning_log = _append_text(server.provisioning_log, "Provider fallback provisioning failed.")
             server.provisioning_log = _append_text(server.provisioning_log, err)
-            server.save(update_fields=["status", "provisioning_log", "updated_at"])
+            server.save(update_fields=["status", "celery_task_id", "provisioning_log", "updated_at"])
+            _broadcast_server(server.id, "Failed to provision server.", server.status, done=True)
             return
         server.provider_server_id = provider_id
         server.ip_address = ip or None
@@ -2488,8 +2503,11 @@ def provision_odoo_server(self, server_id: int):
         if code != 0:
             server.provisioning_log = _append_text(server.provisioning_log, "DNS hook failed (non-blocking).")
 
-    # Transition to CONNECTING and probe SSH before starting configuration
-    server.status = OdooServer.Status.CONNECTING
+    # For managed (Terraform-provisioned) servers the SSH daemon is not yet ready
+    # immediately after `terraform apply` — the server needs 30-60 s to boot.
+    # Ansible (configure_odoo_server / configure_docker_host) handles SSH retries
+    # internally, so we go straight to CONFIGURING here.
+    server.status = OdooServer.Status.CONFIGURING
     server.save(
         update_fields=[
             "status",
@@ -2500,26 +2518,7 @@ def provision_odoo_server(self, server_id: int):
             "updated_at",
         ]
     )
-    _broadcast_server(server.id, f"Infrastructure ready ({server.ip_address}) — checking SSH connectivity…", server.status)
-
-    reachable, conn_err = _probe_server_ssh(server)
-    now = timezone.now()
-    server.is_reachable = reachable
-    server.last_checked_at = now
-    server.provisioning_log = _append_text(
-        server.provisioning_log,
-        "SSH connectivity confirmed." if reachable else f"SSH connectivity failed: {conn_err}",
-    )
-    if not reachable:
-        server.status = OdooServer.Status.FAILED
-        server.celery_task_id = ""
-        server.save(update_fields=["status", "celery_task_id", "is_reachable", "last_checked_at", "provisioning_log", "updated_at"])
-        _broadcast_server(server.id, f"Failed to connect: {conn_err}", server.status, done=True)
-        return
-
-    server.status = OdooServer.Status.PROVISIONING
-    server.save(update_fields=["status", "is_reachable", "last_checked_at", "provisioning_log", "updated_at"])
-    _broadcast_server(server.id, "Connected — starting configuration…", server.status)
+    _broadcast_server(server.id, f"Infrastructure ready ({server.ip_address}) — starting configuration…", server.status)
 
     if server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
         _queue_or_run(configure_docker_host, server.id)
