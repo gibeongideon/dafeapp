@@ -29,15 +29,28 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: "{{ cpu_limit | default(1) }}"
+          memory: "{{ mem_limit_mb | default(1024) }}m"
+        reservations:
+          cpus: "{{ [cpu_limit | default(1) | float / 2, 0.25] | max }}"
+          memory: "{{ [mem_limit_mb | default(1024) | int // 2, 128] | max }}m"
     labels:
-      # Main HTTP router (port 8069)
       - "traefik.enable=true"
+      # --- HTTP: redirect to HTTPS ---
+      - "traefik.http.routers.{{ container_name }}-http.rule=Host(`{{ domain }}`)"
+      - "traefik.http.routers.{{ container_name }}-http.entrypoints=web"
+      - "traefik.http.routers.{{ container_name }}-http.middlewares={{ container_name }}-https-redirect"
+      - "traefik.http.middlewares.{{ container_name }}-https-redirect.redirectscheme.scheme=https"
+      # --- HTTPS: main Odoo router ---
       - "traefik.http.routers.{{ container_name }}.rule=Host(`{{ domain }}`)"
       - "traefik.http.routers.{{ container_name }}.entrypoints=websecure"
       - "traefik.http.routers.{{ container_name }}.tls=true"
       - "traefik.http.routers.{{ container_name }}.tls.certresolver=letsencrypt"
       - "traefik.http.services.{{ container_name }}.loadbalancer.server.port=8069"
-      # Websocket router (port 8072 — live chat / bus)
+      # --- WebSocket: live chat / bus ---
       - "traefik.http.routers.{{ container_name }}-ws.rule=Host(`{{ domain }}`) && PathPrefix(`/websocket`)"
       - "traefik.http.routers.{{ container_name }}-ws.entrypoints=websecure"
       - "traefik.http.routers.{{ container_name }}-ws.tls=true"

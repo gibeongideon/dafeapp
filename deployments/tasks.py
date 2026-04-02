@@ -1351,6 +1351,16 @@ def _default_docker_instance_playbook() -> str:
     return str(Path(settings.BASE_DIR) / "infra" / "ansible" / "create_docker_odoo_instance.yml")
 
 
+def _default_docker_host_playbook() -> str:
+    """Absolute path to the repo-local Docker host bootstrap playbook."""
+    return str(Path(settings.BASE_DIR) / "infra" / "ansible" / "setup_docker_host.yml")
+
+
+def _default_docker_instance_delete_playbook() -> str:
+    """Absolute path to the repo-local Docker instance deletion playbook."""
+    return str(Path(settings.BASE_DIR) / "infra" / "ansible" / "delete_docker_odoo_instance.yml")
+
+
 def _default_enterprise_sync_playbook() -> str:
     """Instance-level: server shared dir → instance path (local copy on server)."""
     return str(Path(settings.BASE_DIR) / "infra" / "ansible" / "sync_odoo_enterprise_addons.yml")
@@ -4125,14 +4135,18 @@ def _run_docker_instance_create(instance: OdooInstance, server: OdooServer, job_
 
     client_name = instance.db_name.replace("_", "-")
     container_name = f"odoo-{client_name}"
+    cpu_limit = float(instance.requested_cpu_cores or 1)
+    mem_limit_mb = int(instance.requested_ram_mb or 1024)
     extra_vars = {
         "client_name": client_name,
         "domain": instance.domain,
         "db_name": instance.db_name,
         "odoo_version": server.odoo_version,
         "postgres_password": server.docker_postgres_password,
-        "restart_policy": "unless-stopped",
+        "restart_policy": instance.restart_policy or "unless-stopped",
         "container_name": container_name,
+        "cpu_limit": cpu_limit,
+        "mem_limit_mb": mem_limit_mb,
     }
 
     ws_group = f"odoo.instance.{instance.id}"
@@ -4266,11 +4280,12 @@ def _run_docker_instance_delete(instance: OdooInstance, server: OdooServer):
     Internal: run the Docker Odoo instance deletion playbook and mark the instance DELETED.
     Called from delete_odoo_instance when server.deployment_mode == DOCKER.
     """
-    playbook = os.getenv("ANSIBLE_DOCKER_INSTANCE_DELETE_PLAYBOOK", "").strip()
-    if not playbook:
+    playbook = os.getenv("ANSIBLE_DOCKER_INSTANCE_DELETE_PLAYBOOK", "").strip() or _default_docker_instance_delete_playbook()
+    if not Path(playbook).exists():
+        logger.warning("Docker instance delete playbook not found at %s; marking DELETED without cleanup.", playbook)
         instance.status = OdooInstance.Status.DELETED
         instance.provisioning_log = _append_text(
-            instance.provisioning_log, "ANSIBLE_DOCKER_INSTANCE_DELETE_PLAYBOOK not set; marked DELETED."
+            instance.provisioning_log, f"Delete playbook not found: {playbook}. Marked DELETED without container cleanup."
         )
         instance.save(update_fields=["status", "provisioning_log", "updated_at"])
         return
@@ -4322,13 +4337,13 @@ def configure_docker_host(self, server_id: int, job_id: int | None = None):
         _job_done(job_id, ok=False, log="No server IP available for Docker host setup.")
         return
 
-    playbook = os.getenv("ANSIBLE_DOCKER_HOST_PLAYBOOK", "").strip()
-    if not playbook:
-        server.status = OdooServer.Status.PROVISIONED
-        msg = "ANSIBLE_DOCKER_HOST_PLAYBOOK not set. Marked PROVISIONED without Docker setup."
+    playbook = os.getenv("ANSIBLE_DOCKER_HOST_PLAYBOOK", "").strip() or _default_docker_host_playbook()
+    if not Path(playbook).exists():
+        server.status = OdooServer.Status.FAILED
+        msg = f"Docker host setup playbook not found: {playbook}"
         server.provisioning_log = _append_text(server.provisioning_log, msg)
         server.save(update_fields=["status", "provisioning_log", "updated_at"])
-        _job_done(job_id, ok=True, log=msg)
+        _job_done(job_id, ok=False, log=msg)
         return
 
     acme_email = os.getenv("ODOO_ADMIN_EMAIL", "odoo@example.com").strip()
@@ -4702,12 +4717,27 @@ def restart_odoo_instance(self, instance_id: int, job_id: int | None = None):
 
         on_line("=== Health Check ===")
         time.sleep(5)
-        health_url = f"http://{server.ip_address}:{instance.http_port}/web/health"
-        try:
-            with urllib.request.urlopen(health_url, timeout=30) as resp:
-                healthy = resp.status == 200
-        except Exception:
-            healthy = False
+        if server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
+            # Docker containers are not port-exposed to the host; check via domain or docker inspect.
+            if instance.domain:
+                health_url = f"https://{instance.domain}/web/health"
+                try:
+                    with urllib.request.urlopen(health_url, timeout=30) as resp:
+                        healthy = resp.status == 200
+                except Exception:
+                    healthy = False
+            else:
+                container_name = runtime.get("container_name") or f"odoo-{instance.db_name.replace('_', '-')}"
+                hc_cmd = f"docker inspect --format='{{{{.State.Health.Status}}}}' {shlex.quote(container_name)}"
+                hc_code, hc_out = _ssh_run(server, hc_cmd, timeout=15)
+                healthy = hc_code == 0 and hc_out.strip() == "healthy"
+        else:
+            health_url = f"http://{server.ip_address}:{instance.http_port}/web/health"
+            try:
+                with urllib.request.urlopen(health_url, timeout=30) as resp:
+                    healthy = resp.status == 200
+            except Exception:
+                healthy = False
         instance.is_reachable = healthy
         instance.last_health_check = timezone.now()
         instance.save(update_fields=["is_reachable", "last_health_check", "updated_at"])
