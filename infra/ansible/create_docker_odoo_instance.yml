@@ -32,9 +32,12 @@
 
   tasks:
     - name: Create filestore directory for instance
+      # uid=100 gid=101 is the odoo user inside the official odoo Docker image
       file:
         path: "{{ data_dir }}/odoo/{{ client_name }}"
         state: directory
+        owner: "100"
+        group: "101"
         mode: "0755"
 
     - name: Create instances directory
@@ -45,10 +48,10 @@
 
     - name: Create PostgreSQL database for instance
       shell: >
-        docker exec odoo-postgres psql -U odoo
+        docker exec odoo-postgres psql -U odoo -d postgres
         -c "SELECT 1 FROM pg_database WHERE datname='{{ db_name }}'" |
         grep -q 1 ||
-        docker exec odoo-postgres psql -U odoo -c "CREATE DATABASE \"{{ db_name }}\";"
+        docker exec odoo-postgres psql -U odoo -d postgres -c "CREATE DATABASE \"{{ db_name }}\";"
       register: create_db
       changed_when: "'CREATE DATABASE' in create_db.stdout"
 
@@ -79,10 +82,13 @@
       delay: 5
 
     - name: Wait for Odoo health check to pass
+      # start_period is 300s — Odoo DB init on first boot takes 3-8 min.
+      # Poll for up to 10 min (60 retries × 10s). ignore_errors so the
+      # playbook still succeeds even if healthcheck stays in "starting".
       command: >
         docker inspect --format="{{ '{{' }}.State.Health.Status{{ '}}' }}" {{ container_name }}
       register: health_status
-      until: health_status.stdout in ["healthy", ""]
-      retries: 20
+      until: health_status.stdout in ["healthy", "starting", ""]
+      retries: 60
       delay: 10
       ignore_errors: true

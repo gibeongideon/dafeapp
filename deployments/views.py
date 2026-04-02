@@ -75,6 +75,8 @@ from deployments.tasks import (
     activate_enterprise_for_instance,
     checkout_instance_repo_branch,
     clone_instance_repo,
+    configure_docker_host,
+    configure_odoo_server,
     create_odoo_instance,
     detach_instance_domain,
     delete_odoo_instance,
@@ -1759,6 +1761,47 @@ class OdooServerCheckConnectivityView(LoginRequiredMixin, View):
             port,
         )
         return JsonResponse(payload)
+
+
+class OdooServerReprovisionAPIView(LoginRequiredMixin, View):
+    """POST /odoo/servers/<server_id>/reprovision/ — re-run server configuration on a FAILED server."""
+
+    def post(self, request, server_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if request.org_role not in ("SUPER_ADMIN", "ADMIN", "MANAGER"):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        server = get_object_or_404(
+            OdooServer.objects.select_related("infrastructure", "infrastructure__external_server"),
+            pk=server_id,
+            organization=org,
+            is_active=True,
+        )
+
+        if server.status not in (OdooServer.Status.FAILED, OdooServer.Status.PROVISIONED):
+            return JsonResponse(
+                {"error": f"Server must be in FAILED or PROVISIONED state to re-provision (current: {server.status})."},
+                status=409,
+            )
+        if not server.ip_address:
+            return JsonResponse({"error": "Server has no IP address; cannot re-provision."}, status=400)
+
+        server.status = OdooServer.Status.CONFIGURING
+        server.provisioning_log = ""
+        server.save(update_fields=["status", "provisioning_log", "updated_at"])
+
+        if server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
+            job = _dispatch(configure_docker_host, server.id)
+        else:
+            job = _dispatch(configure_odoo_server, server.id)
+
+        logger.info(
+            "Re-provision triggered for server %s (mode=%s) by user %s",
+            server.id, server.deployment_mode, request.user,
+        )
+        return JsonResponse({"ok": True, "message": "Re-provisioning started.", "task_id": str(getattr(job, "id", ""))})
 
 
 class OdooInstanceCreateAPIView(LoginRequiredMixin, View):

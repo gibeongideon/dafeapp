@@ -402,10 +402,21 @@
           {{ selected_server.capacity_cpu_cores }} vCPU · {{ selected_server.capacity_ram_mb }} MB RAM · {{ selected_server.region }}
         </p>
       </div>
-      <div class="text-right">
-        <p class="text-[11px] uppercase tracking-wide text-gray-400">Instances</p>
-        <p id="server-top-instances-{{ selected_server.id }}" class="text-xl font-semibold text-gray-900">{{ selected_server.active_instance_count }}/{{ selected_server.max_instances }}</p>
-      <p id="server-top-ip-{{ selected_server.id }}" class="text-xs text-gray-500 font-mono">{{ selected_server.ip_address|default:"pending" }}</p>
+      <div class="text-right flex flex-col items-end gap-2">
+        <div>
+          <p class="text-[11px] uppercase tracking-wide text-gray-400">Instances</p>
+          <p id="server-top-instances-{{ selected_server.id }}" class="text-xl font-semibold text-gray-900">{{ selected_server.active_instance_count }}/{{ selected_server.max_instances }}</p>
+          <p id="server-top-ip-{{ selected_server.id }}" class="text-xs text-gray-500 font-mono">{{ selected_server.ip_address|default:"pending" }}</p>
+        </div>
+        {% if selected_server.status == 'FAILED' %}
+        <button id="reprovision-btn-{{ selected_server.id }}"
+                type="button"
+                onclick="reprovisionServer({{ selected_server.id }}, this)"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 transition-colors">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          Re-provision
+        </button>
+        {% endif %}
       </div>
     </div>
   </div>
@@ -2362,6 +2373,31 @@
       placeholder.className = "md:col-span-2 xl:col-span-3 bg-gray-50 border border-gray-200 rounded-xl p-8 text-center";
       placeholder.innerHTML = '<p class="text-sm text-gray-500">No servers yet. Click <strong>Create Server</strong> to provision a DigitalOcean droplet with Odoo 19.</p>';
       kanban.appendChild(placeholder);
+    }
+  }
+
+  async function reprovisionServer(serverId, btn) {
+    if (!confirm("Re-run server provisioning? The server will re-enter CONFIGURING state.")) return;
+    btn.disabled = true;
+    btn.textContent = "Starting…";
+    try {
+      const resp = await fetch(`/api/deployments/odoo/servers/${serverId}/reprovision/`, {
+        method: "POST",
+        headers: { "X-CSRFToken": getCsrfToken(), "Content-Type": "application/json" },
+      });
+      const data = await resp.json();
+      if (resp.ok && data.ok) {
+        btn.remove();
+        showToast("Re-provisioning started — watch the log for progress.", "success");
+      } else {
+        btn.disabled = false;
+        btn.textContent = "Re-provision";
+        showToast(data.error || "Failed to start re-provisioning.", "error");
+      }
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = "Re-provision";
+      showToast("Network error — could not reach server.", "error");
     }
   }
 

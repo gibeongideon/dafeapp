@@ -46,7 +46,7 @@
       community.docker.docker_container_exec:
         container: odoo-postgres
         command: >
-          psql -U odoo -c "DROP DATABASE IF EXISTS {{ db_name }};"
+          psql -U odoo -d postgres -c "DROP DATABASE IF EXISTS {{ db_name }};"
       ignore_errors: true
 
     - name: Remove instance compose file

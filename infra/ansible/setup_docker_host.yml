@@ -119,14 +119,22 @@
           ACME_EMAIL={{ acme_email }}
           POSTGRES_PASSWORD={{ postgres_password }}
 
-    - name: Create odoo-network
-      command: docker network create odoo-network
-      register: network_result
-      failed_when:
-        - network_result.rc != 0
-        - "'already exists' not in network_result.stderr"
+    - name: Remove unlabelled odoo-network if it exists (idempotency fix)
+      # A pre-existing network without compose labels causes `docker compose up` to fail.
+      # Remove it only when no containers are connected — compose will recreate it correctly.
+      shell: |
+        if docker network inspect odoo-network >/dev/null 2>&1; then
+          CONTAINERS=$(docker network inspect odoo-network --format '{{ "{{" }}len .Containers{{ "}}" }}')
+          if [ "$CONTAINERS" = "0" ]; then
+            docker network rm odoo-network
+          fi
+        fi
+      args:
+        executable: /bin/bash
+      ignore_errors: true
 
     - name: Start base stack (Traefik + PostgreSQL)
+      # docker-compose.base.yml owns the odoo-network definition; it creates it on first up.
       command: >
         docker compose
         -f {{ docker_compose_dir }}/docker-compose.base.yml
