@@ -1,0 +1,88 @@
+version: "3.11"
+
+# Production compose — uses pre-built image from GHCR.
+# The IMAGE env var is set by the deploy workflow:
+#   IMAGE=ghcr.io/gibeongideon/dafeapp:dev docker compose -f docker-compose.prod.yml up -d
+#
+# On the droplet, create /opt/dafeapp/.env with real production values
+# (see .env.example for all available variables).
+
+services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-dafeapp}
+      POSTGRES_USER: ${DB_USER:-dafeapp}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-dafeapp}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ───────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Django / Daphne (ASGI) ──────────────────────────────────────────────────
+  web:
+    image: ${IMAGE:-ghcr.io/gibeongideon/dafeapp:dev}
+    restart: unless-stopped
+    command: >
+      sh -c "python manage.py migrate --no-input &&
+             python manage.py collectstatic --no-input --clear &&
+             daphne -b 0.0.0.0 -p 8000 dafeapp.asgi:application"
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - staticfiles:/app/staticfiles
+      - mediafiles:/app/mediafiles
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ── Celery Worker ───────────────────────────────────────────────────────────
+  celery_worker:
+    image: ${IMAGE:-ghcr.io/gibeongideon/dafeapp:dev}
+    restart: unless-stopped
+    command: celery -A dafeapp worker -l info --concurrency 2
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ── Celery Beat (scheduler) ─────────────────────────────────────────────────
+  celery_beat:
+    image: ${IMAGE:-ghcr.io/gibeongideon/dafeapp:dev}
+    restart: unless-stopped
+    command: celery -A dafeapp beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  staticfiles:
+  mediafiles:

@@ -1,0 +1,84 @@
+name: CI — Test
+
+# Runs on every push to any branch and on all pull requests.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  test:
+    name: Django Tests
+    runs-on: ubuntu-latest
+
+    # ── Service containers (postgres + redis) ─────────────────────────────────
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: dafeapp_test
+          POSTGRES_USER: dafeapp
+          POSTGRES_PASSWORD: dafeapp
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # django-environ reads BASE_DIR/.env at import time.
+      # We write a minimal CI .env so settings loads cleanly
+      # without any real secrets.
+      - name: Write CI .env
+        run: |
+          cat > .env << 'EOF'
+          SECRET_KEY=ci-only-insecure-key-do-not-use-in-production
+          DEBUG=True
+          ALLOWED_HOSTS=localhost,127.0.0.1
+          SITE_URL=http://localhost:8000
+          DATABASE_URL=postgres://dafeapp:dafeapp@localhost:5432/dafeapp_test
+          REDIS_URL=redis://localhost:6379/0
+          FIELD_ENCRYPTION_KEY=${{ secrets.FIELD_ENCRYPTION_KEY }}
+          ANSIBLE_SSH_KEY_PATH=/dev/null
+          ANSIBLE_SSH_USER=root
+          ANSIBLE_ODOO_SERVER_PLAYBOOK=/dev/null
+          ANSIBLE_ODOO_INSTANCE_PLAYBOOK=/dev/null
+          ANSIBLE_ODOO_INSTANCE_DIRECT_PLAYBOOK=/dev/null
+          ANSIBLE_ODOO_INSTANCE_DELETE_PLAYBOOK=/dev/null
+          ANSIBLE_DOCKER_HOST_PLAYBOOK=/dev/null
+          ANSIBLE_DOCKER_INSTANCE_PLAYBOOK=/dev/null
+          ANSIBLE_DOCKER_INSTANCE_DELETE_PLAYBOOK=/dev/null
+          TERRAFORM_SERVER_MODULE_DIR=/tmp
+          PLATFORM_BASE_DOMAIN=localhost
+          EOF
+
+      - name: Run migrations
+        run: python manage.py migrate --no-input
+
+      - name: Run tests
+        run: python manage.py test --verbosity=2

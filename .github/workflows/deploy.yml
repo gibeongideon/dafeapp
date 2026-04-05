@@ -1,0 +1,117 @@
+name: Deploy — Build & Push → DigitalOcean
+
+# Triggers only on pushes to the dev branch.
+# Extend to main/production by adding more branches below.
+on:
+  push:
+    branches: [dev]
+
+env:
+  REGISTRY: ghcr.io
+  # github.repository = "gibeongideon/dafeapp"  (owner/repo)
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ── 1. Build Docker image and push to GHCR ──────────────────────────────────
+  build:
+    name: Build & Push Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write   # required to push to ghcr.io
+
+    outputs:
+      image_tag: ${{ steps.meta.outputs.version }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract Docker metadata (tags + labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ env.IMAGE_NAME }}
+          tags: |
+            # branch name tag  →  ghcr.io/owner/repo:dev
+            type=ref,event=branch
+            # commit sha tag   →  ghcr.io/owner/repo:sha-a1b2c3d
+            type=sha,prefix=sha-,format=short
+
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Layer cache via GitHub Actions cache (speeds up rebuilds)
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── 2. SSH into Droplet and deploy new image ─────────────────────────────────
+  deploy:
+    name: Deploy to DigitalOcean
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout (needed to copy docker-compose.prod.yml to droplet)
+        uses: actions/checkout@v4
+
+      # Copy the prod compose file to the droplet each deploy so it stays in sync.
+      - name: Copy docker-compose.prod.yml to droplet
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DO_HOST }}
+          username: ${{ secrets.DO_USER }}
+          key: ${{ secrets.DO_SSH_KEY }}
+          source: "docker-compose.prod.yml"
+          target: "/opt/dafeapp/"
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          # The :dev tag image built in the previous job
+          IMAGE: ghcr.io/${{ env.IMAGE_NAME }}:dev
+          # PAT with read:packages scope — lets the droplet pull from GHCR
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GH_ACTOR: ${{ github.actor }}
+        with:
+          host: ${{ secrets.DO_HOST }}
+          username: ${{ secrets.DO_USER }}
+          key: ${{ secrets.DO_SSH_KEY }}
+          envs: IMAGE,GHCR_TOKEN,GH_ACTOR
+          script: |
+            set -e
+            cd /opt/dafeapp
+
+            echo "==> Logging in to GHCR..."
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GH_ACTOR" --password-stdin
+
+            echo "==> Pulling new image: $IMAGE..."
+            IMAGE="$IMAGE" docker compose -f docker-compose.prod.yml pull
+
+            echo "==> Starting services..."
+            IMAGE="$IMAGE" docker compose -f docker-compose.prod.yml up -d --remove-orphans
+
+            echo "==> Waiting 20s for containers to stabilise..."
+            sleep 20
+
+            echo "==> Container status:"
+            docker compose -f docker-compose.prod.yml ps
+
+            echo "==> Removing unused images to free disk space..."
+            docker image prune -f
+
+            echo "==> Deploy complete."
