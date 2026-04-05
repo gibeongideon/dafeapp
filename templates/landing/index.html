@@ -321,7 +321,7 @@
     <!-- Eyebrow badge -->
     <div class="inline-flex items-center gap-2 glass-card px-3.5 py-1.5 rounded-full text-xs font-medium text-zinc-300 mb-8">
       <span class="w-1.5 h-1.5 rounded-full bg-white animate-pulse-slow inline-block"></span>
-      Now live — DigitalOcean + Bring Your Own Server
+      Now live — DigitalOcean · AWS · Bring Your Own Server
     </div>
 
     <!-- Headline -->
@@ -332,8 +332,8 @@
 
     <!-- Subheadline -->
     <p class="text-lg sm:text-xl text-zinc-400 max-w-2xl mx-auto mb-10 leading-relaxed font-light">
-      DafeApp is the control plane for Odoo deployments — provision servers, manage credentials,
-      enforce team roles, and ship to production in minutes, not days.
+      DafeApp provisions servers, deploys Odoo in Docker, sets up Traefik with auto-SSL, and
+      manages your entire fleet — from a single dashboard. Minutes to live, not days.
     </p>
 
     <!-- CTA row -->
@@ -369,22 +369,26 @@
         <div class="flex" style="background:var(--bg4);min-height:340px;">
 
           <!-- Sidebar -->
-          <div class="w-48 border-r border-white/[0.06] p-4 flex flex-col gap-1 shrink-0 hidden sm:flex" style="background:var(--bg2);">
-            <div class="text-[10px] font-semibold text-zinc-600 uppercase tracking-wider px-2 mb-2">Navigation</div>
+          <div class="w-44 border-r border-white/[0.06] p-4 flex flex-col gap-1 shrink-0 hidden sm:flex" style="background:var(--bg2);">
+            <div class="text-[10px] font-semibold text-zinc-600 uppercase tracking-wider px-2 mb-2">DafeApp</div>
             <div class="flex items-center gap-2.5 px-2 py-1.5 rounded-lg bg-white/[0.06] text-white text-xs font-medium">
-              <svg class="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7"/></svg>
-              Infrastructure
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7"/></svg>
+              Servers
             </div>
-            <div class="flex items-center gap-2.5 px-2 py-1.5 text-zinc-500 text-xs rounded-lg">
+            <div class="flex items-center gap-2.5 px-2 py-1.5 text-zinc-500 text-xs rounded-lg hover:text-zinc-300">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
-              Deployments
+              Instances
             </div>
-            <div class="flex items-center gap-2.5 px-2 py-1.5 text-zinc-500 text-xs rounded-lg">
+            <div class="flex items-center gap-2.5 px-2 py-1.5 text-zinc-500 text-xs rounded-lg hover:text-zinc-300">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+              Connections
+            </div>
+            <div class="flex items-center gap-2.5 px-2 py-1.5 text-zinc-500 text-xs rounded-lg hover:text-zinc-300">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0"/></svg>
-              Team
+              Members
             </div>
-            <div class="flex items-center gap-2.5 px-2 py-1.5 text-zinc-500 text-xs rounded-lg">
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+            <div class="flex items-center gap-2.5 px-2 py-1.5 text-zinc-500 text-xs rounded-lg hover:text-zinc-300">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
               Billing
             </div>
           </div>
@@ -393,62 +397,41 @@
           <div class="flex-1 p-5 space-y-4 overflow-hidden">
             <div class="flex items-center justify-between">
               <div>
-                <div class="text-white text-sm font-semibold">Infrastructure</div>
-                <div class="text-zinc-500 text-xs">3 servers · 2 accounts</div>
+                <div class="text-white text-sm font-semibold">Servers</div>
+                <div class="text-zinc-500 text-xs">3 servers · 5 instances running</div>
               </div>
               <div class="flex gap-2">
                 <div class="px-2.5 py-1 text-[10px] font-medium text-zinc-400 border border-white/[0.08] rounded-md bg-white/[0.03]">Add server</div>
-                <div class="px-2.5 py-1 text-[10px] font-medium text-white bg-white/10 border border-white/[0.12] rounded-md">Provision droplet</div>
-              </div>
-            </div>
-
-            <!-- Provider cards -->
-            <div class="grid grid-cols-4 gap-2">
-              <div class="col-span-2 p-3 rounded-xl border border-white/[0.12] bg-white/[0.04] flex items-center gap-3">
-                <div class="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style="background:#0080FF;">
-                  <svg viewBox="0 0 24 24" class="w-5 h-5" fill="white"><path d="M12.015 0C5.383 0 0 5.387 0 12.015c0 6.629 5.383 12.015 12.015 12.015 6.629 0 12.015-5.386 12.015-12.015C24.03 5.387 18.644 0 12.015 0zm0 18.586v-3.38c3.42 0 5.968-3.423 4.617-7.015a5.034 5.034 0 00-2.816-2.816C10.224 4.024 6.8 6.572 6.8 9.992h-3.38c0-5.02 4.93-8.997 10.193-7.376a8.424 8.424 0 015.377 5.377c1.621 5.263-2.356 10.193-7.375 10.193zm0 0h-3.38v-3.38h3.38v3.38zm-3.38 0H5.254v-3.38h3.381v3.38z"/></svg>
-                </div>
-                <div>
-                  <div class="text-xs font-semibold text-white">DigitalOcean</div>
-                  <div class="flex items-center gap-1 mt-0.5">
-                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"></span>
-                    <span class="text-[10px] text-emerald-400 font-medium">Live</span>
-                  </div>
-                </div>
-              </div>
-              <div class="p-3 rounded-xl border border-white/[0.06] flex items-center gap-2 opacity-50">
-                <div class="w-7 h-7 rounded-md bg-zinc-800 flex items-center justify-center text-[10px] font-bold text-zinc-300">AWS</div>
-                <div class="text-[10px] text-zinc-500">Soon</div>
-              </div>
-              <div class="p-3 rounded-xl border border-white/[0.06] flex items-center gap-2 opacity-50">
-                <div class="w-7 h-7 rounded-md bg-zinc-800 flex items-center justify-center text-[10px] font-bold text-zinc-300">GCP</div>
-                <div class="text-[10px] text-zinc-500">Soon</div>
+                <div class="px-2.5 py-1 text-[10px] font-medium text-white bg-white/10 border border-white/[0.12] rounded-md">Provision new</div>
               </div>
             </div>
 
             <!-- Server list -->
             <div class="rounded-xl border border-white/[0.07] overflow-hidden" style="background:var(--bg2);">
               <div class="border-b border-white/[0.06] px-3 py-2 flex items-center gap-4 text-[10px] font-medium text-zinc-600 uppercase tracking-wider">
-                <span class="w-32">Name</span><span class="w-24">Host</span><span class="w-16">Status</span><span>Auth</span>
+                <span class="w-28">Server</span><span class="w-20">IP</span><span class="w-20">Status</span><span class="w-16">Connection</span><span>Instances</span>
               </div>
               <div class="divide-y divide-white/[0.04]">
                 <div class="flex items-center gap-4 px-3 py-2.5 text-xs">
-                  <span class="w-32 font-medium text-white">prod-do-01</span>
-                  <span class="w-24 font-mono text-zinc-500 text-[10px]">10.0.0.1</span>
-                  <span class="w-16 flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"></span><span class="text-emerald-400 text-[10px]">Running</span></span>
-                  <span class="text-[10px] text-zinc-500 px-1.5 py-0.5 rounded border border-white/[0.06] bg-white/[0.03]">SSH Key</span>
+                  <span class="w-28 font-medium text-white">prod-do-01</span>
+                  <span class="w-20 font-mono text-zinc-500 text-[10px]">134.122.x.x</span>
+                  <span class="w-20 flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"></span><span class="text-emerald-400 text-[10px]">Provisioned</span></span>
+                  <span class="w-16 text-[10px] text-emerald-400 font-medium">Connected</span>
+                  <span class="text-[10px] text-zinc-500 px-1.5 py-0.5 rounded border border-white/[0.06] bg-white/[0.03]">3 running</span>
                 </div>
                 <div class="flex items-center gap-4 px-3 py-2.5 text-xs">
-                  <span class="w-32 font-medium text-white">staging-vps</span>
-                  <span class="w-24 font-mono text-zinc-500 text-[10px]">45.33.102.7</span>
-                  <span class="w-16 flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"></span><span class="text-emerald-400 text-[10px]">Ready</span></span>
-                  <span class="text-[10px] text-zinc-500 px-1.5 py-0.5 rounded border border-white/[0.06] bg-white/[0.03]">Password</span>
+                  <span class="w-28 font-medium text-white">staging-aws</span>
+                  <span class="w-20 font-mono text-zinc-500 text-[10px]">18.184.x.x</span>
+                  <span class="w-20 flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"></span><span class="text-emerald-400 text-[10px]">Provisioned</span></span>
+                  <span class="w-16 text-[10px] text-emerald-400 font-medium">Connected</span>
+                  <span class="text-[10px] text-zinc-500 px-1.5 py-0.5 rounded border border-white/[0.06] bg-white/[0.03]">2 running</span>
                 </div>
-                <div class="flex items-center gap-4 px-3 py-2.5 text-xs opacity-60">
-                  <span class="w-32 font-medium text-zinc-400">backup-node</span>
-                  <span class="w-24 font-mono text-zinc-600 text-[10px]">192.168.1.5</span>
-                  <span class="w-16 flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-zinc-500 inline-block"></span><span class="text-zinc-500 text-[10px]">Verifying</span></span>
-                  <span class="text-[10px] text-zinc-600 px-1.5 py-0.5 rounded border border-white/[0.06]">SSH Key</span>
+                <div class="flex items-center gap-4 px-3 py-2.5 text-xs opacity-70">
+                  <span class="w-28 font-medium text-zinc-300">dev-vps</span>
+                  <span class="w-20 font-mono text-zinc-500 text-[10px]">45.33.x.x</span>
+                  <span class="w-20 flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-yellow-400 inline-block"></span><span class="text-yellow-400 text-[10px]">Configuring</span></span>
+                  <span class="w-16 text-[10px] text-yellow-500 font-medium">Checking…</span>
+                  <span class="text-[10px] text-zinc-600 px-1.5 py-0.5 rounded border border-white/[0.06]">—</span>
                 </div>
               </div>
             </div>
@@ -459,11 +442,11 @@
       <!-- Floating stat pills -->
       <div class="absolute -bottom-4 -left-4 hidden lg:flex items-center gap-2 glass-card px-3 py-2 rounded-xl text-xs text-zinc-300 shadow-2xl">
         <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-        3 servers verified
+        Odoo live in &lt; 5 minutes
       </div>
       <div class="absolute -top-4 -right-4 hidden lg:flex items-center gap-2 glass-card px-3 py-2 rounded-xl text-xs text-zinc-300 shadow-2xl">
         <svg class="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-        Docker installed in 90s
+        Traefik SSL auto-configured
       </div>
     </div>
   </div>
@@ -477,10 +460,10 @@
     <div class="stack-logos flex flex-wrap items-center justify-center gap-10 opacity-40 grayscale">
       <svg viewBox="0 0 182 24" class="h-5" fill="white"><text y="18" font-size="18" font-family="Inter,sans-serif" font-weight="700">DigitalOcean</text></svg>
       <svg viewBox="0 0 80 24"  class="h-5" fill="white"><text y="18" font-size="18" font-family="Inter,sans-serif" font-weight="700">Docker</text></svg>
-      <svg viewBox="0 0 70 24"  class="h-5" fill="white"><text y="18" font-size="18" font-family="Inter,sans-serif" font-weight="700">Celery</text></svg>
-      <svg viewBox="0 0 80 24"  class="h-5" fill="white"><text y="18" font-size="18" font-family="Inter,sans-serif" font-weight="700">Django</text></svg>
+      <svg viewBox="0 0 90 24"  class="h-5" fill="white"><text y="18" font-size="18" font-family="Inter,sans-serif" font-weight="700">Traefik</text></svg>
+      <svg viewBox="0 0 80 24"  class="h-5" fill="white"><text y="18" font-size="18" font-family="Inter,sans-serif" font-weight="700">Ansible</text></svg>
+      <svg viewBox="0 0 120 24" class="h-5" fill="white"><text y="18" font-size="18" font-family="Inter,sans-serif" font-weight="700">PostgreSQL</text></svg>
       <svg viewBox="0 0 65 24"  class="h-5" fill="white"><text y="18" font-size="18" font-family="Inter,sans-serif" font-weight="700">Redis</text></svg>
-      <svg viewBox="0 0 90 24"  class="h-5" fill="white"><text y="18" font-size="18" font-family="Inter,sans-serif" font-weight="700">Paramiko</text></svg>
     </div>
   </div>
 </div>
@@ -495,7 +478,7 @@
       <h2 class="text-4xl lg:text-5xl font-black tracking-tight gradient-text leading-tight mb-4">
         Everything you need.<br/>Nothing you don't.
       </h2>
-      <p class="text-zinc-400 text-lg font-light">A full infrastructure control plane purpose-built for Odoo — from SSH provisioning to billing enforcement.</p>
+      <p class="text-zinc-400 text-lg font-light">A full deployment platform purpose-built for Odoo — Docker containers, Traefik routing, automated SSL, and team management in one place.</p>
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -504,10 +487,13 @@
         <div class="w-10 h-10 rounded-xl bg-white/[0.07] border border-white/[0.1] flex items-center justify-center mb-5">
           <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M12 5l7 7-7 7"/></svg>
         </div>
-        <h3 class="text-white font-semibold mb-2">One-click Provisioning</h3>
-        <p class="text-zinc-400 text-sm leading-relaxed">Spin up a DigitalOcean droplet with Ubuntu 22.04, Docker, and firewall rules pre-configured — all from the dashboard.</p>
-        <div class="mt-4 terminal rounded-lg px-3 py-2 text-[11px] text-emerald-400 font-mono">
-          $ dafeapp provision --region ams3 --size s-2vcpu-4gb
+        <h3 class="text-white font-semibold mb-2">One-click Cloud Provisioning</h3>
+        <p class="text-zinc-400 text-sm leading-relaxed">Spin up a DigitalOcean or AWS server — Terraform provisions it, Ansible installs Docker CE, configures UFW, and deploys Traefik automatically.</p>
+        <div class="mt-4 flex items-center gap-2 flex-wrap">
+          <span class="text-[11px] text-zinc-500 font-mono px-2 py-1 rounded border border-white/[0.07] bg-white/[0.03]">DigitalOcean</span>
+          <span class="text-[11px] text-zinc-500 font-mono px-2 py-1 rounded border border-white/[0.07] bg-white/[0.03]">AWS</span>
+          <span class="text-[11px] text-zinc-500 font-mono px-2 py-1 rounded border border-white/[0.07] bg-white/[0.03]">Terraform</span>
+          <span class="text-[11px] text-zinc-500 font-mono px-2 py-1 rounded border border-white/[0.07] bg-white/[0.03]">Ansible</span>
         </div>
       </div>
 
@@ -516,7 +502,7 @@
           <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg>
         </div>
         <h3 class="text-white font-semibold mb-2">Bring Your Own Server</h3>
-        <p class="text-zinc-400 text-sm leading-relaxed">Already have a VPS? Connect any server via SSH (key or password). DafeApp verifies the connection and preps Docker automatically.</p>
+        <p class="text-zinc-400 text-sm leading-relaxed">Already have a VPS? Add it with an SSH key or password. DafeApp verifies connectivity, installs Docker, and makes it Odoo-ready without you touching the terminal.</p>
         <div class="mt-4 flex items-center gap-2 flex-wrap">
           <span class="text-[11px] text-zinc-500 font-mono px-2 py-1 rounded border border-white/[0.07] bg-white/[0.03]">ssh-key</span>
           <span class="text-[11px] text-zinc-500 font-mono px-2 py-1 rounded border border-white/[0.07] bg-white/[0.03]">password</span>
@@ -566,18 +552,14 @@
 
       <div class="glass-card rounded-2xl p-6">
         <div class="w-10 h-10 rounded-xl bg-white/[0.07] border border-white/[0.1] flex items-center justify-center mb-5">
-          <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>
+          <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
         </div>
-        <h3 class="text-white font-semibold mb-2">Subscription & Billing</h3>
-        <p class="text-zinc-400 text-sm leading-relaxed">Plan-based feature gates with instance limits, backup quotas, staging access, and version upgrade controls — all enforced at the service layer.</p>
-        <div class="mt-4 space-y-1.5">
-          <div class="flex items-center justify-between text-[11px]">
-            <span class="text-zinc-400">Instances used</span>
-            <span class="text-white font-mono">3 / 5</span>
-          </div>
-          <div class="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
-            <div class="progress-fill h-full bg-white rounded-full" style="width:60%"></div>
-          </div>
+        <h3 class="text-white font-semibold mb-2">Live Monitoring & Logs</h3>
+        <p class="text-zinc-400 text-sm leading-relaxed">Real-time provisioning logs streamed to your browser via WebSockets. CPU and RAM metrics for every server. Connection health checked continuously.</p>
+        <div class="mt-4 terminal rounded-lg px-3 py-2 text-[10px] text-zinc-400 font-mono space-y-1">
+          <div><span class="text-emerald-400">●</span> <span class="text-white">prod-do-01</span> <span class="text-zinc-600">CPU 12% · RAM 1.2 GB</span></div>
+          <div><span class="text-emerald-400">●</span> <span class="text-white">staging-vps</span> <span class="text-zinc-600">CPU 4% · RAM 0.8 GB</span></div>
+          <div><span class="text-zinc-500">●</span> <span class="text-zinc-400">backup-node</span> <span class="text-zinc-600">Checking…</span></div>
         </div>
       </div>
 
@@ -595,7 +577,7 @@
       <h2 class="text-4xl lg:text-5xl font-black tracking-tight gradient-text leading-tight mb-4">
         From zero to production<br/>in three steps.
       </h2>
-      <p class="text-zinc-400 text-lg font-light">No Kubernetes YAML. No Terraform configs. No DevOps certification required.</p>
+      <p class="text-zinc-400 text-lg font-light">No DevOps knowledge required. No manual SSH. No fighting with Nginx configs at 2 AM.</p>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -631,11 +613,11 @@
             </div>
           </div>
           <div class="terminal rounded-xl p-4 space-y-1.5 text-[11px] font-mono">
-            <div class="text-zinc-500">apt-get install docker.io <span class="text-emerald-400">✓</span></div>
+            <div class="text-zinc-500">apt upgrade &amp; install docker-ce <span class="text-emerald-400">✓</span></div>
+            <div class="text-zinc-500">deploy traefik + postgresql <span class="text-emerald-400">✓</span></div>
+            <div class="text-zinc-500">ufw allow 22/80/443/8069-8100 <span class="text-emerald-400">✓</span></div>
             <div class="text-zinc-500">systemctl enable docker <span class="text-emerald-400">✓</span></div>
-            <div class="text-zinc-500">ufw allow 22/80/443 <span class="text-emerald-400">✓</span></div>
-            <div class="text-zinc-500">mkdir /opt/dafeapp <span class="text-emerald-400">✓</span></div>
-            <div class="text-white font-semibold mt-1">Server is Docker ready.</div>
+            <div class="text-white font-semibold mt-1">Server is Odoo-ready.</div>
           </div>
         </div>
         <div class="hidden lg:block absolute top-1/2 -right-3 -translate-y-1/2 text-zinc-700 z-10">
@@ -648,17 +630,17 @@
           <div class="w-9 h-9 rounded-xl border border-white/[0.15] flex items-center justify-center text-sm font-black text-white shrink-0" style="background:var(--surface-b);">03</div>
           <div>
             <h3 class="text-white font-semibold">Deploy Odoo</h3>
-            <p class="text-zinc-500 text-sm mt-1">Point a deployment at your server and go live. Backups, monitoring, and DNS coming next.</p>
+            <p class="text-zinc-500 text-sm mt-1">Pick a server, choose a version, set a domain. DafeApp creates a Docker container, wires up Traefik, and issues an SSL certificate.</p>
           </div>
         </div>
         <div class="space-y-2.5">
           <div class="flex items-center gap-3 p-2.5 rounded-lg border border-white/[0.07] bg-white/[0.02] text-xs">
             <span class="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
-            <span class="text-zinc-300">odoo-prod · v17.0 · Running</span>
+            <span class="text-zinc-300">odoo-prod · v17.0 · Running · SSL ✓</span>
           </div>
           <div class="flex items-center gap-3 p-2.5 rounded-lg border border-white/[0.07] bg-white/[0.02] text-xs opacity-60">
-            <span class="w-2 h-2 rounded-full bg-zinc-500 shrink-0"></span>
-            <span class="text-zinc-400">odoo-staging · v17.0 · Pending</span>
+            <span class="w-2 h-2 rounded-full bg-yellow-400 shrink-0"></span>
+            <span class="text-zinc-400">odoo-client2 · v16.0 · Provisioning…</span>
           </div>
           <div class="flex items-center gap-3 p-2.5 rounded-lg border border-dashed border-white/[0.1] text-xs text-zinc-600">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
@@ -681,12 +663,12 @@
       <h2 class="text-4xl lg:text-5xl font-black tracking-tight gradient-text leading-tight mb-4">
         Your cloud.<br/>Your choice.
       </h2>
-      <p class="text-zinc-400 text-lg font-light">DigitalOcean is live now. More providers are coming — or just bring your own server.</p>
+      <p class="text-zinc-400 text-lg font-light">Deploy to DigitalOcean or AWS with one click, or connect any server you already own via SSH.</p>
     </div>
 
-    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-6 max-w-3xl">
 
-      <div class="glass-card rounded-2xl p-5 flex flex-col gap-4 border-white/[0.18] relative overflow-hidden">
+      <div class="glass-card rounded-2xl p-6 flex flex-col gap-4 border-white/[0.18] relative overflow-hidden">
         <div class="absolute top-3 right-3">
           <span class="text-[10px] font-semibold text-emerald-400 bg-emerald-400/10 border border-emerald-400/20 rounded-full px-2 py-0.5">LIVE</span>
         </div>
@@ -695,67 +677,34 @@
         </div>
         <div>
           <div class="text-white font-semibold text-sm">DigitalOcean</div>
-          <div class="text-zinc-500 text-xs mt-0.5">Droplets · Regions · Firewall</div>
+          <div class="text-zinc-500 text-xs mt-0.5 leading-relaxed">Provision Droplets across all regions. Terraform-managed with automatic firewall rules.</div>
         </div>
       </div>
 
-      <div class="glass-card rounded-2xl p-5 flex flex-col gap-4 opacity-50 relative overflow-hidden">
-        <div class="absolute top-3 right-3"><span class="text-[10px] font-medium text-zinc-500 bg-zinc-800 border border-white/[0.07] rounded-full px-2 py-0.5">SOON</span></div>
-        <div class="w-12 h-12 rounded-xl bg-zinc-800 flex items-center justify-center">
+      <div class="glass-card rounded-2xl p-6 flex flex-col gap-4 border-white/[0.18] relative overflow-hidden">
+        <div class="absolute top-3 right-3">
+          <span class="text-[10px] font-semibold text-emerald-400 bg-emerald-400/10 border border-emerald-400/20 rounded-full px-2 py-0.5">LIVE</span>
+        </div>
+        <div class="w-12 h-12 rounded-xl bg-zinc-900 flex items-center justify-center border border-white/[0.08]">
           <svg viewBox="0 0 80 32" class="w-10"><text y="24" font-size="22" font-family="Arial,sans-serif" font-weight="700" fill="#FF9900">aws</text></svg>
         </div>
-        <div><div class="text-zinc-300 font-semibold text-sm">Amazon AWS</div><div class="text-zinc-600 text-xs mt-0.5">EC2 · RDS · S3</div></div>
-      </div>
-
-      <div class="glass-card rounded-2xl p-5 flex flex-col gap-4 opacity-50 relative overflow-hidden">
-        <div class="absolute top-3 right-3"><span class="text-[10px] font-medium text-zinc-500 bg-zinc-800 border border-white/[0.07] rounded-full px-2 py-0.5">SOON</span></div>
-        <div class="w-12 h-12 rounded-xl bg-zinc-800 flex items-center justify-center">
-          <svg viewBox="0 0 24 24" class="w-7 h-7" fill="none">
-            <path d="M12 11.174l5.303-5.303A8.965 8.965 0 0012 3.05a8.994 8.994 0 00-6.364 2.636L12 11.174z" fill="#EA4335"/>
-            <path d="M17.303 5.871l-5.303 5.303 3.636 3.636 5.118-5.118a8.965 8.965 0 00-3.451-3.821z" fill="#FBBC05"/>
-            <path d="M7.06 14.81A5.021 5.021 0 0112 10.757l5.636 5.636-2.272 2.272L12 15.393l-4.94 3.272A8.978 8.978 0 017.06 14.81z" fill="#34A853"/>
-            <path d="M3.95 9.39a8.978 8.978 0 000 5.22l4.94-3.271a5.021 5.021 0 010-5.22L3.95 9.39z" fill="#4285F4"/>
-          </svg>
+        <div>
+          <div class="text-white font-semibold text-sm">Amazon AWS</div>
+          <div class="text-zinc-500 text-xs mt-0.5 leading-relaxed">Launch EC2 instances in any region. Full Terraform support with IAM-based auth.</div>
         </div>
-        <div><div class="text-zinc-300 font-semibold text-sm">Google Cloud</div><div class="text-zinc-600 text-xs mt-0.5">Compute Engine · Cloud SQL</div></div>
       </div>
 
-      <div class="glass-card rounded-2xl p-5 flex flex-col gap-4 opacity-50 relative overflow-hidden">
-        <div class="absolute top-3 right-3"><span class="text-[10px] font-medium text-zinc-500 bg-zinc-800 border border-white/[0.07] rounded-full px-2 py-0.5">SOON</span></div>
-        <div class="w-12 h-12 rounded-xl flex items-center justify-center" style="background:#D50C2D;"><span class="text-white font-black text-lg">H</span></div>
-        <div><div class="text-zinc-300 font-semibold text-sm">Hetzner</div><div class="text-zinc-600 text-xs mt-0.5">Cloud Servers · Volumes</div></div>
-      </div>
-
-      <div class="glass-card rounded-2xl p-5 flex flex-col gap-4 opacity-50 relative overflow-hidden">
-        <div class="absolute top-3 right-3"><span class="text-[10px] font-medium text-zinc-500 bg-zinc-800 border border-white/[0.07] rounded-full px-2 py-0.5">SOON</span></div>
-        <div class="w-12 h-12 rounded-xl flex items-center justify-center" style="background:#007BFC;">
-          <svg viewBox="0 0 24 24" class="w-7 h-7" fill="white"><polygon points="12,2 22,9 12,22 2,9"/></svg>
-        </div>
-        <div><div class="text-zinc-300 font-semibold text-sm">Vultr</div><div class="text-zinc-600 text-xs mt-0.5">Cloud Compute · Bare Metal</div></div>
-      </div>
-
-      <div class="glass-card rounded-2xl p-5 flex flex-col gap-4 opacity-50 relative overflow-hidden">
-        <div class="absolute top-3 right-3"><span class="text-[10px] font-medium text-zinc-500 bg-zinc-800 border border-white/[0.07] rounded-full px-2 py-0.5">SOON</span></div>
-        <div class="w-12 h-12 rounded-xl flex items-center justify-center" style="background:#0089D6;">
-          <svg viewBox="0 0 24 24" class="w-7 h-7" fill="white"><path d="M5.483 21.3H22l-8.6-15.16-4.02 7.49 2.99 3.16L5.483 21.3zM13.4 2.7l-4.84 8.5-4.09 7.63h4.3l4.63-16.13z"/></svg>
-        </div>
-        <div><div class="text-zinc-300 font-semibold text-sm">Microsoft Azure</div><div class="text-zinc-600 text-xs mt-0.5">VMs · AKS · Blob Storage</div></div>
-      </div>
-
-      <div class="glass-card rounded-2xl p-5 flex flex-col gap-4 opacity-50 relative overflow-hidden">
-        <div class="absolute top-3 right-3"><span class="text-[10px] font-medium text-zinc-500 bg-zinc-800 border border-white/[0.07] rounded-full px-2 py-0.5">SOON</span></div>
-        <div class="w-12 h-12 rounded-xl flex items-center justify-center" style="background:#00A95C;"><span class="text-white font-black text-sm">Ak</span></div>
-        <div><div class="text-zinc-300 font-semibold text-sm">Akamai / Linode</div><div class="text-zinc-600 text-xs mt-0.5">Nanode · Shared CPU</div></div>
-      </div>
-
-      <div class="glass-card rounded-2xl p-5 flex flex-col gap-4 border-white/[0.15] relative overflow-hidden">
+      <div class="glass-card rounded-2xl p-6 flex flex-col gap-4 border-white/[0.18] relative overflow-hidden">
         <div class="absolute top-3 right-3">
-          <span class="text-[10px] font-semibold text-white bg-white/10 border border-white/[0.15] rounded-full px-2 py-0.5">ALWAYS</span>
+          <span class="text-[10px] font-semibold text-emerald-400 bg-emerald-400/10 border border-emerald-400/20 rounded-full px-2 py-0.5">LIVE</span>
         </div>
         <div class="w-12 h-12 rounded-xl bg-zinc-800 flex items-center justify-center border border-white/[0.1]">
           <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M12 5l7 7-7 7"/></svg>
         </div>
-        <div><div class="text-white font-semibold text-sm">Your Own VPS</div><div class="text-zinc-500 text-xs mt-0.5">Any server · SSH · BYOS</div></div>
+        <div>
+          <div class="text-white font-semibold text-sm">Bring Your Own Server</div>
+          <div class="text-zinc-500 text-xs mt-0.5 leading-relaxed">Connect any VPS via SSH key or password. DafeApp prepares it automatically.</div>
+        </div>
       </div>
 
     </div>
@@ -780,14 +729,14 @@
         <div class="mb-6">
           <div class="text-xs font-semibold text-zinc-500 uppercase tracking-widest mb-3">Starter</div>
           <div class="flex items-end gap-1"><span class="text-4xl font-black text-white">$0</span><span class="text-zinc-500 text-sm mb-1.5">/month</span></div>
-          <p class="text-zinc-500 text-sm mt-2">For solo developers and hobbyists.</p>
+          <p class="text-zinc-500 text-sm mt-2">For developers exploring the platform.</p>
         </div>
         <ul class="space-y-3 flex-1 mb-8">
           <li class="flex items-start gap-2.5 text-sm text-zinc-300"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>Up to 2 Odoo instances</li>
-          <li class="flex items-start gap-2.5 text-sm text-zinc-300"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>PYOS server support</li>
-          <li class="flex items-start gap-2.5 text-sm text-zinc-300"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>5 backups / month</li>
-          <li class="flex items-start gap-2.5 text-sm text-zinc-500"><svg class="w-4 h-4 text-zinc-700 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>No staging environments</li>
-          <li class="flex items-start gap-2.5 text-sm text-zinc-500"><svg class="w-4 h-4 text-zinc-700 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>No version upgrades</li>
+          <li class="flex items-start gap-2.5 text-sm text-zinc-300"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>Bring Your Own Server</li>
+          <li class="flex items-start gap-2.5 text-sm text-zinc-300"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>Full audit trail</li>
+          <li class="flex items-start gap-2.5 text-sm text-zinc-300"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>Server monitoring</li>
+          <li class="flex items-start gap-2.5 text-sm text-zinc-300"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>Community support</li>
         </ul>
         <a href="{% url 'users:register' %}" class="btn-ghost text-sm font-medium px-5 py-2.5 rounded-xl text-center">Start free</a>
       </div>
@@ -803,11 +752,11 @@
         <div class="mb-6 mt-2">
           <div class="text-xs font-semibold text-zinc-400 uppercase tracking-widest mb-3">Growth</div>
           <div class="flex items-end gap-1"><span class="text-4xl font-black text-white">$49</span><span class="text-zinc-400 text-sm mb-1.5">/month</span></div>
-          <p class="text-zinc-400 text-sm mt-2">For teams running production Odoo.</p>
+          <p class="text-zinc-400 text-sm mt-2">For teams deploying and managing production Odoo.</p>
         </div>
         <ul class="space-y-3 flex-1 mb-8">
           <li class="flex items-start gap-2.5 text-sm text-zinc-200"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>Up to 10 Odoo instances</li>
-          <li class="flex items-start gap-2.5 text-sm text-zinc-200"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>PYOS + DigitalOcean</li>
+          <li class="flex items-start gap-2.5 text-sm text-zinc-200"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>BYOS + DigitalOcean + AWS</li>
           <li class="flex items-start gap-2.5 text-sm text-zinc-200"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>50 backups / month</li>
           <li class="flex items-start gap-2.5 text-sm text-zinc-200"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>Staging environments</li>
           <li class="flex items-start gap-2.5 text-sm text-zinc-200"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>Version upgrade automation</li>
@@ -820,11 +769,11 @@
         <div class="mb-6">
           <div class="text-xs font-semibold text-zinc-500 uppercase tracking-widest mb-3">Enterprise</div>
           <div class="flex items-end gap-1"><span class="text-4xl font-black text-white">$199</span><span class="text-zinc-500 text-sm mb-1.5">/month</span></div>
-          <p class="text-zinc-500 text-sm mt-2">For agencies and large-scale Odoo deployments.</p>
+          <p class="text-zinc-500 text-sm mt-2">For agencies managing multiple clients on Odoo.</p>
         </div>
         <ul class="space-y-3 flex-1 mb-8">
           <li class="flex items-start gap-2.5 text-sm text-zinc-300"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>Unlimited Odoo instances</li>
-          <li class="flex items-start gap-2.5 text-sm text-zinc-300"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>All cloud providers</li>
+          <li class="flex items-start gap-2.5 text-sm text-zinc-300"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>BYOS + DigitalOcean + AWS</li>
           <li class="flex items-start gap-2.5 text-sm text-zinc-300"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>Unlimited backups</li>
           <li class="flex items-start gap-2.5 text-sm text-zinc-300"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>Priority support</li>
           <li class="flex items-start gap-2.5 text-sm text-zinc-300"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>Custom SLA + onboarding</li>
@@ -841,10 +790,10 @@
 <div class="border-y border-white/[0.06] py-16 reveal">
   <div class="max-w-5xl mx-auto px-5">
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-8 text-center">
-      <div><div class="text-4xl font-black text-white mb-1">7+</div><div class="text-sm text-zinc-500">Cloud providers<br/>in roadmap</div></div>
-      <div><div class="text-4xl font-black text-white mb-1">&lt;2m</div><div class="text-sm text-zinc-500">Server prep<br/>time</div></div>
+      <div><div class="text-4xl font-black text-white mb-1">2</div><div class="text-sm text-zinc-500">Cloud providers<br/>live today</div></div>
+      <div><div class="text-4xl font-black text-white mb-1">&lt;5m</div><div class="text-sm text-zinc-500">Server to running<br/>Odoo instance</div></div>
       <div><div class="text-4xl font-black text-white mb-1">AES</div><div class="text-sm text-zinc-500">Field-level<br/>encryption</div></div>
-      <div><div class="text-4xl font-black text-white mb-1">20+</div><div class="text-sm text-zinc-500">Audit event<br/>types</div></div>
+      <div><div class="text-4xl font-black text-white mb-1">20+</div><div class="text-sm text-zinc-500">Audit event<br/>types tracked</div></div>
     </div>
   </div>
 </div>
@@ -861,11 +810,11 @@
       <span class="gradient-text">without the headache?</span>
     </h2>
     <p class="text-zinc-400 text-lg mb-10 font-light max-w-xl mx-auto">
-      Create your free account in 30 seconds. No credit card required. Your first 14 days are on us.
+      Create your free account in 30 seconds. No credit card required. Deploy your first Odoo instance today.
     </p>
     <div class="flex flex-col sm:flex-row items-center justify-center gap-3">
       <a href="{% url 'users:register' %}" class="btn-primary text-sm font-semibold px-8 py-3.5 rounded-xl w-full sm:w-auto text-center">
-        Start free — 14-day trial
+        Get started free
         <svg class="inline ml-2 w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
       </a>
       <a href="{% url 'users:login' %}" class="btn-ghost text-sm font-medium px-8 py-3.5 rounded-xl w-full sm:w-auto text-center">
@@ -890,7 +839,7 @@
           </div>
           <span class="text-sm font-semibold text-white">DafeApp</span>
         </div>
-        <p class="text-zinc-500 text-sm leading-relaxed max-w-xs">The control plane for Odoo deployments. Provision, manage, and scale with confidence.</p>
+        <p class="text-zinc-500 text-sm leading-relaxed max-w-xs">The deployment platform for Odoo. Provision servers, deploy instances, manage your fleet — all from one dashboard.</p>
       </div>
 
       <div>
@@ -908,17 +857,13 @@
         <ul class="space-y-2.5">
           <li><a href="{% url 'users:login' %}"    class="text-sm text-zinc-400 hover:text-white transition-colors">Sign in</a></li>
           <li><a href="{% url 'users:register' %}" class="text-sm text-zinc-400 hover:text-white transition-colors">Register</a></li>
-          <li><span class="text-sm text-zinc-600 cursor-not-allowed">Documentation</span></li>
-          <li><span class="text-sm text-zinc-600 cursor-not-allowed">Status page</span></li>
         </ul>
       </div>
 
       <div>
-        <div class="text-[11px] font-semibold text-zinc-600 uppercase tracking-widest mb-4">Legal</div>
+        <div class="text-[11px] font-semibold text-zinc-600 uppercase tracking-widest mb-4">Contact</div>
         <ul class="space-y-2.5">
-          <li><span class="text-sm text-zinc-600 cursor-not-allowed">Privacy Policy</span></li>
-          <li><span class="text-sm text-zinc-600 cursor-not-allowed">Terms of Service</span></li>
-          <li><span class="text-sm text-zinc-600 cursor-not-allowed">Security</span></li>
+          <li><a href="mailto:hello@dafeapp.com" class="text-sm text-zinc-400 hover:text-white transition-colors">hello@dafeapp.com</a></li>
         </ul>
       </div>
 
@@ -926,7 +871,7 @@
 
     <div class="top-gradient-border pt-8 flex flex-col sm:flex-row items-center justify-between gap-4">
       <p class="text-xs text-zinc-600">© 2026 DafeApp. All rights reserved.</p>
-      <p class="text-xs text-zinc-700">Built with Django · Tailwind · Alpine.js · HTMX</p>
+      <p class="text-xs text-zinc-700">Odoo deployment made simple.</p>
     </div>
   </div>
 </footer>
