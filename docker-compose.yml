@@ -1,0 +1,68 @@
+version: "3.11"
+
+services:
+  # ── PostgreSQL ──────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: dafeapp
+      POSTGRES_USER: dafeapp
+      POSTGRES_PASSWORD: dafeapp
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  # ── Redis ───────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  # ── Django (Daphne / ASGI) ──────────────────────────────────────────────
+  web:
+    build: .
+    restart: unless-stopped
+    command: >
+      sh -c "python manage.py migrate &&
+             daphne -b 0.0.0.0 -p 8000 dafeapp.asgi:application"
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+
+  # ── Celery Worker ───────────────────────────────────────────────────────
+  celery_worker:
+    build: .
+    restart: unless-stopped
+    command: celery -A dafeapp worker -l info
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+
+  # ── Celery Beat (scheduler) ─────────────────────────────────────────────
+  celery_beat:
+    build: .
+    restart: unless-stopped
+    command: celery -A dafeapp beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+
+volumes:
+  postgres_data:
