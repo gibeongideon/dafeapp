@@ -219,7 +219,7 @@ def _save_and_extract_enterprise_archive(*, archive_file, odoo_version: str, upl
         )
 
     original_name = Path(archive_file.name).name
-    timestamp = timezone.now().strftime("%Y%m%d%H%M%S")
+    timestamp = timezone.now().strftime("%Y%m%d%H%M%S%f")
     staged_root = Path(tempfile.mkdtemp(prefix=f"enterprise-{odoo_version}-"))
     staged_archive_path = staged_root / f"{timestamp}-{original_name}"
     staged_extract_dir = staged_root / staged_archive_path.name.removesuffix(".tar.gz").removesuffix(".tgz")

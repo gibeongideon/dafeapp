@@ -282,10 +282,9 @@ class OdooVersionedFlowTests(TestCase):
         self.assertContains(resp, "Git Addon Sources")
         self.assertContains(resp, "sales-tools")
         self.assertContains(resp, "/odoo_instances/1/addons")
-        self.assertContains(resp, "Production")
-        self.assertContains(resp, "Staging")
-        self.assertContains(resp, "Development")
-        self.assertContains(resp, "GitHistory")
+        self.assertContains(resp, "Jobs")
+        self.assertContains(resp, "Operations")
+        self.assertContains(resp, "History")
         self.assertContains(resp, "Setting")
         self.assertContains(resp, "Installation Summary")
         self.assertContains(resp, "Server IP")
@@ -906,7 +905,7 @@ class OdooVersionedFlowTests(TestCase):
                 self.assertTrue(source.is_active)
                 self.assertTrue(source.archive_path.startswith(archive_root))
                 self.assertTrue(source.extract_path.startswith(extract_root))
-                self.assertRegex(source.package_name, r"^\d{14}-odoo_19\.0\+e\.20260327\.tar$")
+                self.assertRegex(source.package_name, r"^\d{20}-odoo_19\.0\+e\.20260327\.tar$")
                 self.assertIn("odoo-19.0+e.20260327", source.addons_source_path)
 
     def test_uploading_same_release_date_replaces_previous_enterprise_source(self):

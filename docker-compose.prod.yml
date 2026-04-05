@@ -1,11 +1,11 @@
 version: "3.11"
 
 # Production compose — uses pre-built image from GHCR.
-# The IMAGE env var is set by the deploy workflow:
+#
+# Start:
 #   IMAGE=ghcr.io/gibeongideon/dafeapp:dev docker compose -f docker-compose.prod.yml up -d
 #
-# On the droplet, create /opt/dafeapp/.env with real production values
-# (see .env.example for all available variables).
+# The .env file at /opt/dafeapp/.env on the droplet holds all secrets.
 
 services:
 
@@ -43,8 +43,8 @@ services:
       sh -c "python manage.py migrate --no-input &&
              python manage.py collectstatic --no-input --clear &&
              daphne -b 0.0.0.0 -p 8000 dafeapp.asgi:application"
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     env_file:
       - .env
     volumes:
@@ -82,7 +82,25 @@ services:
       redis:
         condition: service_healthy
 
+  # ── Caddy (HTTPS reverse proxy + static files) ──────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - staticfiles:/staticfiles:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+
 volumes:
   postgres_data:
   staticfiles:
   mediafiles:
+  caddy_data:
+  caddy_config:
