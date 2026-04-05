@@ -1,7 +1,4 @@
 postgres
-Dockerfile
-docker-compose.yml
-.dockerignore
 darulogfile
 
 
