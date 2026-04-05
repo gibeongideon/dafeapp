@@ -380,7 +380,7 @@ def _instance_mutation_lock_reason(instance: OdooInstance, *, include_jobs: bool
     if instance.status in (OdooInstance.Status.PENDING, OdooInstance.Status.CONFIGURING):
         return "Instance provisioning is still in progress."
 
-    if instance.domain_status == OdooInstance.DomainStatus.PENDING:
+    if instance.domain_status == OdooInstance.DomainStatus.PENDING and not instance.domain:
         return "Domain provisioning is still in progress for this instance."
 
     if instance.enterprise_status == OdooInstance.EnterpriseStatus.PENDING:
@@ -3067,6 +3067,7 @@ class OdooInstanceConsoleView(LoginRequiredMixin, TemplateView):
         ctx["instance_git_repos_json"] = json.dumps(
             OdooInstanceGitRepoSerializer(repos, many=True).data
         )
+        ctx["installation_summary_text"] = instance.installation_summary_text or instance.server.installation_summary_text
         ctx["env_sections"] = ["Production", "Staging", "Development"]
         ctx["tool_tabs"] = [
             "GitHistory",

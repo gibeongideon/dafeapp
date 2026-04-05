@@ -120,9 +120,9 @@
            x-text="healthMessage"></div>
 
       <div id="instance-summary-wrap"
-           class="mt-4 border border-gray-200 rounded-lg p-4 bg-gray-50 {% if not odoo_instance.installation_summary_text %}hidden{% endif %}">
+           class="mt-4 border border-gray-200 rounded-lg p-4 bg-gray-50 {% if not installation_summary_text %}hidden{% endif %}">
         <p class="text-[10px] uppercase tracking-wide text-gray-400 mb-2">Instance Installation Summary</p>
-        <pre id="instance-summary-text" class="text-[11px] font-mono text-gray-700 whitespace-pre-wrap overflow-x-auto">{{ odoo_instance.installation_summary_text }}</pre>
+        <pre id="instance-summary-text" class="text-[11px] font-mono text-gray-700 whitespace-pre-wrap overflow-x-auto">{{ installation_summary_text }}</pre>
       </div>
     </div>
 

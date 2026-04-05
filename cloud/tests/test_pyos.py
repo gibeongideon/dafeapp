@@ -45,13 +45,12 @@ class PyOSServiceTests(TestCase):
         cls.user = User.objects.create_user(email="pyos@test.com", password="pass")
         cls.org = Organization.objects.create(name="PyOS Org", owner=cls.user)
 
-    @patch("paramiko.SSHClient")
-    def test_validate_success(self, mock_ssh_cls):
+    @patch.object(PyOSService, "_get_client")
+    def test_validate_success(self, mock_get_client):
         """validate() → SSH echo OK → is_verified=True."""
         mock_client = MagicMock()
-        mock_ssh_cls.return_value = mock_client
+        mock_get_client.return_value = mock_client
 
-        # exec_command returns (stdin, stdout, stderr) mocks
         mock_stdout = MagicMock()
         mock_stdout.read.return_value = b"OK\n"
         mock_stderr = MagicMock()
@@ -65,12 +64,10 @@ class PyOSServiceTests(TestCase):
         self.assertTrue(success)
         self.assertIn("successful", msg)
 
-    @patch("paramiko.SSHClient")
-    def test_validate_auth_failure(self, mock_ssh_cls):
+    @patch.object(PyOSService, "_get_client")
+    def test_validate_auth_failure(self, mock_get_client):
         """validate() → AuthenticationException → is_verified=False."""
-        mock_client = MagicMock()
-        mock_ssh_cls.return_value = mock_client
-        mock_client.connect.side_effect = paramiko.AuthenticationException("Bad credentials")
+        mock_get_client.side_effect = paramiko.AuthenticationException("Bad credentials")
 
         server = _make_server(self.org)
         service = PyOSService(server)
@@ -79,12 +76,10 @@ class PyOSServiceTests(TestCase):
         self.assertFalse(success)
         self.assertIn("Authentication", msg)
 
-    @patch("paramiko.SSHClient")
-    def test_validate_host_unreachable(self, mock_ssh_cls):
+    @patch.object(PyOSService, "_get_client")
+    def test_validate_host_unreachable(self, mock_get_client):
         """validate() → socket.timeout → is_verified=False."""
-        mock_client = MagicMock()
-        mock_ssh_cls.return_value = mock_client
-        mock_client.connect.side_effect = socket.timeout("Connection timed out")
+        mock_get_client.side_effect = socket.timeout("Connection timed out")
 
         server = _make_server(self.org)
         service = PyOSService(server)
@@ -93,13 +88,13 @@ class PyOSServiceTests(TestCase):
         self.assertFalse(success)
         self.assertIn("unreachable", msg)
 
-    @patch("paramiko.SSHClient")
-    def test_prepare_server_runs_all_commands(self, mock_ssh_cls):
+    @patch.object(PyOSService, "_get_client")
+    def test_prepare_server_runs_all_commands(self, mock_get_client):
         """prepare_server() calls exec_command for each PREPARE_COMMAND."""
         from cloud.pyos import PREPARE_COMMANDS
 
         mock_client = MagicMock()
-        mock_ssh_cls.return_value = mock_client
+        mock_get_client.return_value = mock_client
 
         mock_stdout = MagicMock()
         mock_stdout.read.return_value = b""
@@ -113,7 +108,6 @@ class PyOSServiceTests(TestCase):
 
         self.assertTrue(success)
         self.assertEqual(mock_client.exec_command.call_count, len(PREPARE_COMMANDS))
-        # Verify each command was issued
         issued_cmds = [call.args[0] for call in mock_client.exec_command.call_args_list]
         self.assertEqual(issued_cmds, PREPARE_COMMANDS)
 
