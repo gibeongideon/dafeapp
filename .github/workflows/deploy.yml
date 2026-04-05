@@ -55,6 +55,29 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Validate deploy secrets
+        env:
+          DO_HOST: ${{ secrets.DO_HOST }}
+          DO_USER: ${{ secrets.DO_USER }}
+          DO_SSH_KEY: ${{ secrets.DO_SSH_KEY }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          [ -n "${DO_HOST}" ] || { echo "::error::Missing GitHub secret DO_HOST"; exit 1; }
+          [ -n "${DO_USER}" ] || { echo "::error::Missing GitHub secret DO_USER"; exit 1; }
+          [ -n "${GHCR_TOKEN}" ] || { echo "::error::Missing GitHub secret GHCR_TOKEN"; exit 1; }
+          [ -n "${DO_SSH_KEY}" ] || { echo "::error::Missing GitHub secret DO_SSH_KEY"; exit 1; }
+
+          case "${DO_SSH_KEY}" in
+            *"BEGIN OPENSSH PRIVATE KEY"*|*"BEGIN RSA PRIVATE KEY"*|*"BEGIN EC PRIVATE KEY"*|*"BEGIN PRIVATE KEY"*)
+              ;;
+            *)
+              echo "::error::DO_SSH_KEY is set, but it does not look like a private SSH key."
+              exit 1
+              ;;
+          esac
+
       - name: Copy compose + Caddyfile to droplet
         uses: appleboy/scp-action@v0.1.7
         with:

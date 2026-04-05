@@ -142,3 +142,5 @@ Docker
 Traefik (dynamic routing)
 Cloudflare (DNS + SSL)
 Simple Django backend (control panel)
+
+caddyfile
