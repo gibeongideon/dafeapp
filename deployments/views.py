@@ -124,7 +124,7 @@ def _enterprise_archive_root(*, scope: str = EnterpriseSource.Scope.PLATFORM, ow
         if owner_id is None:
             raise ValueError("User Enterprise storage requires an owner.")
         return base_root / "users" / str(owner_id)
-    return base_root / "platform"
+    return base_root
 
 
 def _enterprise_extract_root(*, scope: str = EnterpriseSource.Scope.PLATFORM, owner_id: int | None = None) -> Path:
@@ -133,7 +133,7 @@ def _enterprise_extract_root(*, scope: str = EnterpriseSource.Scope.PLATFORM, ow
         if owner_id is None:
             raise ValueError("User Enterprise storage requires an owner.")
         return base_root / "users" / str(owner_id)
-    return base_root / "platform"
+    return base_root
 
 
 def _normalize_odoo_version(value: str) -> str:
@@ -379,6 +379,9 @@ def _instance_mutation_lock_reason(instance: OdooInstance, *, include_jobs: bool
 
     if instance.status in (OdooInstance.Status.PENDING, OdooInstance.Status.CONFIGURING):
         return "Instance provisioning is still in progress."
+
+    if instance.domain_status == OdooInstance.DomainStatus.PENDING:
+        return "Domain provisioning is still in progress for this instance."
 
     if instance.enterprise_status == OdooInstance.EnterpriseStatus.PENDING:
         return "Enterprise activation is still in progress for this instance."
@@ -2268,12 +2271,15 @@ class OdooInstanceGitRepoListAPIView(LoginRequiredMixin, View):
                 is_enabled=str(payload.get("is_enabled", "true")).lower() not in ("0", "false", "no", "off"),
                 display_order=payload.get("display_order"),
             )
-            if repo.auto_update:
-                _ensure_github_push_webhook(repo=repo, request=request)
         except ValueError as exc:
             return JsonResponse({"error": str(exc)}, status=400)
         except RuntimeError as exc:
             return JsonResponse({"error": str(exc)}, status=400)
+        if repo.auto_update:
+            try:
+                _ensure_github_push_webhook(repo=repo, request=request)
+            except (ValueError, RuntimeError) as exc:
+                logger.warning("GitHub webhook setup skipped for repo %s: %s", repo.id, exc)
         data = OdooInstanceGitRepoSerializer(repo).data
         data["job_id"] = job.id
         return JsonResponse(data, status=201)
@@ -2563,7 +2569,7 @@ class EnterpriseSourceListCreateAPIView(LoginRequiredMixin, View):
         if not archive:
             return JsonResponse({"error": "archive is required."}, status=400)
         requested_scope = (request.POST.get("source_scope") or "").strip().upper()
-        if request.user.is_platform_admin and requested_scope == EnterpriseSource.Scope.PLATFORM:
+        if request.user.is_platform_admin and requested_scope != EnterpriseSource.Scope.USER:
             scope = EnterpriseSource.Scope.PLATFORM
         else:
             scope = EnterpriseSource.Scope.USER
@@ -3056,7 +3062,11 @@ class OdooInstanceConsoleView(LoginRequiredMixin, TemplateView):
             scope=EnterpriseSource.Scope.PLATFORM,
         )
         ctx["enterprise_user_source"] = EnterpriseSource.latest_user_for_version(self.request.user, instance.server.odoo_version)
-        ctx["instance_git_repos"] = list(instance.git_repos.all())
+        repos = list(instance.git_repos.select_related("credential").all())
+        ctx["instance_git_repos"] = repos
+        ctx["instance_git_repos_json"] = json.dumps(
+            OdooInstanceGitRepoSerializer(repos, many=True).data
+        )
         ctx["env_sections"] = ["Production", "Staging", "Development"]
         ctx["tool_tabs"] = [
             "GitHistory",

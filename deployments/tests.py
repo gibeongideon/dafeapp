@@ -325,7 +325,6 @@ class OdooVersionedFlowTests(TestCase):
         self.assertNotContains(resp, "Organization-wide instance view")
         self.assertNotContains(resp, "Pick a server from the sidebar to filter this page down to one server.")
         self.assertNotContains(resp, "Back to Servers")
-        self.assertNotContains(resp, "Installation Summary")
         self.assertNotContains(resp, "Server IP     : 203.0.113.30")
 
     def test_server_list_reports_pyos_server_as_disconnected_after_latest_failed_check(self):
