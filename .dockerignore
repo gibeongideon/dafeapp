@@ -1,7 +1,7 @@
 lvenv/
 .venv/
 var/
-backups/
+var/backups/
 .git/
 .github/
 __pycache__/
