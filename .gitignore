@@ -281,6 +281,4 @@ rest_framework
 paypalpayoutssdk
 paypalhttp
 
-# Django migrations
-*/migrations/
 GEMINI.md
