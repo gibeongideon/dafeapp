@@ -96,3 +96,6 @@ Houses the dashboard UI and shared abstract base classes.
 | `dns/` | Planned first-class domain, DNS, Cloudflare, and SSL lifecycle management |
 | `backups/` | Odoo backup scheduling and storage |
 | `monitoring/` | Server/instance health monitoring and alerts |
+
+
+DEPLOY
