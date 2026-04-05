@@ -20,7 +20,7 @@ environ.Env.read_env(BASE_DIR / ".env")
 # ---------------------------------------------------------------------------
 # Security
 # ---------------------------------------------------------------------------
-SECRET_KEY = env("SECRET_KEY", default="django-insecure-change-me-in-production")
+SECRET_KEY = env("SECRET_KEY")
 DEBUG = env("DEBUG")
 ALLOWED_HOSTS = env("ALLOWED_HOSTS")
 CSRF_TRUSTED_ORIGINS = env("CSRF_TRUSTED_ORIGINS")
@@ -30,8 +30,13 @@ CSRF_TRUSTED_ORIGINS = env("CSRF_TRUSTED_ORIGINS")
 # picky about cross-site redirects, so keep the cookie policy explicit.
 SESSION_COOKIE_SAMESITE = env("SESSION_COOKIE_SAMESITE", default="Lax")
 CSRF_COOKIE_SAMESITE = env("CSRF_COOKIE_SAMESITE", default="Lax")
-SESSION_COOKIE_SECURE = env.bool("SESSION_COOKIE_SECURE", default=False)
-CSRF_COOKIE_SECURE = env.bool("CSRF_COOKIE_SECURE", default=False)
+SESSION_COOKIE_SECURE = env.bool("SESSION_COOKIE_SECURE", default=not DEBUG)
+CSRF_COOKIE_SECURE = env.bool("CSRF_COOKIE_SECURE", default=not DEBUG)
+
+# Tell Django it's behind an HTTPS proxy (Caddy/Nginx).
+# Without this, request.is_secure() returns False even over HTTPS.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+SECURE_SSL_REDIRECT = env.bool("SECURE_SSL_REDIRECT", default=not DEBUG)
 
 # ---------------------------------------------------------------------------
 # Installed Apps
@@ -305,10 +310,15 @@ LOGIN_REDIRECT_URL = "/dashboard/"
 LOGOUT_REDIRECT_URL = "/auth/login/"
 
 # ---------------------------------------------------------------------------
-# Email (console backend for development)
+# Email
 # ---------------------------------------------------------------------------
-EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
-DEFAULT_FROM_EMAIL = "noreply@dafeapp.com"
+EMAIL_BACKEND = env("EMAIL_BACKEND", default="django.core.mail.backends.console.EmailBackend")
+EMAIL_HOST = env("EMAIL_HOST", default="")
+EMAIL_PORT = env.int("EMAIL_PORT", default=587)
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
+EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="noreply@dafeapp.com")
 SITE_URL = env("SITE_URL", default="http://localhost:8000")
 
 # ---------------------------------------------------------------------------
@@ -374,7 +384,7 @@ LOGGING = {
 # ---------------------------------------------------------------------------
 # Field-level encryption (Fernet) — cloud credentials + VCS tokens
 # ---------------------------------------------------------------------------
-FIELD_ENCRYPTION_KEY = env("FIELD_ENCRYPTION_KEY", default="")
+FIELD_ENCRYPTION_KEY = env("FIELD_ENCRYPTION_KEY")
 
 # ---------------------------------------------------------------------------
 # OAuth provider credentials (env-only, never hardcoded)
