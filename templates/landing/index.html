@@ -663,48 +663,74 @@
       <h2 class="text-4xl lg:text-5xl font-black tracking-tight gradient-text leading-tight mb-4">
         Your cloud.<br/>Your choice.
       </h2>
-      <p class="text-zinc-400 text-lg font-light">Deploy to DigitalOcean or AWS with one click, or connect any server you already own via SSH.</p>
+      <p class="text-zinc-400 text-lg font-light">Deploy to any major cloud provider with one click, or connect any server you already own via SSH.</p>
     </div>
 
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-6 max-w-3xl">
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
 
-      <div class="glass-card rounded-2xl p-6 flex flex-col gap-4 border-white/[0.18] relative overflow-hidden">
-        <div class="absolute top-3 right-3">
-          <span class="text-[10px] font-semibold text-emerald-400 bg-emerald-400/10 border border-emerald-400/20 rounded-full px-2 py-0.5">LIVE</span>
-        </div>
+      <div class="glass-card rounded-2xl p-5 flex flex-col gap-4 border-white/[0.18] relative overflow-hidden">
+        <div class="absolute top-3 right-3"><span class="text-[10px] font-semibold text-emerald-400 bg-emerald-400/10 border border-emerald-400/20 rounded-full px-2 py-0.5">LIVE</span></div>
         <div class="w-12 h-12 rounded-xl flex items-center justify-center" style="background:#0080FF;">
           <svg viewBox="0 0 24 24" class="w-7 h-7" fill="white"><path d="M12.015 0C5.383 0 0 5.387 0 12.015c0 6.629 5.383 12.015 12.015 12.015 6.629 0 12.015-5.386 12.015-12.015C24.03 5.387 18.644 0 12.015 0zm0 18.586v-3.38c3.42 0 5.968-3.423 4.617-7.015a5.034 5.034 0 00-2.816-2.816C10.224 4.024 6.8 6.572 6.8 9.992h-3.38c0-5.02 4.93-8.997 10.193-7.376a8.424 8.424 0 015.377 5.377c1.621 5.263-2.356 10.193-7.375 10.193zm0 0h-3.38v-3.38h3.38v3.38zm-3.38 0H5.254v-3.38h3.381v3.38z"/></svg>
         </div>
-        <div>
-          <div class="text-white font-semibold text-sm">DigitalOcean</div>
-          <div class="text-zinc-500 text-xs mt-0.5 leading-relaxed">Provision Droplets across all regions. Terraform-managed with automatic firewall rules.</div>
-        </div>
+        <div><div class="text-white font-semibold text-sm">DigitalOcean</div><div class="text-zinc-500 text-xs mt-0.5">Droplets · Regions · Firewall</div></div>
       </div>
 
-      <div class="glass-card rounded-2xl p-6 flex flex-col gap-4 border-white/[0.18] relative overflow-hidden">
-        <div class="absolute top-3 right-3">
-          <span class="text-[10px] font-semibold text-emerald-400 bg-emerald-400/10 border border-emerald-400/20 rounded-full px-2 py-0.5">LIVE</span>
-        </div>
+      <div class="glass-card rounded-2xl p-5 flex flex-col gap-4 border-white/[0.18] relative overflow-hidden">
+        <div class="absolute top-3 right-3"><span class="text-[10px] font-semibold text-emerald-400 bg-emerald-400/10 border border-emerald-400/20 rounded-full px-2 py-0.5">LIVE</span></div>
         <div class="w-12 h-12 rounded-xl bg-zinc-900 flex items-center justify-center border border-white/[0.08]">
           <svg viewBox="0 0 80 32" class="w-10"><text y="24" font-size="22" font-family="Arial,sans-serif" font-weight="700" fill="#FF9900">aws</text></svg>
         </div>
-        <div>
-          <div class="text-white font-semibold text-sm">Amazon AWS</div>
-          <div class="text-zinc-500 text-xs mt-0.5 leading-relaxed">Launch EC2 instances in any region. Full Terraform support with IAM-based auth.</div>
-        </div>
+        <div><div class="text-white font-semibold text-sm">Amazon AWS</div><div class="text-zinc-500 text-xs mt-0.5">EC2 · Regions · IAM</div></div>
       </div>
 
-      <div class="glass-card rounded-2xl p-6 flex flex-col gap-4 border-white/[0.18] relative overflow-hidden">
-        <div class="absolute top-3 right-3">
-          <span class="text-[10px] font-semibold text-emerald-400 bg-emerald-400/10 border border-emerald-400/20 rounded-full px-2 py-0.5">LIVE</span>
+      <div class="glass-card rounded-2xl p-5 flex flex-col gap-4 border-white/[0.18] relative overflow-hidden">
+        <div class="absolute top-3 right-3"><span class="text-[10px] font-semibold text-emerald-400 bg-emerald-400/10 border border-emerald-400/20 rounded-full px-2 py-0.5">LIVE</span></div>
+        <div class="w-12 h-12 rounded-xl bg-zinc-800 flex items-center justify-center">
+          <svg viewBox="0 0 24 24" class="w-7 h-7" fill="none">
+            <path d="M12 11.174l5.303-5.303A8.965 8.965 0 0012 3.05a8.994 8.994 0 00-6.364 2.636L12 11.174z" fill="#EA4335"/>
+            <path d="M17.303 5.871l-5.303 5.303 3.636 3.636 5.118-5.118a8.965 8.965 0 00-3.451-3.821z" fill="#FBBC05"/>
+            <path d="M7.06 14.81A5.021 5.021 0 0112 10.757l5.636 5.636-2.272 2.272L12 15.393l-4.94 3.272A8.978 8.978 0 017.06 14.81z" fill="#34A853"/>
+            <path d="M3.95 9.39a8.978 8.978 0 000 5.22l4.94-3.271a5.021 5.021 0 010-5.22L3.95 9.39z" fill="#4285F4"/>
+          </svg>
         </div>
+        <div><div class="text-white font-semibold text-sm">Google Cloud</div><div class="text-zinc-500 text-xs mt-0.5">Compute Engine · GKE</div></div>
+      </div>
+
+      <div class="glass-card rounded-2xl p-5 flex flex-col gap-4 border-white/[0.18] relative overflow-hidden">
+        <div class="absolute top-3 right-3"><span class="text-[10px] font-semibold text-emerald-400 bg-emerald-400/10 border border-emerald-400/20 rounded-full px-2 py-0.5">LIVE</span></div>
+        <div class="w-12 h-12 rounded-xl flex items-center justify-center" style="background:#D50C2D;"><span class="text-white font-black text-lg">H</span></div>
+        <div><div class="text-white font-semibold text-sm">Hetzner</div><div class="text-zinc-500 text-xs mt-0.5">Cloud Servers · Volumes</div></div>
+      </div>
+
+      <div class="glass-card rounded-2xl p-5 flex flex-col gap-4 border-white/[0.18] relative overflow-hidden">
+        <div class="absolute top-3 right-3"><span class="text-[10px] font-semibold text-emerald-400 bg-emerald-400/10 border border-emerald-400/20 rounded-full px-2 py-0.5">LIVE</span></div>
+        <div class="w-12 h-12 rounded-xl flex items-center justify-center" style="background:#007BFC;">
+          <svg viewBox="0 0 24 24" class="w-7 h-7" fill="white"><polygon points="12,2 22,9 12,22 2,9"/></svg>
+        </div>
+        <div><div class="text-white font-semibold text-sm">Vultr</div><div class="text-zinc-500 text-xs mt-0.5">Cloud Compute · Bare Metal</div></div>
+      </div>
+
+      <div class="glass-card rounded-2xl p-5 flex flex-col gap-4 border-white/[0.18] relative overflow-hidden">
+        <div class="absolute top-3 right-3"><span class="text-[10px] font-semibold text-emerald-400 bg-emerald-400/10 border border-emerald-400/20 rounded-full px-2 py-0.5">LIVE</span></div>
+        <div class="w-12 h-12 rounded-xl flex items-center justify-center" style="background:#0089D6;">
+          <svg viewBox="0 0 24 24" class="w-7 h-7" fill="white"><path d="M5.483 21.3H22l-8.6-15.16-4.02 7.49 2.99 3.16L5.483 21.3zM13.4 2.7l-4.84 8.5-4.09 7.63h4.3l4.63-16.13z"/></svg>
+        </div>
+        <div><div class="text-white font-semibold text-sm">Microsoft Azure</div><div class="text-zinc-500 text-xs mt-0.5">VMs · AKS · Networking</div></div>
+      </div>
+
+      <div class="glass-card rounded-2xl p-5 flex flex-col gap-4 border-white/[0.18] relative overflow-hidden">
+        <div class="absolute top-3 right-3"><span class="text-[10px] font-semibold text-emerald-400 bg-emerald-400/10 border border-emerald-400/20 rounded-full px-2 py-0.5">LIVE</span></div>
+        <div class="w-12 h-12 rounded-xl flex items-center justify-center" style="background:#00A95C;"><span class="text-white font-black text-sm">Ak</span></div>
+        <div><div class="text-white font-semibold text-sm">Akamai / Linode</div><div class="text-zinc-500 text-xs mt-0.5">Nanode · Shared CPU</div></div>
+      </div>
+
+      <div class="glass-card rounded-2xl p-5 flex flex-col gap-4 border-white/[0.18] relative overflow-hidden">
+        <div class="absolute top-3 right-3"><span class="text-[10px] font-semibold text-emerald-400 bg-emerald-400/10 border border-emerald-400/20 rounded-full px-2 py-0.5">LIVE</span></div>
         <div class="w-12 h-12 rounded-xl bg-zinc-800 flex items-center justify-center border border-white/[0.1]">
           <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 12h14M12 5l7 7-7 7"/></svg>
         </div>
-        <div>
-          <div class="text-white font-semibold text-sm">Bring Your Own Server</div>
-          <div class="text-zinc-500 text-xs mt-0.5 leading-relaxed">Connect any VPS via SSH key or password. DafeApp prepares it automatically.</div>
-        </div>
+        <div><div class="text-white font-semibold text-sm">Bring Your Own Server</div><div class="text-zinc-500 text-xs mt-0.5">Any VPS · SSH · Always</div></div>
       </div>
 
     </div>
@@ -773,7 +799,7 @@
         </div>
         <ul class="space-y-3 flex-1 mb-8">
           <li class="flex items-start gap-2.5 text-sm text-zinc-300"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>Unlimited Odoo instances</li>
-          <li class="flex items-start gap-2.5 text-sm text-zinc-300"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>BYOS + DigitalOcean + AWS</li>
+          <li class="flex items-start gap-2.5 text-sm text-zinc-300"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>All 7+ cloud providers</li>
           <li class="flex items-start gap-2.5 text-sm text-zinc-300"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>Unlimited backups</li>
           <li class="flex items-start gap-2.5 text-sm text-zinc-300"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>Priority support</li>
           <li class="flex items-start gap-2.5 text-sm text-zinc-300"><svg class="w-4 h-4 text-white mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>Custom SLA + onboarding</li>
@@ -790,7 +816,7 @@
 <div class="border-y border-white/[0.06] py-16 reveal">
   <div class="max-w-5xl mx-auto px-5">
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-8 text-center">
-      <div><div class="text-4xl font-black text-white mb-1">2</div><div class="text-sm text-zinc-500">Cloud providers<br/>live today</div></div>
+      <div><div class="text-4xl font-black text-white mb-1">7+</div><div class="text-sm text-zinc-500">Cloud providers<br/>supported</div></div>
       <div><div class="text-4xl font-black text-white mb-1">&lt;5m</div><div class="text-sm text-zinc-500">Server to running<br/>Odoo instance</div></div>
       <div><div class="text-4xl font-black text-white mb-1">AES</div><div class="text-sm text-zinc-500">Field-level<br/>encryption</div></div>
       <div><div class="text-4xl font-black text-white mb-1">20+</div><div class="text-sm text-zinc-500">Audit event<br/>types tracked</div></div>
