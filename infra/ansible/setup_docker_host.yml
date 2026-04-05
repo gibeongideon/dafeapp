@@ -26,8 +26,10 @@
     postgres_password: "{{ postgres_password }}"
 
   tasks:
-    - name: Wait for apt lock to be released (cloud-init / unattended-upgrades)
+    - name: Stop unattended-upgrades and wait for apt locks to clear
       shell: |
+        systemctl stop unattended-upgrades 2>/dev/null || true
+        systemctl disable unattended-upgrades 2>/dev/null || true
         while fuser /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock /var/cache/apt/archives/lock >/dev/null 2>&1; do
           echo "Waiting for apt lock…"
           sleep 5
@@ -36,6 +38,15 @@
         executable: /bin/bash
       changed_when: false
       timeout: 300
+
+    - name: Update apt cache and upgrade all packages
+      apt:
+        update_cache: true
+        upgrade: dist
+      register: apt_upgrade
+      retries: 5
+      delay: 10
+      until: apt_upgrade is succeeded
 
     - name: Install prerequisites
       apt:
@@ -47,6 +58,10 @@
           - python3-pip
         state: present
         update_cache: true
+      register: apt_prereqs
+      retries: 5
+      delay: 10
+      until: apt_prereqs is succeeded
 
     - name: Add Docker GPG key
       shell: |
@@ -76,6 +91,10 @@
           - docker-compose-plugin
         state: present
         update_cache: true
+      register: apt_docker
+      retries: 5
+      delay: 10
+      until: apt_docker is succeeded
 
     - name: Enable and start Docker service
       systemd:

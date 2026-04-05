@@ -727,6 +727,10 @@
           {% endif %}
           <div>
             <p class="text-sm font-semibold text-gray-900">{{ s.name }}</p>
+            <div class="mt-1 flex items-center gap-1 text-[11px] text-gray-500">
+              <span class="text-gray-400">Instances</span>
+              <span id="server-top-instances-{{ s.id }}" class="font-medium text-gray-700">{{ s.active_instance_count }}/{{ s.max_instances }}</span>
+            </div>
             <p class="text-[11px] text-gray-500">
               {% if s.infrastructure and s.infrastructure.infra_type == "PYOS" %}
               PYOS · existing server
@@ -735,17 +739,6 @@
               {% endif %}
             </p>
             <p id="server-top-ip-{{ s.id }}" class="mt-1 text-[11px] font-mono text-gray-500">{{ s.ip_address|default:"pending" }}</p>
-            <div class="mt-1 flex items-center gap-2 text-[11px] text-gray-500">
-              <span class="inline-flex items-center gap-1">
-                <span class="text-gray-400">Specs</span>
-                <span class="font-medium text-gray-700">{{ s.capacity_cpu_cores }} vCPU | {{ s.capacity_ram_mb }} MB | {{ s.region }}</span>
-              </span>
-              <span class="text-gray-300">•</span>
-              <span class="inline-flex items-center gap-1">
-                <span class="text-gray-400">Instances</span>
-                <span id="server-top-instances-{{ s.id }}" class="font-medium text-gray-700">{{ s.active_instance_count }}/{{ s.max_instances }}</span>
-              </span>
-            </div>
           </div>
         </div>
         <div class="flex flex-col items-end gap-1">
@@ -3013,19 +3006,12 @@
           <span class="inline-flex items-center justify-center w-8 h-8 rounded-md bg-gray-100 text-gray-700 text-[11px] font-bold">${isPyos ? "PY" : "VPS"}</span>
           <div>
             <p class="text-sm font-semibold text-gray-900">${name}</p>
+            <div class="mt-1 flex items-center gap-1 text-[11px] text-gray-500">
+              <span class="text-gray-400">Instances</span>
+              <span id="server-top-instances-${sid}" class="font-medium text-gray-700">${typeof server.instance_count === "number" ? server.instance_count : 0}/${server.max_instances || "—"}</span>
+            </div>
             <p class="text-[11px] text-gray-500">${subtitle}</p>
             <p id="server-top-ip-${sid}" class="mt-1 text-[11px] font-mono text-gray-500">${server.ip_address || "pending"}</p>
-            <div class="mt-1 flex items-center gap-2 text-[11px] text-gray-500">
-              <span class="inline-flex items-center gap-1">
-                <span class="text-gray-400">Specs</span>
-                <span class="font-medium text-gray-700">${server.capacity_cpu_cores || 4} vCPU | ${server.capacity_ram_mb || 8192} MB | ${server.region || "—"}</span>
-              </span>
-              <span class="text-gray-300">•</span>
-              <span class="inline-flex items-center gap-1">
-                <span class="text-gray-400">Instances</span>
-                <span id="server-top-instances-${sid}" class="font-medium text-gray-700">${typeof server.instance_count === "number" ? server.instance_count : 0}/${server.max_instances || "—"}</span>
-              </span>
-            </div>
           </div>
         </div>
         <div class="flex flex-col items-end gap-1">
