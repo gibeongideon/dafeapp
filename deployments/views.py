@@ -3250,13 +3250,26 @@ class OdooServerDeleteAPIView(LoginRequiredMixin, View):
             pk=server_id,
             organization=org,
         )
-        lock_reason = _server_mutation_lock_reason(server)
-        if lock_reason:
-            return JsonResponse({"error": lock_reason}, status=409)
+
+        # If the server is still running a provisioning task, cancel it first.
+        busy_statuses = {
+            OdooServer.Status.CONNECTING,
+            OdooServer.Status.PROVISIONING,
+            OdooServer.Status.CONFIGURING,
+        }
+        if server.status in busy_statuses:
+            task_id = server.celery_task_id
+            if task_id:
+                try:
+                    from dafeapp.celery import app as celery_app
+                    celery_app.control.revoke(task_id, terminate=True, signal="SIGTERM")
+                except Exception:
+                    pass  # best-effort; proceed with delete regardless
+
         try:
             with transaction.atomic():
                 server.delete()
-            return JsonResponse({"ok": True, "message": "Server deleted from the database."})
+            return JsonResponse({"ok": True, "message": "Server deleted."})
         except Exception as exc:
             logger.exception("Unexpected error deleting OdooServer %s", server_id)
             return JsonResponse({"error": f"Delete failed: {exc}"}, status=500)

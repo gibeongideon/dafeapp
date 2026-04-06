@@ -15,6 +15,7 @@ from urllib.parse import quote, urlparse, urlunparse
 import paramiko
 from asgiref.sync import async_to_sync
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 from channels.layers import get_channel_layer
 from django.conf import settings
 from django.core.cache import cache
@@ -2297,8 +2298,32 @@ def terraform_apply_instance(self, run_id: int):
     _broadcast_run(run)
 
 
-@shared_task(bind=True, max_retries=0)
+def _mark_server_timed_out(server_id: int, task_name: str):
+    """Mark a server FAILED when its Celery task exceeds the soft time limit."""
+    try:
+        server = OdooServer.objects.get(pk=server_id)
+        if server.status not in (OdooServer.Status.PROVISIONED, OdooServer.Status.FAILED, OdooServer.Status.ARCHIVED):
+            server.status = OdooServer.Status.FAILED
+            server.celery_task_id = ""
+            server.provisioning_log = _append_text(
+                server.provisioning_log,
+                f"[timeout] Task {task_name} exceeded the 25-minute time limit and was stopped automatically.",
+            )
+            server.save(update_fields=["status", "celery_task_id", "provisioning_log", "updated_at"])
+            _broadcast_server(server.id, "Provisioning timed out — server marked as Failed.", server.status, done=True)
+    except Exception:
+        logger.exception("Could not mark server %s as timed-out", server_id)
+
+
+@shared_task(bind=True, max_retries=0, time_limit=1800, soft_time_limit=1500)
 def provision_odoo_server(self, server_id: int):
+    try:
+     return _provision_odoo_server_inner(self, server_id)
+    except SoftTimeLimitExceeded:
+        _mark_server_timed_out(server_id, "provision_odoo_server")
+
+
+def _provision_odoo_server_inner(self, server_id: int):
     server = OdooServer.objects.select_related(
         "organization",
         "cloud_account",
@@ -2562,8 +2587,15 @@ def provision_odoo_server(self, server_id: int):
         _queue_or_run(configure_odoo_server, server.id)
 
 
-@shared_task(bind=True, max_retries=0)
+@shared_task(bind=True, max_retries=0, time_limit=1800, soft_time_limit=1500)
 def configure_odoo_server(self, server_id: int, job_id: int | None = None):
+    try:
+        return _configure_odoo_server_inner(self, server_id, job_id)
+    except SoftTimeLimitExceeded:
+        _mark_server_timed_out(server_id, "configure_odoo_server")
+
+
+def _configure_odoo_server_inner(self, server_id: int, job_id: int | None = None):
     server = OdooServer.objects.select_related(
         "organization",
         "infrastructure",
@@ -4485,12 +4517,19 @@ def _run_docker_instance_delete(instance: OdooInstance, server: OdooServer):
     instance.save(update_fields=["status", "provisioning_log", "updated_at"])
 
 
-@shared_task(bind=True, max_retries=0)
+@shared_task(bind=True, max_retries=0, time_limit=1800, soft_time_limit=1500)
 def configure_docker_host(self, server_id: int, job_id: int | None = None):
     """
     Install Docker on the host, create odoo-network, and start Traefik + PostgreSQL.
     Runs the setup_docker_host.yml Ansible playbook.
     """
+    try:
+        return _configure_docker_host_inner(self, server_id, job_id)
+    except SoftTimeLimitExceeded:
+        _mark_server_timed_out(server_id, "configure_docker_host")
+
+
+def _configure_docker_host_inner(self, server_id: int, job_id: int | None = None):
     server = OdooServer.objects.select_related(
         "organization",
         "infrastructure",
