@@ -3216,9 +3216,19 @@ class OdooServerArchiveAPIView(LoginRequiredMixin, View):
         )
         if not server.is_active:
             return JsonResponse({"ok": True, "message": "Server already archived."})
-        lock_reason = _server_mutation_lock_reason(server)
-        if lock_reason:
-            return JsonResponse({"error": lock_reason}, status=409)
+
+        # Cancel any running provisioning task before archiving.
+        busy_statuses = {
+            OdooServer.Status.CONNECTING,
+            OdooServer.Status.PROVISIONING,
+            OdooServer.Status.CONFIGURING,
+        }
+        if server.status in busy_statuses and server.celery_task_id:
+            try:
+                from dafeapp.celery import app as celery_app
+                celery_app.control.revoke(server.celery_task_id, terminate=True, signal="SIGTERM")
+            except Exception:
+                pass
 
         try:
             server.is_active = False

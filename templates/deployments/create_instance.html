@@ -1672,13 +1672,13 @@ chmod 600 ~/.ssh/authorized_keys</pre>
   }
 
   function syncServerActionButtons(root = document) {
-    // Delete is always allowed (backend cancels the running task before deleting).
-    root.querySelectorAll(".open-ssh-keys-modal, .archive-server-btn, .check-connectivity-btn").forEach((button) => {
+    // Lock only ssh-keys and check-connectivity when provisioning is in progress.
+    root.querySelectorAll(".open-ssh-keys-modal, .check-connectivity-btn").forEach((button) => {
       const reason = serverActionLockReason(button.dataset.serverStatus);
       setLockedButtonState(button, !!reason, reason);
     });
-    // Never lock the delete button on status alone.
-    root.querySelectorAll(".delete-server-btn").forEach((button) => {
+    // Archive and delete are always clickable — the backend cancels any running task first.
+    root.querySelectorAll(".archive-server-btn, .delete-server-btn").forEach((button) => {
       setLockedButtonState(button, false, "");
     });
 
@@ -4119,6 +4119,12 @@ chmod 600 ~/.ssh/authorized_keys</pre>
     const archiveBtn = e.target.closest(".archive-server-btn");
     if (archiveBtn) {
       const sid = archiveBtn.dataset.serverId;
+      const busyStatuses = ["CONNECTING", "PROVISIONING", "CONFIGURING"];
+      const isBusy = busyStatuses.includes((archiveBtn.dataset.serverStatus || "").toUpperCase());
+      const msg = isBusy
+        ? `Server "${archiveBtn.dataset.serverName}" is still provisioning. Archiving will cancel the task and hide it. Continue?`
+        : `Archive "${archiveBtn.dataset.serverName}"? It will be hidden from the UI.`;
+      if (!confirm(msg)) return;
       archiveBtn.disabled = true;
       archiveBtn.textContent = "Archiving…";
       const resp = await postForm(`/api/deployments/odoo/servers/${sid}/archive/`, {});
