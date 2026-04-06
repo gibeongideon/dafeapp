@@ -1256,39 +1256,50 @@
           </div>
 
           <!-- DafeApp public key instructions -->
-          <div id="pyos-key-info" class="bg-amber-50 border border-amber-100 rounded-lg px-3 py-3 space-y-2">
-            <p class="text-xs font-semibold text-amber-800">Use DafeApp SSH Key for PYOS servers</p>
-            <p class="text-[11px] text-amber-800">
-              Before you click <span class="font-semibold">Create Server</span>, add the DafeApp public key below to
-              <code class="bg-amber-100 px-1 rounded">~/.ssh/authorized_keys</code> on the target VPS for the selected user
-              such as <code class="bg-amber-100 px-1 rounded">root</code>.
-            </p>
-            <code class="block text-[11px] font-mono text-amber-800 break-all select-all">{{ dafeapp_public_key }}</code>
-            <div class="rounded-md bg-white/70 border border-amber-100 px-3 py-2 space-y-1">
-              <p class="text-[11px] font-medium text-amber-900">Typical setup steps on your VPS</p>
-              <code class="block text-[10px] font-mono text-amber-900 whitespace-pre-wrap break-all">mkdir -p ~/.ssh && chmod 700 ~/.ssh</code>
-              <code class="block text-[10px] font-mono text-amber-900 whitespace-pre-wrap break-all">echo '&lt;paste the DafeApp public key&gt;&gt;' &gt;&gt; ~/.ssh/authorized_keys</code>
-              <code class="block text-[10px] font-mono text-amber-900 whitespace-pre-wrap break-all">chmod 600 ~/.ssh/authorized_keys</code>
-            </div>
-            <p class="text-[11px] text-amber-700">
-              If you are preparing the server from the same machine that runs DafeApp, you can also use:
-            </p>
-            <code class="block text-[10px] font-mono text-amber-900 break-all select-all">ssh-copy-id -i /home/rock/.ssh/dafeapp_id_ed25519.pub root@your-server-ip</code>
-            <p class="text-[11px] text-amber-700">
-              DafeApp will then connect using the matching private key at
-              <code class="bg-amber-100 px-1 rounded">/home/rock/.ssh/dafeapp_id_ed25519</code>.
-            </p>
-          </div>
+          <div id="pyos-key-info"
+               x-data="{
+                 pubkey: '{{ dafeapp_public_key|escapejs }}',
+                 copiedCmd: false,
+                 copiedKey: false,
+                 copyCmd() {
+                   navigator.clipboard.writeText(`mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '${this.pubkey}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys`);
+                   this.copiedCmd = true; setTimeout(() => { this.copiedCmd = false; }, 2000);
+                 },
+                 copyKey() {
+                   navigator.clipboard.writeText(this.pubkey);
+                   this.copiedKey = true; setTimeout(() => { this.copiedKey = false; }, 2000);
+                 }
+               }"
+               class="rounded-lg border border-blue-100 bg-blue-50 px-3 py-3 space-y-3">
 
-          <div id="pyos-key-path-field" class="hidden">
-            <label class="block text-xs font-medium text-gray-600 mb-1">SSH Key Path (optional)</label>
-            <input id="pyos-key-path"
-                   class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg font-mono"
-                   placeholder="/home/rock/.ssh/id_ed25519"
-                   value="{{ pyos_default_ssh_key_path|default:'' }}" />
-            <p class="text-[11px] text-gray-500 mt-1">
-              Use a private key path on the machine running DafeApp, not pasted key text. Leave blank to use the built-in DafeApp keypair.
-            </p>
+            <p class="text-xs font-semibold text-blue-800">Run this command on your VPS first</p>
+            <p class="text-[11px] text-blue-700">Copy the command below and run it on your server — it adds DafeApp's public key to <code class="bg-blue-100 px-1 rounded">authorized_keys</code> in one shot.</p>
+
+            <!-- One-shot command with actual key embedded -->
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-[11px] font-medium text-blue-800">Command (includes the actual key)</span>
+                <button type="button" @click="copyCmd()"
+                        class="text-[11px] px-2 py-0.5 rounded bg-blue-200 hover:bg-blue-300 text-blue-900 transition-colors font-medium"
+                        x-text="copiedCmd ? '✓ Copied!' : 'Copy command'"></button>
+              </div>
+              <pre class="bg-gray-900 text-green-400 text-[10px] rounded-lg px-3 py-2.5 overflow-x-auto font-mono leading-relaxed whitespace-pre-wrap break-all">mkdir -p ~/.ssh && chmod 700 ~/.ssh
+echo '<span class="text-yellow-300" x-text="pubkey"></span>' >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys</pre>
+            </div>
+
+            <!-- Public key alone for manual copy -->
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-[11px] font-medium text-blue-800">Public key only</span>
+                <button type="button" @click="copyKey()"
+                        class="text-[11px] px-2 py-0.5 rounded bg-blue-200 hover:bg-blue-300 text-blue-900 transition-colors font-medium"
+                        x-text="copiedKey ? '✓ Copied!' : 'Copy key'"></button>
+              </div>
+              <div class="bg-white border border-blue-100 rounded px-2 py-1.5 font-mono text-[10px] text-gray-700 break-all select-all" x-text="pubkey"></div>
+            </div>
+
+            <p class="text-[11px] text-blue-700">Then click <strong>Provision Server</strong> — DafeApp connects automatically, no file path needed.</p>
           </div>
 
           <!-- Password field -->
@@ -3571,8 +3582,6 @@
     if (pyosVersionEl) pyosVersionEl.value = "19";
     if (pyosDeploymentModeEl) pyosDeploymentModeEl.value = "BARE_METAL";
     $("pyos-key-info")?.classList.remove("hidden");
-    $("pyos-key-path-field")?.classList.remove("hidden");
-    if ($("pyos-key-path")) $("pyos-key-path").value = "";
     $("pyos-password-field")?.classList.add("hidden");
   }
 
@@ -3657,8 +3666,8 @@
   document.querySelectorAll("input[name='pyos-auth']").forEach(r => {
     r.addEventListener("change", () => {
       const isKey = $("pyos-auth-key").checked;
-      if (isKey) { $("pyos-key-info").classList.remove("hidden"); $("pyos-key-path-field").classList.remove("hidden"); $("pyos-password-field").classList.add("hidden"); }
-      else { $("pyos-key-info").classList.add("hidden"); $("pyos-key-path-field").classList.add("hidden"); $("pyos-password-field").classList.remove("hidden"); }
+      if (isKey) { $("pyos-key-info").classList.remove("hidden"); $("pyos-password-field").classList.add("hidden"); }
+      else { $("pyos-key-info").classList.add("hidden"); $("pyos-password-field").classList.remove("hidden"); }
     });
   });
 
@@ -3684,7 +3693,7 @@
     const username = ($("pyos-username").value || "root").trim();
     const authType = $("pyos-auth-key").checked ? "DAFEAPP_KEY" : "PASSWORD";
     const password = $("pyos-password") ? $("pyos-password").value : "";
-    const sshKeyPath = $("pyos-key-path") ? $("pyos-key-path").value.trim() : "";
+    const sshKeyPath = "";
     const odooVersion = pyosVersionEl.value || "19";
     const deployMode = pyosDeploymentModeEl.value || "BARE_METAL";
     if (!name) { setMsg(msgEl, "Server name is required.", true); return; }
