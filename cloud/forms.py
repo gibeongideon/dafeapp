@@ -3,6 +3,7 @@ from django import forms
 from cloud.digitalocean import DO_REGIONS, DO_SIZES
 from cloud.models import CloudAccount, CloudServer, ExternalServer, PyOSSSHSettings
 from cloud.providers import get_provider
+from cloud.pyos import looks_like_public_key_text
 
 _INPUT = "w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400"
 _SELECT = "w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-gray-400"

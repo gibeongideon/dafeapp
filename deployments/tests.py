@@ -859,7 +859,7 @@ class OdooVersionedFlowTests(TestCase):
         self.assertIn("deployment job", resp.json()["error"])
         mock_dispatch.assert_not_called()
 
-    def test_server_archive_is_blocked_while_server_is_provisioning(self):
+    def test_server_archive_cancels_task_while_server_is_provisioning(self):
         server = OdooServer.objects.create(
             organization=self.org,
             infrastructure=self.infrastructure,
@@ -877,11 +877,10 @@ class OdooVersionedFlowTests(TestCase):
             data={},
         )
 
-        self.assertEqual(resp.status_code, 409)
-        self.assertIn("Server provisioning", resp.json()["error"])
+        self.assertEqual(resp.status_code, 200)
         server.refresh_from_db()
-        self.assertTrue(server.is_active)
-        self.assertEqual(server.status, OdooServer.Status.PROVISIONING)
+        self.assertFalse(server.is_active)
+        self.assertEqual(server.status, OdooServer.Status.ARCHIVED)
 
     def test_platform_admin_can_upload_enterprise_source(self):
         self.user.is_platform_admin = True
