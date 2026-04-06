@@ -1661,9 +1661,14 @@
   }
 
   function syncServerActionButtons(root = document) {
-    root.querySelectorAll(".open-ssh-keys-modal, .archive-server-btn, .delete-server-btn, .check-connectivity-btn").forEach((button) => {
+    // Delete is always allowed (backend cancels the running task before deleting).
+    root.querySelectorAll(".open-ssh-keys-modal, .archive-server-btn, .check-connectivity-btn").forEach((button) => {
       const reason = serverActionLockReason(button.dataset.serverStatus);
       setLockedButtonState(button, !!reason, reason);
+    });
+    // Never lock the delete button on status alone.
+    root.querySelectorAll(".delete-server-btn").forEach((button) => {
+      setLockedButtonState(button, false, "");
     });
 
     const newInstanceBtn = $("new-instance-btn");
@@ -4120,9 +4125,14 @@
 
     const deleteBtn = e.target.closest(".delete-server-btn");
     if (deleteBtn) {
+      const busyStatuses = ["CONNECTING", "PROVISIONING", "CONFIGURING"];
+      const isBusy = busyStatuses.includes((deleteBtn.dataset.serverStatus || "").toUpperCase());
+      const warning = isBusy
+        ? `Server "${deleteBtn.dataset.serverName}" is still provisioning. Deleting will cancel the task and remove it. This cannot be undone.`
+        : `Permanently delete server "${deleteBtn.dataset.serverName}" from the database? This cannot be undone.`;
       showConfirm(
         "Delete Server Permanently",
-        `Permanently delete server "${deleteBtn.dataset.serverName}" from the database? This cannot be undone.`,
+        warning,
         `/api/deployments/odoo/servers/${deleteBtn.dataset.serverId}/delete/`
       );
     }
