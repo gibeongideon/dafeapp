@@ -2450,7 +2450,8 @@ def provision_odoo_server(self, server_id: int):
     state_root.mkdir(parents=True, exist_ok=True)
 
     tf_dir = os.getenv("TERRAFORM_SERVER_MODULE_DIR", "").strip()
-    module_dir = Path(tf_dir) if tf_dir else state_root
+    _tf_candidate = Path(tf_dir) if tf_dir else None
+    module_dir = _tf_candidate if (_tf_candidate and (_tf_candidate / "main.tf").exists()) else state_root
 
     vars_payload = {
         "name": server.name,
@@ -2588,7 +2589,8 @@ def configure_odoo_server(self, server_id: int, job_id: int | None = None):
         _job_done(job_id, ok=False, log="No server IP available for configuration.")
         return
 
-    playbook = os.getenv("ANSIBLE_ODOO_SERVER_PLAYBOOK", "").strip() or _default_odoo_server_playbook()
+    _pb = os.getenv("ANSIBLE_ODOO_SERVER_PLAYBOOK", "").strip()
+    playbook = _pb if (_pb and Path(_pb).exists()) else _default_odoo_server_playbook()
     if not Path(playbook).exists():
         logger.error("Server %s: bootstrap playbook not found: %s", server.id, playbook)
         server.status = OdooServer.Status.FAILED
@@ -4287,7 +4289,8 @@ def _run_docker_instance_create(instance: OdooInstance, server: OdooServer, job_
             logger.warning("Docker instance %s: prewarm domain overlay failed", instance.id, exc_info=True)
             _record_instance_error(instance, "Prewarm domain overlay failed", str(exc))
 
-    playbook = os.getenv("ANSIBLE_DOCKER_INSTANCE_PLAYBOOK", "").strip() or _default_docker_instance_playbook()
+    _pb = os.getenv("ANSIBLE_DOCKER_INSTANCE_PLAYBOOK", "").strip()
+    playbook = _pb if (_pb and Path(_pb).exists()) else _default_docker_instance_playbook()
     if not Path(playbook).exists():
         logger.error("Instance %s: Docker instance playbook not found: %s", instance.id, playbook)
         instance.status = OdooInstance.Status.FAILED
@@ -4445,7 +4448,8 @@ def _run_docker_instance_delete(instance: OdooInstance, server: OdooServer):
     Internal: run the Docker Odoo instance deletion playbook and mark the instance DELETED.
     Called from delete_odoo_instance when server.deployment_mode == DOCKER.
     """
-    playbook = os.getenv("ANSIBLE_DOCKER_INSTANCE_DELETE_PLAYBOOK", "").strip() or _default_docker_instance_delete_playbook()
+    _pb = os.getenv("ANSIBLE_DOCKER_INSTANCE_DELETE_PLAYBOOK", "").strip()
+    playbook = _pb if (_pb and Path(_pb).exists()) else _default_docker_instance_delete_playbook()
     if not Path(playbook).exists():
         logger.warning("Docker instance delete playbook not found at %s; marking DELETED without cleanup.", playbook)
         instance.status = OdooInstance.Status.DELETED
@@ -4502,7 +4506,8 @@ def configure_docker_host(self, server_id: int, job_id: int | None = None):
         _job_done(job_id, ok=False, log="No server IP available for Docker host setup.")
         return
 
-    playbook = os.getenv("ANSIBLE_DOCKER_HOST_PLAYBOOK", "").strip() or _default_docker_host_playbook()
+    _pb = os.getenv("ANSIBLE_DOCKER_HOST_PLAYBOOK", "").strip()
+    playbook = _pb if (_pb and Path(_pb).exists()) else _default_docker_host_playbook()
     if not Path(playbook).exists():
         server.status = OdooServer.Status.FAILED
         msg = f"Docker host setup playbook not found: {playbook}"

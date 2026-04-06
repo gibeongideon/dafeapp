@@ -1,7 +1,6 @@
 from django import forms
 
 from cloud.digitalocean import DO_REGIONS, DO_SIZES
-from cloud.pyos import looks_like_public_key_text
 from cloud.models import CloudAccount, CloudServer, ExternalServer, PyOSSSHSettings
 from cloud.providers import get_provider
 
@@ -21,12 +20,6 @@ class ExternalServerForm(forms.ModelForm):
         widget=forms.PasswordInput(render_value=False, attrs={"class": _INPUT}),
         required=False,
     )
-    ssh_key_path = forms.CharField(
-        label="SSH Key Path",
-        widget=forms.TextInput(attrs={"class": _INPUT, "placeholder": "~/.ssh/id_ed25519"}),
-        required=False,
-        help_text="Optional. Use a private key path on the server running DafeApp.",
-    )
 
     class Meta:
         model = ExternalServer
@@ -44,22 +37,13 @@ class ExternalServerForm(forms.ModelForm):
         auth_type = cleaned.get("auth_type")
         if auth_type == ExternalServer.AuthType.PASSWORD and not cleaned.get("password"):
             self.add_error("password", "Password is required for password-based auth.")
-        ssh_key_path = (cleaned.get("ssh_key_path") or "").strip()
-        if ssh_key_path:
-            if looks_like_public_key_text(ssh_key_path):
-                self.add_error(
-                    "ssh_key_path",
-                    "SSH key path must be a file path on the machine running DafeApp, not pasted public key text.",
-                )
-            else:
-                cleaned["ssh_key_path"] = ssh_key_path
-        # DAFEAPP_KEY: no credential needed — DafeApp's own keypair is used
+        # DAFEAPP_KEY: DafeApp's system keypair is used automatically — no path needed.
         return cleaned
 
     def save(self, commit=True):
         instance = super().save(commit=False)
         pw = self.cleaned_data.get("password")
-        instance.ssh_key_path = (self.cleaned_data.get("ssh_key_path") or "").strip()
+        instance.ssh_key_path = ""  # always clear — SystemSSHKey is used automatically
         if pw:
             instance._raw_password = pw
         if commit:
