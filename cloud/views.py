@@ -84,8 +84,7 @@ class AddExternalServerView(CloudSuperAdminMixin, View):
         }
 
     def get(self, request):
-        settings_obj = PyOSSSHSettings.get_or_create_settings()
-        form = ExternalServerForm(initial={"ssh_key_path": settings_obj.default_ssh_key_path})
+        form = ExternalServerForm()
         return render(request, self.template_name, self._ctx(form))
 
     def post(self, request):

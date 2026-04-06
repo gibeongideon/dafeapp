@@ -19,15 +19,7 @@
       Your credentials are encrypted at rest.
     </p>
 
-    <form method="post" x-data="{
-        authType: '{{ form.auth_type.value|default:'DAFEAPP_KEY' }}',
-        copied: false,
-        copyKey() {
-            navigator.clipboard.writeText(document.getElementById('dafeapp-pubkey').value);
-            this.copied = true;
-            setTimeout(() => { this.copied = false; }, 2000);
-        }
-    }">
+    <form method="post" x-data="{ authType: '{{ form.auth_type.value|default:'DAFEAPP_KEY' }}' }">
       {% csrf_token %}
 
       {% if form.non_field_errors %}
@@ -80,30 +72,69 @@
         </div>
 
         {# DafeApp SSH Key (shown when auth_type = DAFEAPP_KEY) #}
-        <div x-show="authType === 'DAFEAPP_KEY'" x-transition>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Step: authorize DafeApp on your server</label>
-          <p class="text-xs text-gray-500 mb-2">
-            Copy this public key and add it to <code class="bg-gray-100 px-1 rounded">~/.ssh/authorized_keys</code>
-            on your server — then click <strong>Add Server</strong>. DafeApp connects automatically using its built-in keypair. No file paths or private keys needed.
-          </p>
-          <div class="relative">
-            <textarea
-              id="dafeapp-pubkey"
-              readonly
-              rows="3"
-              class="w-full font-mono text-xs px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 resize-none focus:outline-none select-all"
-            >{{ dafeapp_public_key }}</textarea>
-            <button
-              type="button"
-              x-on:click="copyKey()"
-              class="absolute top-2 right-2 px-2 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded transition-colors"
-              x-text="copied ? 'Copied!' : 'Copy'"
-            ></button>
+        <div x-show="authType === 'DAFEAPP_KEY'" x-transition
+             x-data="{
+               pubkey: '{{ dafeapp_public_key|escapejs }}',
+               copiedKey: false,
+               copiedCmd1: false,
+               copiedCmd2: false,
+               copyText(text, prop) {
+                 navigator.clipboard.writeText(text);
+                 this[prop] = true;
+                 setTimeout(() => { this[prop] = false; }, 2000);
+               }
+             }">
+
+          <div class="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 mb-4">
+            <p class="text-xs font-medium text-blue-800 mb-1">Before clicking "Add Server"</p>
+            <p class="text-xs text-blue-700">
+              Run the commands below on your VPS as the user you entered above (e.g. <code class="bg-blue-100 px-1 rounded">root</code>).
+              DafeApp will then connect automatically — no private key or file path needed.
+            </p>
           </div>
-          <div class="mt-2 flex items-start gap-2 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-            <svg class="w-3.5 h-3.5 mt-0.5 shrink-0 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-            <span>On your server, run: <code class="bg-gray-100 px-1 rounded">echo "&lt;paste key here&gt;" >> ~/.ssh/authorized_keys</code></span>
+
+          {# Step 1 — mkdir + authorized_keys in one shot #}
+          <div class="mb-3">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-xs font-medium text-gray-600">1. Add DafeApp public key to authorized_keys</span>
+              <button type="button"
+                      @click="copyText(`mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '${pubkey}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys`, 'copiedCmd1')"
+                      class="text-xs px-2 py-0.5 rounded bg-gray-200 hover:bg-gray-300 transition-colors"
+                      x-text="copiedCmd1 ? 'Copied!' : 'Copy'"></button>
+            </div>
+            <pre class="bg-gray-900 text-green-400 text-xs rounded-lg px-4 py-3 overflow-x-auto whitespace-pre-wrap break-all font-mono leading-relaxed"><span class="text-gray-500"># run this on your VPS</span>
+mkdir -p ~/.ssh && chmod 700 ~/.ssh
+echo '<span class="text-yellow-300" x-text="pubkey"></span>' >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys</pre>
           </div>
+
+          {# Step 2 — verify #}
+          <div class="mb-3">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-xs font-medium text-gray-600">2. Verify the key was added</span>
+              <button type="button"
+                      @click="copyText('grep dafeapp ~/.ssh/authorized_keys', 'copiedCmd2')"
+                      class="text-xs px-2 py-0.5 rounded bg-gray-200 hover:bg-gray-300 transition-colors"
+                      x-text="copiedCmd2 ? 'Copied!' : 'Copy'"></button>
+            </div>
+            <pre class="bg-gray-900 text-green-400 text-xs rounded-lg px-4 py-3 font-mono">grep dafeapp ~/.ssh/authorized_keys</pre>
+            <p class="text-xs text-gray-500 mt-1">You should see the key printed back. Then click <strong>Add Server</strong>.</p>
+          </div>
+
+          {# Public key display #}
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-xs font-medium text-gray-600">DafeApp public key (reference)</span>
+              <button type="button"
+                      @click="copyText(pubkey, 'copiedKey')"
+                      class="text-xs px-2 py-0.5 rounded bg-gray-200 hover:bg-gray-300 transition-colors"
+                      x-text="copiedKey ? 'Copied!' : 'Copy key'"></button>
+            </div>
+            <textarea readonly rows="2"
+              class="w-full font-mono text-xs px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 resize-none focus:outline-none"
+              x-model="pubkey"></textarea>
+          </div>
+
         </div>
 
       </div>
