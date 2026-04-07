@@ -47,7 +47,7 @@ jobs:
 
   # ── 2. Deploy to DigitalOcean Droplet ───────────────────────────────────────
   deploy:
-    name: Deploy to DigitalOcean (157.245.108.155)
+    name: Deploy to DigitalOcean (168.144.21.99)
     needs: build
     runs-on: ubuntu-latest
 

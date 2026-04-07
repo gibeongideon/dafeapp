@@ -76,7 +76,7 @@ For bare-metal / direct-IP instances:
 
 ```bash
 ansible-playbook infra/ansible/create_odoo_instance_direct.yml \
-  -i 168.144.24.219, \
+  -i 168.144.21.99, \
   --user root \
   --private-key ~/.ssh/id_ed25519 \
   --extra-vars "odoo_version=19 db_name=app1 instance_name=app1 http_port=8070"
@@ -96,7 +96,7 @@ For domain-based instances with nginx and SSL:
 
 ```bash
 ansible-playbook infra/ansible/create_odoo_instance.yml \
-  -i 168.144.24.219, \
+  -i 168.144.21.99, \
   --user root \
   --private-key ~/.ssh/id_ed25519 \
   --extra-vars "odoo_version=19 db_name=app1 instance_name=app1 domain=app1.example.com http_port=8070 letsencrypt_email=you@example.com"
