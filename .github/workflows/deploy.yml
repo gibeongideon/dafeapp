@@ -100,6 +100,19 @@ jobs:
           envs: IMAGE,GHCR_TOKEN,GH_ACTOR
           script: |
             set -e
+
+            if ! command -v docker >/dev/null 2>&1; then
+              echo "Docker is not installed on this droplet."
+              echo "Run: ssh root@${{ secrets.DO_HOST }} \"bash -s\" < scripts/droplet-setup.sh"
+              exit 1
+            fi
+
+            if ! docker compose version >/dev/null 2>&1; then
+              echo "Docker Compose plugin is not available on this droplet."
+              echo "Run: ssh root@${{ secrets.DO_HOST }} \"bash -s\" < scripts/droplet-setup.sh"
+              exit 1
+            fi
+
             cd /opt/dafeapp
 
             echo "==> Authenticating with GHCR..."
