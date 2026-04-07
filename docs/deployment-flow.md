@@ -58,6 +58,33 @@ provision_odoo_server(odoo_server_id)
 **OdooServer status progression:**
 `PENDING` → `PROVISIONING` → `CONFIGURING` → `PROVISIONED` (or `FAILED`)
 
+### One-time bootstrap for a fresh DigitalOcean Droplet
+
+If you are deploying the Docker-based app to a brand-new Ubuntu 22.04 / 24.04 Droplet, run the setup script once over SSH before using the GitHub Actions deploy workflow:
+
+```bash
+ssh root@168.144.21.99 "bash -s" < scripts/droplet-setup.sh
+```
+
+What this does:
+
+- installs Docker CE and the Docker Compose plugin
+- creates `/opt/dafeapp`
+- writes `/opt/dafeapp/.env` with starter values
+
+After it finishes:
+
+1. SSH into the droplet and edit the generated env file:
+
+```bash
+ssh root@168.144.21.99
+nano /opt/dafeapp/.env
+```
+
+2. Fill in the required values, especially `SECRET_KEY`, `ALLOWED_HOSTS`, `SITE_URL`, `DB_PASSWORD`, `DIGITALOCEAN_TOKEN`, and `FIELD_ENCRYPTION_KEY`.
+3. Add the GitHub Actions secrets used by `.github/workflows/deploy.yml`: `DO_HOST`, `DO_USER`, `DO_SSH_KEY`, `GHCR_TOKEN`, and `FIELD_ENCRYPTION_KEY`.
+4. Push to the `dev` branch to trigger the deployment workflow.
+
 ### Testing the same flow locally or over SSH
 
 The bare-metal bootstrap used by the UI is the same one you can run from the CLI:
