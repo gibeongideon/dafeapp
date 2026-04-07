@@ -104,6 +104,20 @@ Services started:
 - `celery_worker` — Celery worker
 - `celery_beat` — Celery Beat scheduler
 
+## Docker Compose (Production / Droplet)
+
+On the deployed server, the compose file is `docker-compose.prod.yml`, so include `-f` in every `docker compose` command:
+
+```bash
+cd /opt/dafeapp
+docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml exec web python manage.py createsuperuser
+```
+
+This project uses `email` as the Django login field, so `createsuperuser` will prompt for an email address instead of a username.
+
+If you run `docker compose` without `-f docker-compose.prod.yml` in `/opt/dafeapp`, Docker will return `no configuration file provided: not found` because the server does not have a default `docker-compose.yml` file there.
+
 ---
 
 ## OAuth Setup (optional)

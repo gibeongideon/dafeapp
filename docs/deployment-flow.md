@@ -85,6 +85,26 @@ nano /opt/dafeapp/.env
 3. Add the GitHub Actions secrets used by `.github/workflows/deploy.yml`: `DO_HOST`, `DO_USER`, `DO_SSH_KEY`, `GHCR_TOKEN`, and `FIELD_ENCRYPTION_KEY`.
 4. Push to the `dev` branch to trigger the deployment workflow.
 
+### Create the Django superuser on the deployed droplet
+
+After the GitHub Actions deployment finishes and the containers are up on `/opt/dafeapp`, create the admin account inside the running `web` container:
+
+```bash
+ssh root@168.144.21.99
+cd /opt/dafeapp
+docker compose -f docker-compose.prod.yml exec web python manage.py createsuperuser
+```
+
+This project uses `email` as the Django login field, so the prompt will ask for an email address instead of a username.
+
+If the containers are not running yet, start them first:
+
+```bash
+cd /opt/dafeapp
+IMAGE=ghcr.io/gibeongideon/dafeapp:dev docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml exec web python manage.py createsuperuser
+```
+
 ### Testing the same flow locally or over SSH
 
 The bare-metal bootstrap used by the UI is the same one you can run from the CLI:
