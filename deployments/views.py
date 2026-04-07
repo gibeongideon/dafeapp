@@ -1156,6 +1156,11 @@ def _create_pyos_infrastructure(
     password: str,
     ssh_key_path: str,
     created_by,
+    *,
+    is_verified: bool = False,
+    is_reachable: bool = False,
+    verification_error: str = "Reachability has not been verified yet.",
+    checked_at=None,
 ):
     """Create the ExternalServer + Infrastructure records for a direct PYOS server."""
     from cloud.models import ExternalServer
@@ -1168,8 +1173,11 @@ def _create_pyos_infrastructure(
         username=username,
         auth_type=auth_type,
         ssh_key_path=ssh_key_path.strip(),
-        is_verified=False,
-        verification_error="Reachability has not been verified yet.",
+        is_verified=is_verified,
+        is_reachable=is_reachable,
+        last_checked_at=checked_at,
+        last_verified_at=checked_at,
+        verification_error=verification_error,
     )
     if auth_type == "PASSWORD":
         ext._raw_password = password.strip()
@@ -1188,6 +1196,40 @@ def _create_pyos_infrastructure(
         created_by=created_by,
     )
     return infra, ext
+
+
+def _validate_pyos_connection(
+    *,
+    org,
+    name: str,
+    host: str,
+    port: int,
+    username: str,
+    auth_type: str,
+    password: str,
+    ssh_key_path: str,
+) -> tuple[bool, str]:
+    """
+    Run the first PYOS SSH validation before creating any records so the modal
+    can stay open on failure.
+    """
+    from cloud.models import ExternalServer
+    from cloud.pyos import PyOSService
+
+    candidate = ExternalServer(
+        organization=org,
+        name=name,
+        host=host,
+        port=port,
+        username=username,
+        auth_type=auth_type,
+        ssh_key_path=ssh_key_path.strip(),
+    )
+    if auth_type == "PASSWORD":
+        from cloud.encryption import FieldEncryptor
+
+        candidate.encrypted_password = FieldEncryptor.encrypt(password.strip())
+    return PyOSService(candidate).validate()
 
 
 def _active_instances_for_server(server: OdooServer):
@@ -1474,6 +1516,40 @@ class OdooServerCreateAPIView(LoginRequiredMixin, View):
             except (ValueError, TypeError):
                 return JsonResponse({"error": "Port must be a number between 1 and 65535."}, status=400)
 
+            logger.info(
+                "Inline PYOS preflight SSH validation started by %s for %s@%s:%s",
+                request.user,
+                username,
+                host,
+                port,
+            )
+            reachable, validation_message = _validate_pyos_connection(
+                org=org,
+                name=name,
+                host=host,
+                port=port,
+                username=username,
+                auth_type=auth_type,
+                password=password,
+                ssh_key_path=ssh_key_path,
+            )
+            if not reachable:
+                logger.warning(
+                    "Inline PYOS preflight SSH validation failed for %s@%s:%s: %s",
+                    username,
+                    host,
+                    port,
+                    validation_message,
+                )
+                return JsonResponse(
+                    {
+                        "error": validation_message or "Could not connect to the server over SSH.",
+                        "connectivity_status": "disconnected",
+                    },
+                    status=400,
+                )
+
+            checked_at = timezone.now()
             infrastructure, _ = _create_pyos_infrastructure(
                 org,
                 name=name,
@@ -1484,6 +1560,10 @@ class OdooServerCreateAPIView(LoginRequiredMixin, View):
                 password=password,
                 ssh_key_path=ssh_key_path,
                 created_by=request.user,
+                is_verified=True,
+                is_reachable=True,
+                verification_error="",
+                checked_at=checked_at,
             )
             server = OdooServer.objects.create(
                 organization=org,
@@ -1500,6 +1580,11 @@ class OdooServerCreateAPIView(LoginRequiredMixin, View):
                 domain_routing_enabled=domain_routing_enabled,
                 tls_mode=tls_mode,
                 deployment_mode=deployment_mode,
+                status=OdooServer.Status.CONFIGURING,
+                is_reachable=True,
+                last_checked_at=checked_at,
+                firewall_configured=True,
+                provisioning_log="Using PYOS infrastructure connection.\nConnection verified.",
                 created_by=request.user,
             )
             logger.info(
@@ -1509,9 +1594,10 @@ class OdooServerCreateAPIView(LoginRequiredMixin, View):
                 host,
                 odoo_version,
             )
-            server.status = OdooServer.Status.CONNECTING
-            server.save(update_fields=["status", "updated_at"])
-            _dispatch(provision_odoo_server, server.id)
+            if deployment_mode == OdooServer.DeploymentMode.DOCKER:
+                _dispatch(configure_docker_host, server.id)
+            else:
+                _dispatch(configure_odoo_server, server.id)
             return JsonResponse(OdooServerSerializer(server).data, status=201)
 
         region = (payload.get("region") or "").strip()

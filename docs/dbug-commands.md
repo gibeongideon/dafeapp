@@ -27,6 +27,35 @@ celery -A dafeapp worker -l info
 celery -A dafeapp beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
 ```
 
+View Docker logs for Django and Celery:
+
+```bash
+# Local development
+docker compose logs -f web
+docker compose logs -f celery_worker
+docker compose logs -f celery_beat
+
+# Production on the droplet
+cd /opt/dafeapp
+docker compose -f docker-compose.prod.yml logs -f web
+docker compose -f docker-compose.prod.yml logs -f celery_worker
+docker compose -f docker-compose.prod.yml logs -f celery_beat
+```
+
+Show recent logs without following:
+
+```bash
+docker compose -f docker-compose.prod.yml logs --tail=100 web
+docker compose -f docker-compose.prod.yml logs --tail=200 celery_worker
+docker compose -f docker-compose.prod.yml logs --tail=200 celery_beat
+```
+
+Check container state before reading logs:
+
+```bash
+docker compose -f docker-compose.prod.yml ps
+```
+
 ---
 
 ## Django Shell Checks

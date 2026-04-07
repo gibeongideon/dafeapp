@@ -118,6 +118,35 @@ This project uses `email` as the Django login field, so `createsuperuser` will p
 
 If you run `docker compose` without `-f docker-compose.prod.yml` in `/opt/dafeapp`, Docker will return `no configuration file provided: not found` because the server does not have a default `docker-compose.yml` file there.
 
+## Viewing Logs
+
+This project writes Django and Celery logs to container stdout, so use `docker compose logs` to inspect them.
+
+For local development:
+
+```bash
+docker compose logs -f web
+docker compose logs -f celery_worker
+docker compose logs -f celery_beat
+```
+
+For production on the droplet:
+
+```bash
+cd /opt/dafeapp
+docker compose -f docker-compose.prod.yml logs -f web
+docker compose -f docker-compose.prod.yml logs -f celery_worker
+docker compose -f docker-compose.prod.yml logs -f celery_beat
+```
+
+Useful variants:
+
+```bash
+docker compose -f docker-compose.prod.yml logs --tail=100 web
+docker compose -f docker-compose.prod.yml logs --tail=200 celery_worker
+docker compose -f docker-compose.prod.yml logs -f
+```
+
 ---
 
 ## OAuth Setup (optional)

@@ -3232,9 +3232,30 @@ def _persist_server_reachability(
     now = checked_at or timezone.now()
     server.is_reachable = reachable
     server.last_checked_at = now
-    server.save(update_fields=["is_reachable", "last_checked_at", "updated_at"])
-
     infra = getattr(server, "infrastructure", None)
+    update_fields = ["is_reachable", "last_checked_at", "updated_at"]
+
+    if (
+        not reachable
+        and infra
+        and infra.infra_type == Infrastructure.InfraType.PYOS
+        and server.status in (
+            OdooServer.Status.CONNECTING,
+            OdooServer.Status.PROVISIONING,
+            OdooServer.Status.CONFIGURING,
+        )
+    ):
+        server.status = OdooServer.Status.FAILED
+        update_fields.append("status")
+        if message:
+            server.provisioning_log = _append_text(server.provisioning_log, message)
+            update_fields.append("provisioning_log")
+        if server.celery_task_id:
+            server.celery_task_id = ""
+            update_fields.append("celery_task_id")
+
+    server.save(update_fields=update_fields)
+
     if infra and infra.infra_type == Infrastructure.InfraType.PYOS and infra.external_server:
         ext = infra.external_server
         ext.is_reachable = reachable

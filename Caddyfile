@@ -1,6 +1,6 @@
 dafeapp.com {
     # Serve Django static files directly (collected by web container on startup)
-    handle /static/* {
+    handle_path /static/* {
         root * /staticfiles
         file_server
     }

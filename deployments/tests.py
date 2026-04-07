@@ -28,7 +28,12 @@ from deployments.models import (
 from deployments.serializers import OdooInstanceSerializer
 from organizations.models import Organization, OrganizationMembership
 from subscriptions.models import Plan, Subscription
-from deployments.tasks import delete_odoo_instance, _mark_server_unreachable_from_ansible_log, sync_instance_repo_status
+from deployments.tasks import (
+    delete_odoo_instance,
+    _mark_server_unreachable_from_ansible_log,
+    _persist_server_reachability,
+    sync_instance_repo_status,
+)
 from users.models import VCSAccount
 
 User = get_user_model()
@@ -192,12 +197,72 @@ class OdooVersionedFlowTests(TestCase):
                 "dns_domain": "odoo19.example.com",
                 "deployment_mode": "DOCKER",
             },
+            secure=True,
         )
         self.assertEqual(resp.status_code, 201)
         server = OdooServer.objects.get(name="odoo19-prod")
         self.assertEqual(server.odoo_version, "19")
         self.assertEqual(server.deployment_mode, OdooServer.DeploymentMode.DOCKER)
         mock_dispatch.assert_called_once()
+
+    @patch("deployments.views._dispatch")
+    @patch("cloud.pyos.PyOSService.validate")
+    def test_create_pyos_server_requires_successful_preflight_connection(self, mock_validate, mock_dispatch):
+        mock_validate.return_value = (False, "Host unreachable for root@203.0.113.60:22: timed out")
+
+        resp = self.client.post(
+            reverse("deployments:odoo-server-create"),
+            data={
+                "name": "odoo19-pyos-preflight-fail",
+                "host": "203.0.113.60",
+                "port": 22,
+                "username": "root",
+                "auth_type": "DAFEAPP_KEY",
+                "odoo_version": "19",
+                "deployment_mode": OdooServer.DeploymentMode.BARE_METAL,
+            },
+            secure=True,
+        )
+
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["connectivity_status"], "disconnected")
+        self.assertIn("Host unreachable", resp.json()["error"])
+        self.assertFalse(OdooServer.objects.filter(name="odoo19-pyos-preflight-fail").exists())
+        self.assertFalse(ExternalServer.objects.filter(name="odoo19-pyos-preflight-fail").exists())
+        mock_dispatch.assert_not_called()
+
+    @patch("deployments.views._dispatch")
+    @patch("cloud.pyos.PyOSService.validate")
+    def test_create_pyos_server_preflights_then_queues_configuration(self, mock_validate, mock_dispatch):
+        mock_validate.return_value = (True, "SSH connection successful.")
+
+        resp = self.client.post(
+            reverse("deployments:odoo-server-create"),
+            data={
+                "name": "odoo19-pyos-preflight-ok",
+                "host": "203.0.113.61",
+                "port": 22,
+                "username": "root",
+                "auth_type": "DAFEAPP_KEY",
+                "odoo_version": "19",
+                "deployment_mode": OdooServer.DeploymentMode.BARE_METAL,
+            },
+            secure=True,
+        )
+
+        self.assertEqual(resp.status_code, 201)
+        server = OdooServer.objects.get(name="odoo19-pyos-preflight-ok")
+        external_server = server.infrastructure.external_server
+        self.assertEqual(server.status, OdooServer.Status.CONFIGURING)
+        self.assertTrue(server.is_reachable)
+        self.assertIsNotNone(server.last_checked_at)
+        self.assertIn("Connection verified.", server.provisioning_log)
+        self.assertTrue(external_server.is_verified)
+        self.assertTrue(external_server.is_reachable)
+        self.assertEqual(external_server.verification_error, "")
+        self.assertIsNotNone(external_server.last_verified_at)
+        self.assertEqual(mock_dispatch.call_args.args[0].__name__, "configure_odoo_server")
+        self.assertEqual(mock_dispatch.call_args.args[1], server.id)
 
     @patch("deployments.views._dispatch")
     def test_create_odoo_instance_on_ready_server(self, mock_dispatch):
@@ -367,6 +432,56 @@ class OdooVersionedFlowTests(TestCase):
         server_data = next(row for row in resp.json()["results"] if row["id"] == server.id)
         self.assertEqual(server_data["ssh_connection_status"], "disconnected")
         self.assertEqual(server_data["ssh_connection_message"], "Disconnected.")
+
+    def test_active_pyos_provisioning_reachability_failure_marks_server_failed(self):
+        external_server = ExternalServer.objects.create(
+            organization=self.org,
+            name="pyos-active-fail",
+            host="203.0.113.62",
+            port=22,
+            username="root",
+            auth_type=ExternalServer.AuthType.DAFEAPP_KEY,
+            is_verified=True,
+            is_reachable=True,
+        )
+        pyos_infra = Infrastructure.objects.create(
+            organization=self.org,
+            name="pyos-active-fail",
+            infra_type=Infrastructure.InfraType.PYOS,
+            external_server=external_server,
+            is_connected=True,
+            created_by=self.user,
+        )
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=pyos_infra,
+            name="odoo19-pyos-active-fail",
+            odoo_version="19",
+            region="manual",
+            size="manual",
+            ip_address="203.0.113.62",
+            status=OdooServer.Status.CONFIGURING,
+            is_reachable=True,
+            celery_task_id="celery-123",
+            provisioning_log="Using PYOS infrastructure connection.",
+            created_by=self.user,
+        )
+
+        _persist_server_reachability(
+            server,
+            reachable=False,
+            message="Host unreachable for root@203.0.113.62:22: timed out",
+            broadcast=False,
+        )
+
+        server.refresh_from_db()
+        external_server.refresh_from_db()
+        self.assertEqual(server.status, OdooServer.Status.FAILED)
+        self.assertFalse(server.is_reachable)
+        self.assertEqual(server.celery_task_id, "")
+        self.assertIn("Host unreachable", server.provisioning_log)
+        self.assertFalse(external_server.is_reachable)
+        self.assertFalse(external_server.is_verified)
 
     def test_instance_list_relays_disconnected_parent_server_state(self):
         server = OdooServer.objects.create(
