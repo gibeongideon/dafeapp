@@ -158,10 +158,14 @@ CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = "UTC"
 CELERY_WORKER_HIJACK_ROOT_LOGGER = False
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
+CELERY_SERVER_CONNECTIVITY_INTERVAL_SECONDS = env.int(
+    "CELERY_SERVER_CONNECTIVITY_INTERVAL_SECONDS",
+    default=180,
+)
 CELERY_BEAT_SCHEDULE = {
     "check-server-connectivity": {
         "task": "deployments.tasks.check_server_connectivity",
-        "schedule": 60.0,  # every 1 minute
+        "schedule": float(CELERY_SERVER_CONNECTIVITY_INTERVAL_SECONDS),
     },
     "check-instance-health": {
         "task": "deployments.tasks.check_instance_health",

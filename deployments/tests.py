@@ -7,6 +7,7 @@ from django.test import TestCase, override_settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
 from datetime import timedelta
+from django_celery_beat.models import IntervalSchedule, PeriodicTask
 
 from django.contrib.auth import get_user_model
 from django.urls import reverse
@@ -34,6 +35,7 @@ from deployments.tasks import (
     _persist_server_reachability,
     sync_instance_repo_status,
 )
+from deployments.signals import _sync_connectivity_periodic_task
 from users.models import VCSAccount
 
 User = get_user_model()
@@ -132,6 +134,19 @@ class DeploymentCreateFlowTests(TestCase):
             resp.content,
             {"regions": [["r1", "Region 1"]], "sizes": [["s1", "Small 1"]]},
         )
+
+
+class DeploymentBeatScheduleTests(TestCase):
+    @override_settings(CELERY_SERVER_CONNECTIVITY_INTERVAL_SECONDS=180)
+    def test_sync_connectivity_periodic_task_sets_three_minute_interval(self):
+        _sync_connectivity_periodic_task()
+
+        task = PeriodicTask.objects.get(name="check-server-connectivity")
+        self.assertEqual(task.task, "deployments.tasks.check_server_connectivity")
+        self.assertTrue(task.enabled)
+        self.assertIsNotNone(task.interval)
+        self.assertEqual(task.interval.every, 3)
+        self.assertEqual(task.interval.period, IntervalSchedule.MINUTES)
 
 
 class OdooVersionedFlowTests(TestCase):
@@ -482,6 +497,60 @@ class OdooVersionedFlowTests(TestCase):
         self.assertIn("Host unreachable", server.provisioning_log)
         self.assertFalse(external_server.is_reachable)
         self.assertFalse(external_server.is_verified)
+
+    @patch("deployments.views._broadcast_server_event")
+    def test_archive_server_api_marks_server_archived_and_inactive(self, mock_broadcast):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-archive-me",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            ip_address="203.0.113.70",
+            status=OdooServer.Status.PROVISIONED,
+            is_active=True,
+            created_by=self.user,
+        )
+
+        resp = self.client.post(
+            reverse("deployments:odoo-server-archive", kwargs={"server_id": server.id}),
+            data={},
+            secure=True,
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        server.refresh_from_db()
+        self.assertFalse(server.is_active)
+        self.assertEqual(server.status, OdooServer.Status.ARCHIVED)
+        mock_broadcast.assert_called_once()
+
+    @patch("deployments.signals._broadcast_server_event")
+    def test_delete_server_api_removes_server(self, mock_broadcast):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-delete-me",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            ip_address="203.0.113.71",
+            status=OdooServer.Status.FAILED,
+            is_active=True,
+            created_by=self.user,
+        )
+
+        resp = self.client.post(
+            reverse("deployments:odoo-server-delete", kwargs={"server_id": server.id}),
+            data={},
+            secure=True,
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(OdooServer.objects.filter(pk=server.id).exists())
+        mock_broadcast.assert_called_once()
 
     def test_instance_list_relays_disconnected_parent_server_state(self):
         server = OdooServer.objects.create(

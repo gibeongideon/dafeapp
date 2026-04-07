@@ -2,7 +2,8 @@ import logging
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
-from django.db.models.signals import post_delete
+from django.conf import settings
+from django.db.models.signals import post_delete, post_migrate
 from django.dispatch import receiver
 
 from deployments.models import OdooServer
@@ -29,3 +30,45 @@ def odoo_server_deleted(sender, instance: OdooServer, **kwargs):
     if server_id is None:
         return
     _broadcast_server_event(server_id, {"type": "removed", "server_id": server_id, "reason": "deleted"})
+
+
+def _sync_connectivity_periodic_task():
+    """
+    Keep the DB-backed celery beat task aligned with the code/config default.
+    This matters because DatabaseScheduler keeps its own copy in the database.
+    """
+    try:
+        from django_celery_beat.models import IntervalSchedule, PeriodicTask
+    except Exception:
+        logger.warning("django_celery_beat models unavailable; skipping connectivity schedule sync.", exc_info=True)
+        return
+
+    interval_seconds = max(
+        1,
+        int(getattr(settings, "CELERY_SERVER_CONNECTIVITY_INTERVAL_SECONDS", 180)),
+    )
+    every, period = (
+        (interval_seconds, IntervalSchedule.SECONDS)
+        if interval_seconds < 60 or interval_seconds % 60 != 0
+        else (interval_seconds // 60, IntervalSchedule.MINUTES)
+    )
+    interval, _ = IntervalSchedule.objects.get_or_create(every=every, period=period)
+    PeriodicTask.objects.update_or_create(
+        name="check-server-connectivity",
+        defaults={
+            "task": "deployments.tasks.check_server_connectivity",
+            "interval": interval,
+            "enabled": True,
+        },
+    )
+    logger.info(
+        "Synced celery beat task 'check-server-connectivity' to every %s second(s).",
+        interval_seconds,
+    )
+
+
+@receiver(post_migrate)
+def sync_deployment_periodic_tasks(sender, **kwargs):
+    if getattr(sender, "label", "") != "deployments":
+        return
+    _sync_connectivity_periodic_task()

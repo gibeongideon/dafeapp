@@ -2577,6 +2577,28 @@ chmod 600 ~/.ssh/authorized_keys</pre>
     }
   }
 
+  function currentSelectedServerId() {
+    const params = new URLSearchParams(window.location.search || "");
+    return String(params.get("server_id") || "").trim();
+  }
+
+  function navigateToServersView() {
+    window.location.href = "{% url 'deployments:create-instance' %}?section=servers";
+  }
+
+  function handleServerRemovalSuccess(serverId) {
+    const sid = String(serverId || "").trim();
+    if (!sid) {
+      navigateToServersView();
+      return;
+    }
+    if (currentSelectedServerId() === sid) {
+      navigateToServersView();
+      return;
+    }
+    removeServerCard(sid);
+  }
+
   function updateServerCardFromApi(server) {
     const sid = server.id;
     if (server.is_active === false || (server.status || "").toUpperCase() === "ARCHIVED") {
@@ -3942,9 +3964,11 @@ chmod 600 ~/.ssh/authorized_keys</pre>
 
   // ─── delete instance ─────────────────────────────────────────────────────
   let pendingConfirmAction = null;
+  let pendingConfirmSuccess = null;
 
-  function showConfirm(title, body, action, confirmLabel = "Delete") {
+  function showConfirm(title, body, action, confirmLabel = "Delete", onSuccess = null) {
     pendingConfirmAction = action;
+    pendingConfirmSuccess = onSuccess;
     $("confirm-title").textContent = title;
     $("confirm-body").textContent = body;
     $("confirm-ok").textContent = confirmLabel;
@@ -3955,10 +3979,16 @@ chmod 600 ~/.ssh/authorized_keys</pre>
     if (!pendingConfirmAction) return;
     hide(confirmModal);
     const action = pendingConfirmAction;
+    const onSuccess = pendingConfirmSuccess;
     pendingConfirmAction = null;
+    pendingConfirmSuccess = null;
     const resp = typeof action === "function" ? await action() : await postForm(action, {});
     if (resp && resp.ok) {
-      window.location.reload();
+      if (typeof onSuccess === "function") {
+        onSuccess(resp);
+      } else {
+        window.location.reload();
+      }
     } else {
       alert((resp && resp.data && (resp.data.error || resp.data.message)) || "Action failed.");
     }
@@ -4148,7 +4178,9 @@ chmod 600 ~/.ssh/authorized_keys</pre>
       showConfirm(
         "Delete Server Permanently",
         warning,
-        `/api/deployments/odoo/servers/${deleteBtn.dataset.serverId}/delete/`
+        `/api/deployments/odoo/servers/${deleteBtn.dataset.serverId}/delete/`,
+        "Delete",
+        () => handleServerRemovalSuccess(deleteBtn.dataset.serverId)
       );
     }
   });
