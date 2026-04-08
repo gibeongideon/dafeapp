@@ -11,12 +11,13 @@ import tempfile
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urlencode, urlparse
 
 import requests
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.conf import settings
+from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Q
 from django.http import JsonResponse
@@ -1294,6 +1295,7 @@ def _capacity_check(server: OdooServer, cpu: int, ram_mb: int) -> tuple[bool, st
 
 class DeploymentCreateView(LoginRequiredMixin, TemplateView):
     template_name = "deployments/create_instance.html"
+    INSTANCE_PAGE_SIZE = 12
 
     def dispatch(self, request, *args, **kwargs):
         resp = super().dispatch(request, *args, **kwargs)
@@ -1313,11 +1315,16 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
         if section == "enterprise" and not self.request.user.is_platform_admin:
             section = "servers"
         server_id = (self.request.GET.get("server_id") or "").strip()
+        instance_view_mode = (self.request.GET.get("instance_view") or "kanban").strip().lower()
+        if instance_view_mode not in {"kanban", "list"}:
+            instance_view_mode = "kanban"
+        instance_page_number = (self.request.GET.get("page") or "1").strip()
         accounts = CloudAccount.objects.filter(organization=org, is_verified=True)
         ctx["accounts"] = accounts
         ctx["show_dns_view"] = section == "dns"
         ctx["show_instances_view"] = section == "instances"
         ctx["show_enterprise_view"] = section == "enterprise"
+        ctx["instance_view_mode"] = instance_view_mode
         ctx["default_tls_mode"] = _default_tls_mode()
         ctx["PLATFORM_BASE_DOMAIN"] = platform_base_domain()
         ctx["platform_domains_enabled"] = platform_domains_enabled()
@@ -1344,14 +1351,14 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
             .select_related("infrastructure", "infrastructure__external_server", "cloud_account")
             .order_by("-created_at")[:100]
         )
-        ctx["odoo_instances"] = (
+        instance_queryset = (
             OdooInstance.objects.filter(organization=org, server__is_active=True)
             .exclude(status=OdooInstance.Status.DELETED)
             .select_related("server")
-            .order_by("-created_at")[:20]
+            .order_by("-created_at")
         )
         ctx["selected_server"] = None
-        ctx["selected_instances"] = OdooInstance.objects.none()
+        filtered_instances = instance_queryset
         ctx["server_id"] = server_id
         if server_id:
             selected_server = get_object_or_404(
@@ -1361,12 +1368,40 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
                 is_active=True,
             )
             ctx["selected_server"] = selected_server
-            ctx["selected_instances"] = (
-                OdooInstance.objects.filter(organization=org, server=selected_server)
-                .exclude(status=OdooInstance.Status.DELETED)
-                .select_related("server")
-                .order_by("-created_at")
+            filtered_instances = filtered_instances.filter(server=selected_server)
+        instance_paginator = Paginator(filtered_instances, self.INSTANCE_PAGE_SIZE)
+        instance_page_obj = instance_paginator.get_page(instance_page_number)
+        visible_instances = list(instance_page_obj.object_list)
+        ctx["odoo_instances"] = visible_instances
+        ctx["selected_instances"] = visible_instances if ctx["selected_server"] else []
+        ctx["visible_instances"] = visible_instances
+        ctx["instance_page_obj"] = instance_page_obj
+        ctx["instance_page_numbers"] = list(
+            range(
+                max(1, instance_page_obj.number - 2),
+                min(instance_paginator.num_pages, instance_page_obj.number + 2) + 1,
             )
+        )
+        ctx["instance_total_count"] = instance_queryset.count()
+        ctx["instance_filter_total"] = instance_paginator.count
+        ctx["instance_page_size"] = self.INSTANCE_PAGE_SIZE
+        ctx["instance_page_start"] = instance_page_obj.start_index() if instance_paginator.count else 0
+        ctx["instance_page_end"] = instance_page_obj.end_index() if instance_paginator.count else 0
+        ctx["all_instances_url"] = self._build_instances_url(instance_view=instance_view_mode)
+        ctx["instance_current_base_url"] = self._build_instances_url(
+            server_id=server_id,
+            instance_view=instance_view_mode,
+        )
+        ctx["instance_prev_url"] = self._build_instances_url(
+            server_id=server_id,
+            page=instance_page_obj.previous_page_number(),
+            instance_view=instance_view_mode,
+        ) if instance_page_obj.has_previous() else ""
+        ctx["instance_next_url"] = self._build_instances_url(
+            server_id=server_id,
+            page=instance_page_obj.next_page_number(),
+            instance_view=instance_view_mode,
+        ) if instance_page_obj.has_next() else ""
         ctx["recent_runs"] = TerraformRun.objects.filter(
             instance__organization=org
         ).select_related("instance")[:15]
@@ -1375,6 +1410,22 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
         ctx["dafeapp_public_key"] = SystemSSHKey.get_or_create_keypair().public_key
         ctx["pyos_default_ssh_key_path"] = PyOSSSHSettings.get_or_create_settings().default_ssh_key_path
         return ctx
+
+    def _build_instances_url(
+        self,
+        *,
+        server_id: str = "",
+        page: int | None = None,
+        instance_view: str = "kanban",
+    ) -> str:
+        params = {"section": "instances"}
+        if server_id:
+            params["server_id"] = server_id
+        if page and int(page) > 1:
+            params["page"] = page
+        if instance_view and instance_view != "kanban":
+            params["instance_view"] = instance_view
+        return f"{reverse('deployments:create-instance')}?{urlencode(params)}#instances"
 
     def post(self, request):
         org = request.organization
@@ -2273,6 +2324,12 @@ class OdooInstanceListAPIView(LoginRequiredMixin, View):
         if not org:
             return JsonResponse({"error": "No active organization."}, status=400)
         server_id = request.GET.get("server_id")
+        try:
+            page_size = int(request.GET.get("page_size") or DeploymentCreateView.INSTANCE_PAGE_SIZE)
+        except (TypeError, ValueError):
+            page_size = DeploymentCreateView.INSTANCE_PAGE_SIZE
+        page_size = max(1, min(page_size, 48))
+        page_number = (request.GET.get("page") or "1").strip()
         qs = OdooInstance.objects.filter(
             organization=org,
             server__is_active=True,
@@ -2286,8 +2343,21 @@ class OdooInstanceListAPIView(LoginRequiredMixin, View):
         ).exclude(status=OdooInstance.Status.DELETED).select_related("server")
         if server_id:
             qs = qs.filter(server_id=server_id)
-        data = OdooInstanceSerializer(qs[:200], many=True).data
-        return JsonResponse({"results": data})
+        qs = qs.order_by("-created_at")
+        paginator = Paginator(qs, page_size)
+        page_obj = paginator.get_page(page_number)
+        data = OdooInstanceSerializer(page_obj.object_list, many=True).data
+        return JsonResponse(
+            {
+                "results": data,
+                "count": paginator.count,
+                "page": page_obj.number,
+                "num_pages": paginator.num_pages,
+                "page_size": page_size,
+                "has_previous": page_obj.has_previous(),
+                "has_next": page_obj.has_next(),
+            }
+        )
 
 
 class OdooInstanceGitRepoListAPIView(LoginRequiredMixin, View):

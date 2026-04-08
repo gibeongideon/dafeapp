@@ -407,6 +407,88 @@ class OdooVersionedFlowTests(TestCase):
         self.assertNotContains(resp, "Back to Servers")
         self.assertNotContains(resp, "Server IP     : 203.0.113.30")
 
+    def test_all_instances_view_shows_global_board_and_pagination(self):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-board",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            ip_address="203.0.113.31",
+            status=OdooServer.Status.PROVISIONED,
+            created_by=self.user,
+        )
+        for index in range(13):
+            OdooInstance.objects.create(
+                organization=self.org,
+                server=server,
+                name=f"instance-{index}",
+                db_name=f"instance_{index}",
+                http_port=8070 + index,
+                status=OdooInstance.Status.RUNNING,
+                created_by=self.user,
+            )
+
+        resp = self.client.get(reverse("deployments_ui:create-instance"), {"section": "instances"})
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Organization-wide board")
+        self.assertContains(resp, "Showing 1-12 of 13 instances.")
+        self.assertContains(resp, "All servers")
+        self.assertContains(resp, "?section=instances&page=2#instances")
+
+    def test_instance_list_api_supports_pagination_and_server_filter(self):
+        server_one = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-api-a",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            ip_address="203.0.113.32",
+            status=OdooServer.Status.PROVISIONED,
+            created_by=self.user,
+        )
+        server_two = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="odoo19-api-b",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            ip_address="203.0.113.33",
+            status=OdooServer.Status.PROVISIONED,
+            created_by=self.user,
+        )
+        for index in range(7):
+            OdooInstance.objects.create(
+                organization=self.org,
+                server=server_one if index < 5 else server_two,
+                name=f"api-instance-{index}",
+                db_name=f"api_instance_{index}",
+                http_port=8070 + index,
+                status=OdooInstance.Status.RUNNING,
+                created_by=self.user,
+            )
+
+        resp = self.client.get(
+            reverse("deployments:odoo-instance-list"),
+            {"server_id": server_one.id, "page": 2, "page_size": 2},
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.json()
+        self.assertEqual(payload["count"], 5)
+        self.assertEqual(payload["page"], 2)
+        self.assertEqual(payload["num_pages"], 3)
+        self.assertEqual(payload["page_size"], 2)
+        self.assertEqual(len(payload["results"]), 2)
+        self.assertTrue(all(row["server"]["id"] == server_one.id for row in payload["results"]))
+
     def test_server_list_reports_pyos_server_as_disconnected_after_latest_failed_check(self):
         external_server = ExternalServer.objects.create(
             organization=self.org,
