@@ -1678,15 +1678,35 @@ def _probe_domain_access(instance: OdooInstance, domain: str | None = None) -> t
     use_ssl = _effective_tls_mode(instance.server) != OdooServer.TLSMode.DISABLED
     scheme = "https" if use_ssl else "http"
     url = f"{scheme}://{domain}/web/health"
+
+    # First pass: unverified context — confirms the server is reachable and Odoo responds.
     context = ssl_lib._create_unverified_context() if use_ssl else None
     try:
         with urllib.request.urlopen(url, timeout=8, context=context) as response:
             ok = response.status == 200
     except Exception as exc:
-        return False, use_ssl, str(exc)
-    if ok:
-        return True, use_ssl, f"Domain health check succeeded for {url}."
-    return False, use_ssl, f"Domain health check returned HTTP {response.status} for {url}."
+        return False, False, str(exc)
+
+    if not ok:
+        return False, False, f"Domain health check returned HTTP {response.status} for {url}."
+
+    if not use_ssl:
+        return True, False, f"Domain health check succeeded for {url}."
+
+    # Second pass: verified context — confirms the cert is signed by a trusted CA,
+    # not Traefik's internal self-signed fallback (which browsers reject).
+    try:
+        verified_ctx = ssl_lib.create_default_context()
+        with urllib.request.urlopen(url, timeout=8, context=verified_ctx) as _:
+            pass
+        return True, True, f"Domain health check succeeded (valid TLS certificate) for {url}."
+    except ssl_lib.SSLCertVerificationError:
+        return True, False, (
+            f"Domain is reachable but the TLS certificate is not yet trusted "
+            f"(Let's Encrypt may still be issuing it) for {url}."
+        )
+    except Exception:
+        return True, False, f"Domain is reachable but TLS certificate could not be verified for {url}."
 
 
 def _ensure_bare_traefik_gateway(server: OdooServer) -> tuple[bool, str]:
@@ -1991,14 +2011,23 @@ def _reconcile_assignment_domain(
         return True, " ".join(filter(None, messages)) or "Domain provisioning queued."
 
     ok, ssl_active, probe_message = _probe_domain_access(instance, domain)
+    tls_configured = _effective_tls_mode(instance.server) != OdooServer.TLSMode.DISABLED
     if ok:
         if assignment.is_primary:
+            if ssl_active:
+                computed_ssl_status = OdooInstance.SSLStatus.ACTIVE
+            elif tls_configured:
+                # Server reachable but cert not yet trusted (self-signed fallback from Traefik
+                # while Let's Encrypt issues the certificate).
+                computed_ssl_status = OdooInstance.SSLStatus.PENDING
+            else:
+                computed_ssl_status = OdooInstance.SSLStatus.NOT_CONFIGURED
             _save_instance_domain_state(
                 instance,
                 domain_status=OdooInstance.DomainStatus.ACTIVE,
-                ssl_status=OdooInstance.SSLStatus.ACTIVE if ssl_active else OdooInstance.SSLStatus.NOT_CONFIGURED,
+                ssl_status=computed_ssl_status,
                 ssl_enabled=ssl_active,
-                ssl_error="",
+                ssl_error="" if ssl_active else probe_message,
                 checked_at=now,
             )
         _save_assignment_state(
