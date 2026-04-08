@@ -367,3 +367,13 @@ When instance creation fails, use this order:
 3. Check Odoo systemd logs on the target server.
 4. Check remote port conflicts with `ss` / `lsof`.
 5. Check SSH reachability and saved key path.
+
+
+
+docker compose -f docker-compose.prod.yml up -d --force-recreate web celery_worker celery_beat
+
+docker compose -f docker-compose.prod.yml up -d --force-recreate web celery_worker celery_beat caddy
+
+
+docker compose -f docker-compose.prod.yml exec web sh -lc 'env | grep -E "PLATFORM_|TRAEFIK_|ODOO_ADMIN_EMAIL"'
+docker compose -f docker-compose.prod.yml exec celery_worker sh -lc 'env | grep -E "PLATFORM_|TRAEFIK_|ODOO_ADMIN_EMAIL"'
