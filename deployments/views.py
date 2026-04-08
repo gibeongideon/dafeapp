@@ -37,6 +37,7 @@ from dns.models import DomainAssignment, DnsZone, normalize_domain_name
 from deployments.models import (
     DeploymentJob,
     EnterpriseSource,
+    GitHubWebhookEvent,
     GitRepositoryCredential,
     Infrastructure,
     Instance,
@@ -61,6 +62,7 @@ from deployments.domain_utils import (
 from deployments.serializers import (
     DeploymentJobSerializer,
     EnterpriseSourceSerializer,
+    GitHubWebhookEventSerializer,
     GitRepositoryCredentialSerializer,
     InfrastructureSerializer,
     InstanceSerializer,
@@ -3067,14 +3069,35 @@ class GitHubWebhookAPIView(View):
         event = (request.headers.get("X-GitHub-Event") or "").strip().lower()
         payload = _request_data(request)
         if event == "ping":
+            GitHubWebhookEvent.objects.create(
+                repository="",
+                status=GitHubWebhookEvent.Status.IGNORED,
+                ignore_reason="ping",
+            )
             return JsonResponse({"ok": True, "event": "ping"})
         if event != "push":
+            GitHubWebhookEvent.objects.create(
+                repository="",
+                status=GitHubWebhookEvent.Status.IGNORED,
+                ignore_reason=f"event={event or 'unknown'}",
+            )
             return JsonResponse({"ok": True, "ignored": True, "event": event or "unknown"})
 
         full_name = ((payload.get("repository") or {}).get("full_name") or "").strip()
         branch = _github_branch_from_ref(payload.get("ref") or "")
         if not full_name or not branch:
+            GitHubWebhookEvent.objects.create(
+                repository=full_name,
+                branch=branch,
+                status=GitHubWebhookEvent.Status.ERROR,
+                ignore_reason="Missing repository full_name or branch ref.",
+            )
             return JsonResponse({"error": "Missing repository full_name or branch ref."}, status=400)
+
+        head_commit = payload.get("head_commit") or {}
+        commit_sha = (head_commit.get("id") or "")[:64]
+        commit_message = (head_commit.get("message") or "")[:500]
+        pusher_name = ((payload.get("pusher") or {}).get("name") or "")[:255]
 
         repos = (
             OdooInstanceGitRepo.objects.select_related("instance", "instance__organization")
@@ -3107,6 +3130,17 @@ class GitHubWebhookAPIView(View):
             _dispatch(update_instance_repo, repo.id, job.id)
             queued_repo_ids.append(repo.id)
 
+        GitHubWebhookEvent.objects.create(
+            repository=full_name,
+            branch=branch,
+            head_commit_sha=commit_sha,
+            head_commit_message=commit_message,
+            pusher_name=pusher_name,
+            status=GitHubWebhookEvent.Status.PROCESSED,
+            matched_repo_ids=matched_repo_ids,
+            queued_repo_ids=queued_repo_ids,
+        )
+
         return JsonResponse(
             {
                 "ok": True,
@@ -3117,6 +3151,20 @@ class GitHubWebhookAPIView(View):
                 "queued_repo_ids": queued_repo_ids,
             }
         )
+
+
+class GitHubWebhookEventListAPIView(LoginRequiredMixin, View):
+    def get(self, request):
+        qs = GitHubWebhookEvent.objects.all()
+        repository = (request.GET.get("repository") or "").strip()
+        branch = (request.GET.get("branch") or "").strip()
+        if repository:
+            qs = qs.filter(repository__iexact=repository)
+        if branch:
+            qs = qs.filter(branch=branch)
+        events = qs[:100]
+        data = GitHubWebhookEventSerializer(events, many=True).data
+        return JsonResponse({"results": data})
 
 
 class OdooInstanceConsoleView(LoginRequiredMixin, TemplateView):

@@ -732,6 +732,36 @@ class OdooInstanceGitRepo(models.Model):
         return f"{self.repo_name} [{self.branch}] -> {self.instance.name}"
 
 
+class GitHubWebhookEvent(models.Model):
+    """Log of every GitHub webhook push event received by the app."""
+
+    class Status(models.TextChoices):
+        PROCESSED = "PROCESSED", "Processed"
+        IGNORED = "IGNORED", "Ignored"
+        ERROR = "ERROR", "Error"
+
+    repository = models.CharField(max_length=255)       # GitHub full_name (owner/repo)
+    branch = models.CharField(max_length=120, blank=True)
+    head_commit_sha = models.CharField(max_length=64, blank=True)
+    head_commit_message = models.CharField(max_length=500, blank=True)
+    pusher_name = models.CharField(max_length=255, blank=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PROCESSED)
+    ignore_reason = models.CharField(max_length=255, blank=True)
+    matched_repo_ids = models.JSONField(default=list)   # list[int] of OdooInstanceGitRepo ids matched
+    queued_repo_ids = models.JSONField(default=list)    # list[int] of OdooInstanceGitRepo ids queued
+    received_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-received_at"]
+        indexes = [
+            models.Index(fields=["repository", "branch"], name="dep_webhook_repo_branch_idx"),
+            models.Index(fields=["received_at"], name="dep_webhook_received_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.repository}:{self.branch} @ {self.received_at:%Y-%m-%d %H:%M}"
+
+
 # ---------------------------------------------------------------------------
 # Phase 2: Deployment Jobs, Version History
 # ---------------------------------------------------------------------------

@@ -4,6 +4,7 @@ from dns.serializers import DomainAssignmentSerializer
 from deployments.models import (
     DeploymentJob,
     EnterpriseSource,
+    GitHubWebhookEvent,
     GitRepositoryCredential,
     Infrastructure,
     Instance,
@@ -328,6 +329,24 @@ class GitRepositoryCredentialSerializer(serializers.ModelSerializer):
             "last_used_at",
             "created_at",
             "updated_at",
+        ]
+
+
+class GitHubWebhookEventSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GitHubWebhookEvent
+        fields = [
+            "id",
+            "repository",
+            "branch",
+            "head_commit_sha",
+            "head_commit_message",
+            "pusher_name",
+            "status",
+            "ignore_reason",
+            "matched_repo_ids",
+            "queued_repo_ids",
+            "received_at",
         ]
 
 

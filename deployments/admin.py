@@ -1,6 +1,7 @@
 from django.contrib import admin
 
 from deployments.models import (
+    GitHubWebhookEvent,
     GitRepositoryCredential,
     Infrastructure,
     Instance,
@@ -116,6 +117,18 @@ class GitRepositoryCredentialAdmin(admin.ModelAdmin):
     ]
     list_filter = ["auth_type"]
     search_fields = ["name", "organization__name", "git_username", "github_account__username"]
+
+
+@admin.register(GitHubWebhookEvent)
+class GitHubWebhookEventAdmin(admin.ModelAdmin):
+    list_display = ["repository", "branch", "status", "pusher_name", "head_commit_sha", "received_at"]
+    list_filter = ["status", "received_at"]
+    search_fields = ["repository", "branch", "pusher_name"]
+    readonly_fields = [
+        "repository", "branch", "head_commit_sha", "head_commit_message",
+        "pusher_name", "status", "ignore_reason", "matched_repo_ids",
+        "queued_repo_ids", "received_at",
+    ]
 
 
 @admin.register(Infrastructure)

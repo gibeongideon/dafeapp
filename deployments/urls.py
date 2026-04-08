@@ -32,6 +32,7 @@ urlpatterns = [
     path("odoo/instances/<int:instance_id>/repos/<int:repo_id>/delete/", views.OdooInstanceGitRepoDeleteAPIView.as_view(), name="odoo-instance-repo-delete"),
     path("git-credentials/", views.GitRepositoryCredentialListCreateAPIView.as_view(), name="git-credential-list"),
     path("github/webhook/", views.GitHubWebhookAPIView.as_view(), name="github-webhook"),
+    path("github/webhook-events/", views.GitHubWebhookEventListAPIView.as_view(), name="github-webhook-event-list"),
     path("enterprise/sources/", views.EnterpriseSourceListCreateAPIView.as_view(), name="enterprise-source-list"),
     path("enterprise/sources/<int:source_id>/activate/", views.EnterpriseSourceActivateAPIView.as_view(), name="enterprise-source-activate"),
     path("github/repos/", views.GitHubRepositoryListAPIView.as_view(), name="github-repo-list"),

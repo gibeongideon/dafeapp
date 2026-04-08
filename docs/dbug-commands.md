@@ -348,6 +348,114 @@ Compile-check updated Python files:
 
 ---
 
+## GitHub Webhook — Git Repo Auto-Update
+
+### How It Works
+
+GitHub sends ALL push events to `POST /api/deployments/github/webhook/`.
+Django decides what to act on — GitHub does no filtering.
+
+Flow for each push event:
+
+1. Validate HMAC-SHA256 signature (`X-Hub-Signature-256`) against `GITHUB_WEBHOOK_SECRET`
+2. Only process `push` events (ping and others are logged as IGNORED)
+3. Extract `repository.full_name` and branch from `ref` (`refs/heads/develop` → `develop`)
+4. Query all `OdooInstanceGitRepo` records where:
+   - `auto_update=True`
+   - `is_enabled=True`
+   - `instance.status=RUNNING`
+   - Not currently `CLONING`
+   - No `pinned_commit`
+   - Git URL resolves to the same GitHub full_name
+   - `branch` matches exactly
+5. For each matched repo → create `DeploymentJob` → dispatch `update_instance_repo` Celery task
+6. Record a `GitHubWebhookEvent` log entry
+
+### Webhook Auto-Registration
+
+When a repo is saved with `auto_update=True` and a GitHub OAuth or token credential,
+`_ensure_github_push_webhook()` calls the GitHub API to create/verify the push webhook automatically.
+No manual setup on GitHub required.
+
+### Key Fields on OdooInstanceGitRepo
+
+| Field | Purpose |
+| --- | --- |
+| `branch` | Which branch to listen to |
+| `auto_update` | Enable/disable webhook-triggered updates |
+| `pinned_commit` | If set, webhook is ignored for this repo |
+| `last_pulled_commit` | SHA of the last successfully pulled commit |
+| `last_pulled_at` | Timestamp of last successful pull |
+| `status` | CONNECTED / UPDATING / ERROR / CLONING / DISCONNECTED |
+| `last_sync_log` | Output log of the last git operation |
+
+### GitHubWebhookEvent Model
+
+Every incoming webhook is logged in `GitHubWebhookEvent`:
+
+| Field | Description |
+| --- | --- |
+| `repository` | GitHub full_name (owner/repo) |
+| `branch` | Branch that was pushed |
+| `head_commit_sha` | Commit SHA from the push payload |
+| `head_commit_message` | Commit message (truncated to 500 chars) |
+| `pusher_name` | GitHub username who pushed |
+| `status` | PROCESSED / IGNORED / ERROR |
+| `ignore_reason` | Why it was ignored (e.g. "ping", "branch mismatch") |
+| `matched_repo_ids` | OdooInstanceGitRepo IDs that matched |
+| `queued_repo_ids` | OdooInstanceGitRepo IDs that were queued for update |
+| `received_at` | Timestamp |
+
+### Debug Commands
+
+Check recent webhook events via API:
+
+```bash
+curl -s http://localhost:8000/api/deployments/github/webhook-events/ \
+  -H "Cookie: sessionid=..." | python3 -m json.tool
+```
+
+Filter by repo/branch:
+
+```bash
+curl -s "http://localhost:8000/api/deployments/github/webhook-events/?repository=myorg/myrepo&branch=develop"
+```
+
+Check in Django admin: `/admin/deployments/githubwebhookevent/`
+
+Simulate a push webhook locally (no signature, requires `GITHUB_WEBHOOK_SECRET` unset):
+
+```bash
+curl -X POST http://localhost:8000/api/deployments/github/webhook/ \
+  -H "Content-Type: application/json" \
+  -H "X-GitHub-Event: push" \
+  -d '{"ref":"refs/heads/develop","repository":{"full_name":"myorg/myrepo"},"head_commit":{"id":"abc123","message":"test"},"pusher":{"name":"dev"}}'
+```
+
+Trigger manual repo update (bypass webhook):
+
+```bash
+# Via API — sync endpoint
+curl -X POST http://localhost:8000/api/deployments/odoo/instances/<id>/repos/<repo_id>/sync/ \
+  -H "Cookie: sessionid=..."
+```
+
+Check Celery task for repo update:
+
+```bash
+celery -A dafeapp inspect active
+```
+
+### Required Environment Variable
+
+```bash
+GITHUB_WEBHOOK_SECRET=your-secret-here   # Must match what you set on GitHub webhook
+```
+
+If `GITHUB_WEBHOOK_SECRET` is empty, signature validation is skipped (dev only).
+
+---
+
 ## Quick Triage Order
 
 When a domain does not work, use this order:
