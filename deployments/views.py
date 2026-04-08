@@ -3123,7 +3123,7 @@ class GitHubWebhookAPIView(View):
                 continue
             job = DeploymentJob.objects.create(
                 organization=repo.instance.organization,
-                job_type=DeploymentJob.JobType.UPDATE_INSTANCE_REPO,
+                job_type=DeploymentJob.JobType.AUTO_SYNC_INSTANCE_REPOS,
                 odoo_instance=repo.instance,
                 created_by=repo.created_by,
             )
