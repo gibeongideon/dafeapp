@@ -36,10 +36,12 @@
     bootstrap_standalone_value: "{{ bootstrap_standalone | default('False') }}"
 
     # --- Derived nginx / SSL flags ----------------------------------------
-    # Nginx/SSL only matter when standalone mode is explicitly enabled.
-    install_nginx:  "{{ 'True' if dns_domain_value | length > 0 else 'False' }}"
+    # Nginx/SSL are only relevant in standalone mode.
+    # In normal DafeApp operation Traefik handles port 80/443 and Let's Encrypt,
+    # so nginx must NOT be installed — otherwise it conflicts with Traefik.
+    install_nginx:  "{{ 'True' if (bootstrap_standalone_value == 'True' and dns_domain_value | length > 0) else 'False' }}"
     # SSL is enabled when a domain AND a real admin email are supplied.
-    enable_ssl:     "{{ 'True' if (dns_domain_value | length > 0 and admin_email_value is defined and admin_email_value != 'odoo@example.com') else 'False' }}"
+    enable_ssl:     "{{ 'True' if (bootstrap_standalone_value == 'True' and dns_domain_value | length > 0 and admin_email_value is defined and admin_email_value != 'odoo@example.com') else 'False' }}"
     website_name:   "{{ dns_domain_value if dns_domain_value | length > 0 else '_' }}"
 
     # --- Configurable overrides ------------------------------------------

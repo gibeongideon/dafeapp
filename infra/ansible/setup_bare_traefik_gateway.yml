@@ -79,6 +79,13 @@
           [Install]
           WantedBy=multi-user.target
 
+    - name: Stop and disable nginx if running (nginx conflicts with Traefik on port 80/443)
+      systemd:
+        name: nginx
+        state: stopped
+        enabled: false
+      ignore_errors: true
+
     - name: Open HTTP and HTTPS firewall ports when UFW exists
       shell: |
         if command -v ufw >/dev/null 2>&1; then
