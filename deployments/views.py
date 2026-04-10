@@ -1315,6 +1315,9 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
         if section == "enterprise" and not self.request.user.is_platform_admin:
             section = "servers"
         server_id = (self.request.GET.get("server_id") or "").strip()
+        server_tab = (self.request.GET.get("server_tab") or "").strip().lower()
+        if server_tab not in {"dashboard", "monitoring", "instances", "postgres", "ssh", "settings"}:
+            server_tab = "dashboard"
         instance_view_mode = (self.request.GET.get("instance_view") or "kanban").strip().lower()
         if instance_view_mode not in {"kanban", "list"}:
             instance_view_mode = "kanban"
@@ -1358,6 +1361,7 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
             .order_by("-created_at")
         )
         ctx["selected_server"] = None
+        ctx["server_dashboard_tab"] = server_tab
         filtered_instances = instance_queryset
         ctx["server_id"] = server_id
         if server_id:
@@ -1390,15 +1394,18 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
         ctx["all_instances_url"] = self._build_instances_url(instance_view=instance_view_mode)
         ctx["instance_current_base_url"] = self._build_instances_url(
             server_id=server_id,
+            server_tab=server_tab if server_id else "",
             instance_view=instance_view_mode,
         )
         ctx["instance_prev_url"] = self._build_instances_url(
             server_id=server_id,
+            server_tab=server_tab if server_id else "",
             page=instance_page_obj.previous_page_number(),
             instance_view=instance_view_mode,
         ) if instance_page_obj.has_previous() else ""
         ctx["instance_next_url"] = self._build_instances_url(
             server_id=server_id,
+            server_tab=server_tab if server_id else "",
             page=instance_page_obj.next_page_number(),
             instance_view=instance_view_mode,
         ) if instance_page_obj.has_next() else ""
@@ -1415,12 +1422,15 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
         self,
         *,
         server_id: str = "",
+        server_tab: str = "",
         page: int | None = None,
         instance_view: str = "kanban",
     ) -> str:
         params = {"section": "instances"}
         if server_id:
             params["server_id"] = server_id
+        if server_tab:
+            params["server_tab"] = server_tab
         if page and int(page) > 1:
             params["page"] = page
         if instance_view and instance_view != "kanban":

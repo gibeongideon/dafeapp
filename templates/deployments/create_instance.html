@@ -22,7 +22,7 @@
         <span>/</span>
         <span>{{ selected_server.name }}</span>
       </div>
-      <h2 class="text-2xl font-semibold text-gray-900">Instances for {{ selected_server.name }}</h2>
+      <h2 class="text-2xl font-semibold text-gray-900">{{ selected_server.name }} Dashboard</h2>
       <p class="text-sm text-gray-500">
         {{ selected_server.odoo_version }} ·
         {% if selected_server.deployment_mode == 'DOCKER' %}Docker{% else %}Bare-metal{% endif %} ·
@@ -457,57 +457,52 @@
   {% if selected_server or show_instances_view %}
   <div class="grid gap-5 xl:grid-cols-[240px_minmax(0,1fr)] items-start">
     <aside class="xl:sticky xl:top-6 space-y-4">
-      <section class="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
+      <section class="rounded-xl border border-gray-200 bg-white p-3">
         <div class="flex items-end justify-between gap-3">
           <div>
-            <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400">Servers</p>
-            <h3 class="mt-2 text-sm font-semibold text-gray-900">Pick a host</h3>
+            <p class="text-[10px] font-medium uppercase tracking-[0.18em] text-gray-400">Servers</p>
+            <h3 class="mt-1 text-sm font-medium text-gray-800">Pick a host</h3>
           </div>
-          <span class="text-xs font-medium text-gray-400">{{ odoo_servers|length }} total</span>
+          <span class="text-[11px] text-gray-400">{{ odoo_servers|length }} total</span>
         </div>
-        <div class="mt-4 space-y-2 max-h-[38rem] overflow-y-auto pr-1">
+        <div class="mt-3 space-y-1 max-h-[38rem] overflow-y-auto pr-1">
           <a href="{{ all_instances_url }}"
-             class="group block rounded-2xl border px-3 py-3 transition-all
-               {% if not selected_server %}border-gray-900 bg-gray-900 text-white shadow-sm{% else %}border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50{% endif %}">
+             class="group block rounded-lg px-3 py-2.5 transition-colors
+               {% if not selected_server %}bg-gray-100 text-gray-900{% else %}text-gray-700 hover:bg-gray-50{% endif %}">
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0">
-                <p class="truncate text-sm font-semibold {% if not selected_server %}text-white{% else %}text-gray-900{% endif %}">All servers</p>
-                <p class="mt-1 text-[11px] {% if not selected_server %}text-gray-300{% else %}text-gray-500{% endif %}">
+                <p class="truncate text-sm font-medium {% if not selected_server %}text-gray-900{% else %}text-gray-800{% endif %}">All servers</p>
+                <p class="mt-0.5 text-[11px] text-gray-500">
                   Organization-wide instances
                 </p>
               </div>
-              <span class="mt-0.5 inline-flex h-2.5 w-2.5 shrink-0 rounded-full {% if not selected_server %}bg-white{% else %}bg-gray-300{% endif %}"></span>
+              <span class="mt-1 inline-flex h-2 w-2 shrink-0 rounded-full {% if not selected_server %}bg-gray-500{% else %}bg-gray-300{% endif %}"></span>
             </div>
             <div class="mt-3 flex items-center justify-between gap-3 text-[11px]">
-              <span class="{% if not selected_server %}text-gray-300{% else %}text-gray-500{% endif %}">{{ instance_total_count }} instances</span>
-              <span class="font-medium {% if not selected_server %}text-white{% else %}text-gray-700{% endif %}">Browse all</span>
+              <span class="text-gray-500">{{ instance_total_count }} instances</span>
+              <span class="text-gray-500">Browse all</span>
             </div>
           </a>
           {% for s in odoo_servers %}
           <a href="{% url 'deployments:create-instance' %}?section=instances&server_id={{ s.id }}{% if instance_view_mode == 'list' %}&instance_view=list{% endif %}#instances"
-             class="group block rounded-2xl border px-3 py-3 transition-all
-               {% if selected_server and s.id == selected_server.id %}border-gray-900 bg-gray-900 text-white shadow-sm{% else %}border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50{% endif %}">
+             class="group block rounded-lg px-3 py-2.5 transition-colors
+               {% if selected_server and s.id == selected_server.id %}bg-gray-100 text-gray-900{% else %}text-gray-700 hover:bg-gray-50{% endif %}">
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0">
-                <p class="truncate text-sm font-semibold {% if selected_server and s.id == selected_server.id %}text-white{% else %}text-gray-900{% endif %}">{{ s.name }}</p>
-                <div class="mt-1 flex flex-wrap items-center gap-1.5">
-                  <span class="inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium {% if selected_server and s.id == selected_server.id %}border-white/20 bg-white/10 text-white{% else %}border-gray-200 bg-gray-50 text-gray-600{% endif %}">
-                    {% if s.deployment_mode == 'DOCKER' %}Docker{% else %}Bare-metal{% endif %}
-                  </span>
-                  <p class="truncate text-[11px] {% if selected_server and s.id == selected_server.id %}text-gray-300{% else %}text-gray-500{% endif %}">
-                    {% if s.infrastructure and s.infrastructure.infra_type == 'PYOS' %}PYOS · existing server{% else %}Odoo {{ s.odoo_version }} · {{ s.region }}{% endif %}
-                  </p>
-                </div>
+                <p class="truncate text-sm font-medium {% if selected_server and s.id == selected_server.id %}text-gray-900{% else %}text-gray-800{% endif %}">{{ s.name }}</p>
+                <p class="mt-0.5 truncate text-[11px] text-gray-500">
+                  {% if s.infrastructure and s.infrastructure.infra_type == 'PYOS' %}PYOS · existing server{% else %}Odoo {{ s.odoo_version }} · {{ s.region }}{% endif %}
+                </p>
               </div>
-              <span class="mt-0.5 inline-flex h-2.5 w-2.5 shrink-0 rounded-full
+              <span class="mt-1 inline-flex h-2 w-2 shrink-0 rounded-full
                 {% if s.status == 'FAILED' %}bg-red-400
                 {% elif s.status == 'PROVISIONED' %}bg-emerald-400
                 {% elif s.status == 'PENDING' or s.status == 'CONNECTING' or s.status == 'CONFIGURING' or s.status == 'PROVISIONING' %}bg-amber-400
                 {% else %}bg-gray-300{% endif %}"></span>
             </div>
             <div class="mt-3 flex items-center justify-between gap-3 text-[11px]">
-              <span class="{% if selected_server and s.id == selected_server.id %}text-gray-300{% else %}text-gray-500{% endif %}">{{ s.active_instance_count }}/{{ s.max_instances }} instances</span>
-              <span class="font-medium {% if selected_server and s.id == selected_server.id %}text-white{% else %}text-gray-700{% endif %}">
+              <span class="text-gray-500">{{ s.active_instance_count }}/{{ s.max_instances }} instances</span>
+              <span class="text-gray-500">
                 {% if s.status == 'PROVISIONED' %}Ready{% elif s.status == 'FAILED' %}Failed{% else %}{{ s.get_status_display }}{% endif %}
               </span>
             </div>
@@ -568,6 +563,32 @@
             </div>
           </div>
         </div>
+        <div id="server-workspace-tabs" class="mt-5 flex flex-wrap gap-2 border-t border-gray-100 pt-4">
+          <a href="{% url 'deployments:create-instance' %}?section=instances&server_id={{ selected_server.id }}&server_tab=dashboard{% if instance_view_mode == 'list' %}&instance_view=list{% endif %}#server-workspace-tabs"
+             class="inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium {% if server_dashboard_tab == 'dashboard' %}bg-gray-900 text-white{% else %}border border-gray-200 text-gray-700 hover:bg-gray-50{% endif %}">
+            Dash
+          </a>
+          <a href="{% url 'deployments:create-instance' %}?section=instances&server_id={{ selected_server.id }}&server_tab=monitoring{% if instance_view_mode == 'list' %}&instance_view=list{% endif %}#server-workspace-tabs"
+             class="inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium {% if server_dashboard_tab == 'monitoring' %}bg-gray-900 text-white{% else %}border border-gray-200 text-gray-700 hover:bg-gray-50{% endif %}">
+            Monitoring
+          </a>
+          <a href="{% url 'deployments:create-instance' %}?section=instances&server_id={{ selected_server.id }}&server_tab=instances{% if instance_view_mode == 'list' %}&instance_view=list{% endif %}#server-workspace-tabs"
+             class="inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium {% if server_dashboard_tab == 'instances' %}bg-gray-900 text-white{% else %}border border-gray-200 text-gray-700 hover:bg-gray-50{% endif %}">
+            Instances
+          </a>
+          <a href="{% url 'deployments:create-instance' %}?section=instances&server_id={{ selected_server.id }}&server_tab=postgres{% if instance_view_mode == 'list' %}&instance_view=list{% endif %}#server-workspace-tabs"
+             class="inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium {% if server_dashboard_tab == 'postgres' %}bg-gray-900 text-white{% else %}border border-gray-200 text-gray-700 hover:bg-gray-50{% endif %}">
+            Postgres
+          </a>
+          <a href="{% url 'deployments:create-instance' %}?section=instances&server_id={{ selected_server.id }}&server_tab=ssh{% if instance_view_mode == 'list' %}&instance_view=list{% endif %}#server-workspace-tabs"
+             class="inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium {% if server_dashboard_tab == 'ssh' %}bg-gray-900 text-white{% else %}border border-gray-200 text-gray-700 hover:bg-gray-50{% endif %}">
+            SSH Keys
+          </a>
+          <a href="{% url 'deployments:create-instance' %}?section=instances&server_id={{ selected_server.id }}&server_tab=settings{% if instance_view_mode == 'list' %}&instance_view=list{% endif %}#server-workspace-tabs"
+             class="inline-flex items-center rounded-lg px-3 py-1.5 text-xs font-medium {% if server_dashboard_tab == 'settings' %}bg-gray-900 text-white{% else %}border border-gray-200 text-gray-700 hover:bg-gray-50{% endif %}">
+            Settings
+          </a>
+        </div>
         {% else %}
         <div class="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-6 py-10 text-center">
           <p class="text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-400">Instances</p>
@@ -577,6 +598,114 @@
         {% endif %}
       </section>
 
+      {% if selected_server and server_dashboard_tab == 'dashboard' %}
+      <section class="bg-white border border-gray-200 rounded-3xl p-5 shadow-sm space-y-5">
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <p class="text-[11px] uppercase tracking-[0.18em] text-gray-400">Dash</p>
+            <h3 class="mt-1 text-sm font-semibold text-gray-900">General Server Health</h3>
+          </div>
+          <button type="button"
+                  class="server-refresh-metrics-btn inline-flex items-center rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                  data-server-id="{{ selected_server.id }}">
+            Refresh Metrics
+          </button>
+        </div>
+        <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div class="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3">
+            <p class="text-[10px] uppercase tracking-[0.16em] text-gray-400">CPU</p>
+            <p class="mt-2 text-lg font-semibold text-gray-900">Live</p>
+            <p class="mt-1 text-xs text-gray-500">See the server metrics bar above for current load.</p>
+          </div>
+          <div class="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3">
+            <p class="text-[10px] uppercase tracking-[0.16em] text-gray-400">Connection</p>
+            <p class="mt-2 text-lg font-semibold text-gray-900">
+              {% if selected_server.last_checked_at and not selected_server.is_reachable %}Disconnected{% else %}Checking…{% endif %}
+            </p>
+            <p class="mt-1 text-xs text-gray-500">SSH health is kept current from connectivity checks.</p>
+          </div>
+          <div class="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3">
+            <p class="text-[10px] uppercase tracking-[0.16em] text-gray-400">Disk / Space</p>
+            <p class="mt-2 text-lg font-semibold text-gray-900">Live</p>
+            <p class="mt-1 text-xs text-gray-500">Disk usage is shown from server monitoring.</p>
+          </div>
+          <div class="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3">
+            <p class="text-[10px] uppercase tracking-[0.16em] text-gray-400">Instances</p>
+            <p class="mt-2 text-lg font-semibold text-gray-900">{{ selected_server.active_instance_count }}/{{ selected_server.max_instances }}</p>
+            <p class="mt-1 text-xs text-gray-500">Active instance capacity on this server.</p>
+          </div>
+        </div>
+        <div class="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <p class="text-[11px] uppercase tracking-[0.18em] text-gray-400">Instances</p>
+              <h4 class="mt-1 text-sm font-semibold text-gray-900">Paginated server instances</h4>
+            </div>
+            <a href="{% url 'deployments:create-instance' %}?section=instances&server_id={{ selected_server.id }}&server_tab=instances{% if instance_view_mode == 'list' %}&instance_view=list{% endif %}#instances"
+               class="inline-flex items-center rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-white">
+              Open full tab
+            </a>
+          </div>
+          <p class="mt-2 text-xs text-gray-500">The full instance board remains below with pagination.</p>
+        </div>
+      </section>
+      {% elif selected_server and server_dashboard_tab == 'monitoring' %}
+      <section class="bg-white border border-gray-200 rounded-3xl p-5 shadow-sm">
+        <p class="text-[11px] uppercase tracking-[0.18em] text-gray-400">Monitoring</p>
+        <h3 class="mt-2 text-sm font-semibold text-gray-900">Monitoring dashboard</h3>
+        <p class="mt-2 text-sm text-gray-500">This section is a placeholder for now. We can add detailed charts, alerts, uptime, and service-level metrics next.</p>
+      </section>
+      {% elif selected_server and server_dashboard_tab == 'postgres' %}
+      <section class="bg-white border border-gray-200 rounded-3xl p-5 shadow-sm space-y-4">
+        <div>
+          <p class="text-[11px] uppercase tracking-[0.18em] text-gray-400">Postgres</p>
+          <h3 class="mt-2 text-sm font-semibold text-gray-900">Database host details</h3>
+        </div>
+        {% if selected_server.deployment_mode == 'DOCKER' %}
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div class="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3">
+            <p class="text-[10px] uppercase tracking-[0.16em] text-gray-400">Host</p>
+            <p class="mt-2 font-mono text-sm font-semibold text-gray-900">{{ selected_server.ip_address|default:"pending" }}:5432</p>
+          </div>
+          <div class="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3">
+            <p class="text-[10px] uppercase tracking-[0.16em] text-gray-400">Mode</p>
+            <p class="mt-2 text-sm font-semibold text-gray-900">Shared Docker PostgreSQL</p>
+          </div>
+        </div>
+        {% else %}
+        <div class="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3">
+          <p class="text-sm text-gray-600">Bare-metal servers keep PostgreSQL within each instance layout. Use instance-level tools for database operations.</p>
+        </div>
+        {% endif %}
+      </section>
+      {% elif selected_server and server_dashboard_tab == 'ssh' %}
+      <section class="bg-white border border-gray-200 rounded-3xl p-5 shadow-sm space-y-4">
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <p class="text-[11px] uppercase tracking-[0.18em] text-gray-400">SSH Keys</p>
+            <h3 class="mt-2 text-sm font-semibold text-gray-900">Server access keys</h3>
+          </div>
+          <button type="button"
+                  class="open-ssh-keys-modal inline-flex items-center rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                  data-server-id="{{ selected_server.id }}"
+                  data-server-name="{{ selected_server.name }}"
+                  data-server-status="{{ selected_server.status }}">
+            Manage SSH Keys
+          </button>
+        </div>
+        <div class="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3">
+          <p class="text-sm text-gray-600">Open the SSH keys manager to add, review, or remove server access keys for {{ selected_server.name }}.</p>
+        </div>
+      </section>
+      {% elif selected_server and server_dashboard_tab == 'settings' %}
+      <section class="bg-white border border-gray-200 rounded-3xl p-5 shadow-sm">
+        <p class="text-[11px] uppercase tracking-[0.18em] text-gray-400">Settings</p>
+        <h3 class="mt-2 text-sm font-semibold text-gray-900">Server settings</h3>
+        <p class="mt-2 text-sm text-gray-500">This section is a placeholder for now. We can add server-level configuration, DNS behavior, backup policies, and retention controls here next.</p>
+      </section>
+      {% endif %}
+
+      {% if not selected_server or server_dashboard_tab == 'dashboard' or server_dashboard_tab == 'instances' %}
       <div id="instance-card-grid" class="{% if instance_view_mode == 'list' %}hidden {% endif %}grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {% for oi in visible_instances %}
           <article id="instance-card-{{ oi.id }}" class="group overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md">
@@ -585,10 +714,6 @@
                 <div class="min-w-0">
                   <p id="instance-name-{{ oi.id }}" class="truncate text-base font-semibold tracking-tight text-gray-950">{{ oi.name }}</p>
                   <p class="mt-1 truncate text-xs font-mono text-gray-400">{{ oi.db_name }}</p>
-                  <div class="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
-                    <span class="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 font-medium text-gray-700">{{ oi.server.name }}</span>
-                    <span class="text-gray-400">Odoo {{ oi.server.odoo_version }}</span>
-                  </div>
                 </div>
                 <div class="flex items-center gap-2">
                   <span id="instance-dot-{{ oi.id }}" class="inline-block h-2.5 w-2.5 rounded-full
@@ -612,67 +737,64 @@
             </div>
 
             <div class="space-y-4 px-5 py-4">
+              <div class="grid gap-3 rounded-2xl border border-gray-200 bg-gray-50 px-3 py-3 text-xs text-gray-600">
+                <div class="flex items-center justify-between gap-3">
+                  <span class="text-gray-400">Server</span>
+                  <span class="truncate text-right text-gray-800">{{ oi.server.name }}</span>
+                </div>
+                <div class="flex items-center justify-between gap-3">
+                  <span class="text-gray-400">Domain</span>
+                  {% if oi.domain %}
+                  <span class="truncate text-right font-mono text-[11px] text-gray-800">{{ oi.domain }}</span>
+                  {% elif oi.preferred_access_url %}
+                  <span class="truncate text-right font-mono text-[11px] text-gray-500">{{ oi.preferred_access_url }}</span>
+                  {% else %}
+                  <span class="text-gray-400">Pending</span>
+                  {% endif %}
+                </div>
+                <div class="flex items-center justify-between gap-3">
+                  <span class="text-gray-400">Odoo Version</span>
+                  <span class="text-gray-800">Odoo {{ oi.server.odoo_version }}</span>
+                </div>
+              </div>
               {% if oi.status == 'CONFIGURING' %}
-              <div class="rounded-2xl border border-amber-100 bg-amber-50 px-3 py-3">
+              <div id="instance-progress-card-{{ oi.id }}" class="rounded-2xl border border-amber-100 bg-amber-50 px-3 py-3">
                 <p class="text-[10px] uppercase tracking-[0.16em] text-amber-600">Provisioning</p>
                 <p class="mt-1 text-xs text-amber-700">This step may take 5–15 minutes.</p>
               </div>
               {% endif %}
 
-              <details class="rounded-2xl border border-gray-200 bg-gray-50 px-3 py-2.5">
-                <summary class="cursor-pointer text-xs font-medium text-gray-600">More details</summary>
-                <div class="mt-3 space-y-2 text-xs text-gray-600">
-                  <div class="flex items-center justify-between gap-3">
-                    <span class="text-gray-400">Server</span>
-                    <span class="truncate text-right text-gray-800">{{ oi.server.name }}</span>
-                  </div>
-                  <div class="flex items-center justify-between gap-3">
-                    <span class="text-gray-400">Access</span>
-                    {% if oi.preferred_access_url %}
-                    <a href="{{ oi.preferred_access_url }}" target="_blank" rel="noopener noreferrer" class="truncate font-mono text-[11px] text-gray-800 hover:text-gray-950 hover:underline">{{ oi.preferred_access_url }}</a>
-                    {% else %}
-                    <span class="text-gray-400">Pending</span>
-                    {% endif %}
-                  </div>
-                  <div class="flex items-center justify-between gap-3">
-                    <span class="text-gray-400">IP Address</span>
-                    <span class="font-mono text-gray-800">{{ oi.server.ip_address|default:"—" }}{% if oi.server.ip_address %}:{{ oi.http_port }}{% endif %}</span>
-                  </div>
-                  <div class="flex items-center justify-between gap-3">
-                    <span class="text-gray-400">CPU / RAM</span>
-                    <span class="text-gray-800">{{ oi.requested_cpu_cores }} vCPU / {{ oi.requested_ram_mb }} MB</span>
-                  </div>
-                  <div class="flex items-center justify-between gap-3">
-                    <span class="text-gray-400">Storage</span>
-                    <span class="truncate text-right font-mono text-[11px] text-gray-800">{{ oi.storage_path|default:"—" }}</span>
-                  </div>
-                  <div class="flex items-center justify-between gap-3">
-                    <span class="text-gray-400">Owner</span>
-                    <span class="text-gray-800">{% if oi.created_by %}{% if oi.created_by.get_full_name %}{{ oi.created_by.get_full_name }}{% else %}{{ oi.created_by.username }}{% endif %}{% else %}—{% endif %}</span>
-                  </div>
-                  {% if oi.status != 'DELETED' %}
-                  <div class="pt-2">
-                    <button type="button"
-                            class="delete-instance-btn text-xs font-medium text-red-600 underline decoration-red-200 underline-offset-4 hover:text-red-700"
-                            data-instance-id="{{ oi.id }}"
-                            data-instance-name="{{ oi.name }}"
-                            data-instance-status="{{ oi.status }}"
-                            data-server-status="{{ oi.server.status }}"
-                            data-domain-status="{{ oi.domain_status }}"
-                            data-ssl-status="{{ oi.ssl_status }}"
-                            data-enterprise-status="{{ oi.enterprise_status }}">
-                      Delete instance
-                    </button>
-                  </div>
-                  {% endif %}
-                </div>
-              </details>
+              <div class="flex items-center justify-between gap-3 text-xs">
+                {% if oi.status == 'CONFIGURING' %}
+                <a href="#instance-progress-card-{{ oi.id }}" class="font-medium text-amber-700 underline decoration-amber-200 underline-offset-4 hover:text-amber-800">
+                  Live Progress
+                </a>
+                {% else %}
+                <a href="{% url 'deployments_ui:odoo-instance-console' oi.id %}" class="font-medium text-gray-600 underline decoration-gray-200 underline-offset-4 hover:text-gray-900">
+                  Details
+                </a>
+                {% endif %}
+                {% if oi.status != 'DELETED' %}
+                <button type="button"
+                        class="delete-instance-btn text-xs font-medium text-red-600 underline decoration-red-200 underline-offset-4 hover:text-red-700"
+                        data-instance-id="{{ oi.id }}"
+                        data-instance-name="{{ oi.name }}"
+                        data-instance-status="{{ oi.status }}"
+                        data-server-status="{{ oi.server.status }}"
+                        data-domain-status="{{ oi.domain_status }}"
+                        data-ssl-status="{{ oi.ssl_status }}"
+                        data-enterprise-status="{{ oi.enterprise_status }}">
+                  Delete instance
+                </button>
+                {% endif %}
+              </div>
             </div>
 
-            <div class="grid grid-cols-4 border-t border-gray-100 bg-white">
+            <div class="grid grid-cols-3 border-t border-gray-100 bg-white">
+              {% if oi.status != 'DELETED' %}
               <button type="button"
                       class="manage-domain-btn inline-flex h-12 items-center justify-center border-r border-gray-100 text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900"
-                      title="{% if oi.domain %}Manage domain{% else %}Add domain{% endif %}"
+                      title="Add or manage domains"
                       data-instance-id="{{ oi.id }}"
                       data-instance-name="{{ oi.name }}"
                       data-instance-domain="{{ oi.domain|default:'' }}"
@@ -682,41 +804,39 @@
                       data-instance-status="{{ oi.status }}"
                       data-server-status="{{ oi.server.status }}"
                       data-enterprise-status="{{ oi.enterprise_status }}">
-                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0a3 3 0 11-6 0m6 0H9"/>
-                </svg>
+                Add Domain
               </button>
-              <a href="{% url 'deployments_ui:odoo-instance-console' oi.id %}"
+              {% else %}
+              <button type="button"
+                      class="manage-domain-btn inline-flex h-12 items-center justify-center border-r border-gray-100 text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900"
+                      title="Add or manage domains"
+                      data-instance-id="{{ oi.id }}"
+                      data-instance-name="{{ oi.name }}"
+                      data-instance-domain="{{ oi.domain|default:'' }}"
+                      data-server-mode="{{ oi.server.deployment_mode }}"
+                      data-domain-status="{{ oi.domain_status }}"
+                      data-ssl-status="{{ oi.ssl_status }}"
+                      data-instance-status="{{ oi.status }}"
+                      data-server-status="{{ oi.server.status }}"
+                      data-enterprise-status="{{ oi.enterprise_status }}">
+                Add Domain
+              </button>
+              {% endif %}
+              <a href="{% url 'deployments_ui:odoo-instance-console' oi.id %}?tab=addons"
                  class="inline-flex h-12 items-center justify-center border-r border-gray-100 text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900"
-                 title="Settings">
-                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.983 5.5a1.5 1.5 0 013 0l.18 1.24a1.5 1.5 0 001.178 1.238l1.221.27a1.5 1.5 0 01.75 2.49l-.84.93a1.5 1.5 0 000 2.008l.84.93a1.5 1.5 0 01-.75 2.49l-1.221.27a1.5 1.5 0 00-1.178 1.238l-.18 1.24a1.5 1.5 0 01-3 0l-.18-1.24a1.5 1.5 0 00-1.178-1.238l-1.221-.27a1.5 1.5 0 01-.75-2.49l.84-.93a1.5 1.5 0 000-2.008l-.84-.93a1.5 1.5 0 01.75-2.49l1.221-.27A1.5 1.5 0 0011.803 6.74l.18-1.24z"/>
-                  <circle cx="13.5" cy="12" r="2.5" stroke-width="2"/>
-                </svg>
+                 title="Addons">
+                Code
               </a>
-              <a href="{% url 'deployments_ui:odoo-instance-console' oi.id %}"
-                 class="inline-flex h-12 items-center justify-center border-r border-gray-100 text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900"
-                 title="GitHub and code">
-                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                  <path fill-rule="evenodd" d="M12 2a10 10 0 00-3.162 19.489c.5.092.684-.217.684-.483 0-.237-.009-.866-.014-1.7-2.782.605-3.369-1.342-3.369-1.342-.455-1.156-1.11-1.464-1.11-1.464-.908-.621.069-.608.069-.608 1.004.071 1.532 1.031 1.532 1.031.892 1.528 2.341 1.087 2.91.832.091-.646.349-1.087.635-1.337-2.221-.253-4.556-1.111-4.556-4.944 0-1.092.39-1.985 1.03-2.684-.104-.253-.446-1.271.097-2.65 0 0 .84-.269 2.75 1.026A9.565 9.565 0 0112 6.844a9.56 9.56 0 012.504.337c1.909-1.295 2.748-1.026 2.748-1.026.545 1.379.203 2.397.1 2.65.64.699 1.028 1.592 1.028 2.684 0 3.842-2.338 4.688-4.566 4.936.358.309.677.92.677 1.855 0 1.338-.012 2.419-.012 2.749 0 .269.18.58.69.481A10 10 0 0012 2z" clip-rule="evenodd"/>
-                </svg>
-              </a>
-              {% if oi.preferred_access_url and oi.status != 'DELETED' %}
-              <a href="{{ oi.preferred_access_url }}"
+              {% if oi.domain or oi.preferred_access_url and oi.status != 'DELETED' %}
+              <a href="{% if oi.domain %}https://{{ oi.domain }}{% else %}{{ oi.preferred_access_url }}{% endif %}"
                  target="_blank" rel="noopener noreferrer"
                  class="inline-flex h-12 items-center justify-center text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900"
-                 title="Open instance">
-                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 3h7m0 0v7m0-7L10 14"/>
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5h5M5 5a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2v-5"/>
-                </svg>
+                 title="Open domain">
+                Open
               </a>
               {% else %}
-              <span class="inline-flex h-12 items-center justify-center text-gray-300" title="Instance not ready yet">
-                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 3h7m0 0v7m0-7L10 14"/>
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5h5M5 5a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2v-5"/>
-                </svg>
+              <span class="inline-flex h-12 items-center justify-center text-gray-300" title="Domain not ready yet">
+                Open
               </span>
               {% endif %}
             </div>
@@ -908,6 +1028,7 @@
         </div>
       </div>
       {% endif %}
+      {% endif %}
     </div>
   </div>
   {% else %}
@@ -1006,15 +1127,24 @@
         </div>
       </div>
 
-      <div class="mt-4 flex gap-2">
+      <div class="mt-4 grid grid-cols-4 gap-2">
+        <a href="{% url 'deployments:create-instance' %}?server_id={{ s.id }}&section=instances&server_tab=dashboard#server-workspace-tabs"
+           class="inline-flex items-center justify-center px-3 py-2 text-xs font-medium rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors">
+          Dashboard
+        </a>
         <button type="button"
                 class="open-server-instances-btn flex-1 inline-flex items-center justify-center px-3 py-2 text-xs font-medium rounded-lg transition-colors
                   {% if s.status == 'PROVISIONED' and not s.last_checked_at or s.status == 'PROVISIONED' and s.is_reachable %}text-white bg-gray-900 hover:bg-gray-700{% else %}text-gray-400 bg-gray-100 cursor-not-allowed{% endif %}"
                 data-server-id="{{ s.id }}"
                 data-server-name="{{ s.name }}"
-                data-target-url="{% url 'deployments:create-instance' %}?server_id={{ s.id }}&section=instances#instances"
+                data-server-ip="{{ s.ip_address|default:'' }}"
+                data-server-min-port="{{ s.min_port }}"
+                data-server-mode="{{ s.deployment_mode }}"
+                data-server-status="{{ s.status }}"
+                data-server-is-reachable="{{ s.is_reachable|yesno:'true,false' }}"
+                data-server-last-checked-at="{{ s.last_checked_at|date:'c'|default:'' }}"
                 {% if s.status != 'PROVISIONED' or s.last_checked_at and not s.is_reachable %}disabled{% endif %}>
-          Create Instance
+          Instances
         </button>
         <button type="button"
                 class="open-ssh-keys-modal px-3 py-2 text-xs font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
@@ -1025,13 +1155,6 @@
           SSH Keys
         </button>
         <button type="button"
-                class="archive-server-btn px-3 py-2 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-                data-server-id="{{ s.id }}"
-                data-server-name="{{ s.name }}"
-                data-server-status="{{ s.status }}">
-          Archive
-        </button>
-        <button type="button"
                 class="toggle-server-details px-3 py-2 text-xs font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
                 data-server-id="{{ s.id }}"
                 aria-expanded="false">
@@ -1040,43 +1163,53 @@
       </div>
 
       <div id="server-details-{{ s.id }}" class="hidden mt-3 pt-3 border-t border-gray-100 space-y-3">
-        <div class="grid grid-cols-2 gap-2 text-xs text-gray-600">
+        <div class="flex flex-wrap gap-2">
+          <a href="#server-monitoring-{{ s.id }}" class="inline-flex items-center rounded-full border border-gray-200 px-2.5 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50">Monitoring</a>
+          <a href="#server-postgres-{{ s.id }}" class="inline-flex items-center rounded-full border border-gray-200 px-2.5 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50">Postgres</a>
+          <a href="#server-settings-{{ s.id }}" class="inline-flex items-center rounded-full border border-gray-200 px-2.5 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50">Settings</a>
+        </div>
+
+        <div id="server-monitoring-{{ s.id }}" class="rounded-2xl border border-gray-200 bg-gray-50 p-3">
           <div class="flex items-center justify-between gap-3">
-            <span class="text-gray-500">IP</span>
-            <span id="server-ip-{{ s.id }}" class="font-mono text-[11px] text-gray-800">{{ s.ip_address|default:"—" }}</span>
+            <div>
+              <p class="text-[10px] uppercase tracking-wide text-gray-400">Monitoring</p>
+              <p class="mt-1 text-xs text-gray-600">Live resource usage and connection health for this server.</p>
+            </div>
+            <button type="button"
+                    class="server-refresh-metrics-btn text-[10px] font-medium text-gray-500 underline hover:text-gray-700"
+                    data-server-id="{{ s.id }}">
+              Refresh
+            </button>
           </div>
+        </div>
+
+        <div id="server-postgres-{{ s.id }}" class="rounded-2xl border border-gray-200 bg-gray-50 p-3 space-y-2">
+          <p class="text-[10px] uppercase tracking-wide text-gray-400">Postgres</p>
           {% if s.deployment_mode == 'DOCKER' %}
-          <div class="flex items-center justify-between gap-3">
-            <span class="text-gray-500">Routing</span>
-            <span id="server-routing-{{ s.id }}" class="text-[11px] text-gray-800">Domain → HTTPS (Traefik)</span>
+          <div class="flex items-center justify-between gap-3 text-xs text-gray-600">
+            <span class="text-gray-500">Host</span>
+            <span class="font-mono text-gray-800">{{ s.ip_address|default:"pending" }}:5432</span>
+          </div>
+          <div class="flex items-center justify-between gap-3 text-xs text-gray-600">
+            <span class="text-gray-500">Engine</span>
+            <span class="text-gray-800">Shared Docker PostgreSQL</span>
           </div>
           {% else %}
-          <div class="flex items-center justify-between gap-3">
-            <span class="text-gray-500">Port Range</span>
-            <span id="server-port-range-{{ s.id }}" class="font-mono text-[11px] text-gray-800">{{ s.min_port }}–{{ s.max_port }}</span>
-          </div>
+          <p class="text-xs text-gray-600">Postgres is managed inside each bare-metal instance layout. Use the server dashboard and instance pages for database-level operations.</p>
           {% endif %}
-          <div class="flex items-center justify-between gap-3">
-            <span class="text-gray-500">Instances</span>
-            <span id="server-instances-{{ s.id }}">{{ s.instances.count }}/{{ s.max_instances }}</span>
-          </div>
+        </div>
+
+        <div id="server-settings-{{ s.id }}" class="rounded-2xl border border-gray-200 bg-gray-50 p-3 space-y-2">
+          <p class="text-[10px] uppercase tracking-wide text-gray-400">Settings</p>
+          <p class="text-xs text-gray-600">Use these lower-frequency actions without crowding the main card.</p>
+        </div>
+
+        <div class="grid grid-cols-1 gap-2 text-xs text-gray-600">
           <div class="flex items-center justify-between gap-3">
             <span class="text-gray-500">Connection</span>
             <button type="button" class="check-connectivity-btn text-[10px] text-gray-400 hover:text-gray-600 underline"
                     data-server-id="{{ s.id }}"
                     data-server-status="{{ s.status }}">Check now</button>
-          </div>
-          <div class="flex items-center justify-between gap-3 col-span-2">
-            <span class="text-gray-500">Example access</span>
-            {% if s.ip_address %}
-              {% if s.deployment_mode == 'DOCKER' %}
-              <span id="server-example-access-{{ s.id }}" class="font-mono text-[11px] text-purple-600">https://domain.example.com</span>
-              {% else %}
-              <span id="server-example-access-{{ s.id }}" class="font-mono text-[11px] text-blue-600">http://{{ s.ip_address }}:{{ s.min_port }}</span>
-              {% endif %}
-            {% else %}
-              <span id="server-example-access-{{ s.id }}" class="text-[11px] text-gray-400">pending</span>
-            {% endif %}
           </div>
         </div>
 
@@ -1096,12 +1229,21 @@
           <pre id="server-summary-text-{{ s.id }}"
                class="text-[11px] font-mono text-gray-700 bg-gray-50 border border-gray-100 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap">{{ s.installation_summary_text }}</pre>
         </div>
-        <div class="pt-2">
+        <div class="pt-2 flex items-center justify-between gap-3">
           <button type="button"
-                  class="delete-server-btn text-[11px] font-medium text-red-600 underline"
+                  class="archive-server-btn text-[11px] font-medium text-gray-600 underline decoration-gray-200 underline-offset-4 {% if s.status == 'CONNECTING' or s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}opacity-50 cursor-not-allowed{% endif %}"
                   data-server-id="{{ s.id }}"
                   data-server-name="{{ s.name }}"
-                  data-server-status="{{ s.status }}">
+                  data-server-status="{{ s.status }}"
+                  {% if s.status == 'CONNECTING' or s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}disabled aria-disabled="true" title="Server provisioning is still in progress."{% endif %}>
+            Archive
+          </button>
+          <button type="button"
+                  class="delete-server-btn text-[11px] font-medium text-red-600 underline {% if s.status == 'CONNECTING' or s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}opacity-50 cursor-not-allowed{% endif %}"
+                  data-server-id="{{ s.id }}"
+                  data-server-name="{{ s.name }}"
+                  data-server-status="{{ s.status }}"
+                  {% if s.status == 'CONNECTING' or s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}disabled aria-disabled="true" title="Server provisioning is still in progress."{% endif %}>
             Delete permanently
           </button>
         </div>
@@ -1660,6 +1802,14 @@ chmod 600 ~/.ssh/authorized_keys</pre>
     return "";
   }
 
+  function sanitizeProgressLine(value) {
+    const line = String(value ?? "").trim();
+    if (!line) return "";
+    const normalized = line.toLowerCase();
+    if (normalized === "undefined" || normalized === "null") return "";
+    return line;
+  }
+
   function instanceActionLockReason(instanceLike) {
     const serverReason = serverActionLockReason(instanceLike?.server || instanceLike?.server_status);
     if (serverReason) return serverReason;
@@ -1711,14 +1861,9 @@ chmod 600 ~/.ssh/authorized_keys</pre>
   }
 
   function syncServerActionButtons(root = document) {
-    // Lock only ssh-keys and check-connectivity when provisioning is in progress.
-    root.querySelectorAll(".open-ssh-keys-modal, .check-connectivity-btn").forEach((button) => {
+    root.querySelectorAll(".open-ssh-keys-modal, .check-connectivity-btn, .archive-server-btn, .delete-server-btn").forEach((button) => {
       const reason = serverActionLockReason(button.dataset.serverStatus);
       setLockedButtonState(button, !!reason, reason);
-    });
-    // Archive and delete are always clickable — the backend cancels any running task first.
-    root.querySelectorAll(".archive-server-btn, .delete-server-btn").forEach((button) => {
-      setLockedButtonState(button, false, "");
     });
 
     const newInstanceBtn = $("new-instance-btn");
@@ -1746,9 +1891,11 @@ chmod 600 ~/.ssh/authorized_keys</pre>
   const wsBase = `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}`;
 
   function addStepTo(ul, text, isError) {
+    const safeText = sanitizeProgressLine(text);
+    if (!safeText) return;
     const li = document.createElement("li");
     li.className = "flex items-start gap-1.5 text-[11px]";
-    li.innerHTML = `<span class="flex-shrink-0 ${isError ? "text-red-400 font-bold" : "text-gray-400"}">›</span><span class="${isError ? "text-red-600" : "text-gray-600"}">${text}</span>`;
+    li.innerHTML = `<span class="flex-shrink-0 ${isError ? "text-red-400 font-bold" : "text-gray-400"}">›</span><span class="${isError ? "text-red-600" : "text-gray-600"}">${safeText}</span>`;
     ul.appendChild(li);
     ul.scrollTop = ul.scrollHeight;
   }
@@ -1824,7 +1971,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
     if (!text) return [];
     return String(text)
       .split(/\r?\n/)
-      .map((line) => line.trim())
+      .map((line) => sanitizeProgressLine(line))
       .filter(Boolean)
       .slice(-limit);
   }
@@ -2332,15 +2479,12 @@ chmod 600 ~/.ssh/authorized_keys</pre>
     const server = instance.server || {};
     const status = (instance.status || "").toUpperCase();
     const presentation = instancePresentation(instance);
-    const ipText = server.ip_address ? `${server.ip_address}:${instance.http_port}` : "—";
-    const cpuRam = `${instance.requested_cpu_cores || 1} vCPU / ${instance.requested_ram_mb || 1024} MB`;
-    const storage = resolveInstanceStorage(instance) || "—";
-    const created = instance.created_at ? new Date(instance.created_at).toLocaleString() : "—";
-    const owner = instance.owner_name || "—";
     const preferredAccessUrl = instance.preferred_access_url || instance.domain_access_url || instance.direct_access_url || instance.access_url || "";
+    const domainText = (instance.domain || "").trim();
+    const openUrl = domainText ? `https://${domainText}` : preferredAccessUrl;
     const progressLines = extractProgressLines(instance.provisioning_log, 3);
     const progressHtml = (status === "CONFIGURING" && progressLines.length) ? `
-      <div class="rounded-2xl border border-amber-100 bg-amber-50 px-3 py-3">
+      <div id="instance-progress-card-${iid}" class="rounded-2xl border border-amber-100 bg-amber-50 px-3 py-3">
         <p class="text-[10px] uppercase tracking-wide text-amber-500 mb-1">Live Progress</p>
         <p class="text-[10px] text-amber-500 mb-1">This step may take 5–15 minutes.</p>
         <ul class="space-y-1">
@@ -2355,10 +2499,6 @@ chmod 600 ~/.ssh/authorized_keys</pre>
             <div class="min-w-0">
               <p id="instance-name-${iid}" class="truncate text-base font-semibold tracking-tight text-gray-950">${escapeHtml(instance.name || "")}</p>
               <p class="mt-1 truncate text-xs font-mono text-gray-400">${escapeHtml(instance.db_name || "")}</p>
-              <div class="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
-                <span class="inline-flex items-center rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 font-medium text-gray-700">${escapeHtml(server.name || "Unknown server")}</span>
-                <span class="text-gray-400">Odoo ${escapeHtml(server.odoo_version || "—")}</span>
-              </div>
             </div>
             <div class="flex items-center gap-2">
               <span id="instance-dot-${iid}" class="inline-block h-2.5 w-2.5 rounded-full ${presentation.dotClass}"></span>
@@ -2367,44 +2507,38 @@ chmod 600 ~/.ssh/authorized_keys</pre>
           </div>
         </div>
         <div class="space-y-4 px-5 py-4">
+          <div class="grid gap-3 rounded-2xl border border-gray-200 bg-gray-50 px-3 py-3 text-xs text-gray-600">
+            <div class="flex items-center justify-between gap-3"><span class="text-gray-400">Server</span><span class="truncate text-right text-gray-800">${escapeHtml(server.name || "Unknown server")}</span></div>
+            <div class="flex items-center justify-between gap-3"><span class="text-gray-400">Domain</span>${domainText ? `<span class="truncate text-right font-mono text-[11px] text-gray-800">${escapeHtml(domainText)}</span>` : preferredAccessUrl ? `<span class="truncate text-right font-mono text-[11px] text-gray-500">${escapeHtml(preferredAccessUrl)}</span>` : `<span class="text-gray-400">Pending</span>`}</div>
+            <div class="flex items-center justify-between gap-3"><span class="text-gray-400">Odoo Version</span><span class="text-gray-800">Odoo ${escapeHtml(server.odoo_version || "—")}</span></div>
+          </div>
           ${status === "CONFIGURING" && !progressLines.length ? `
-            <div class="rounded-2xl border border-amber-100 bg-amber-50 px-3 py-3">
+            <div id="instance-progress-card-${iid}" class="rounded-2xl border border-amber-100 bg-amber-50 px-3 py-3">
               <p class="text-[10px] uppercase tracking-[0.16em] text-amber-600">Provisioning</p>
               <p class="mt-1 text-xs text-amber-700">This step may take 5–15 minutes.</p>
             </div>
           ` : ""}
           ${progressHtml}
-          <details class="rounded-2xl border border-gray-200 bg-gray-50 px-3 py-2.5">
-            <summary class="cursor-pointer text-xs font-medium text-gray-600">More details</summary>
-            <div class="mt-3 space-y-2 text-xs text-gray-600">
-              <div class="flex items-center justify-between gap-3"><span class="text-gray-400">Server</span><span class="truncate text-right text-gray-800">${escapeHtml(server.name || "Unknown server")}</span></div>
-              <div class="flex items-center justify-between gap-3">
-                <span class="text-gray-400">Access</span>
-                ${preferredAccessUrl ? `<a href="${escapeHtml(preferredAccessUrl)}" target="_blank" rel="noopener noreferrer" class="truncate font-mono text-[11px] text-gray-800 hover:text-gray-950 hover:underline">${escapeHtml(preferredAccessUrl)}</a>` : `<span class="text-gray-400">Pending</span>`}
-              </div>
-              <div class="flex items-center justify-between gap-3"><span class="text-gray-400">IP Address</span><span class="font-mono text-gray-800">${escapeHtml(ipText)}</span></div>
-              <div class="flex items-center justify-between gap-3"><span class="text-gray-400">CPU / RAM</span><span class="text-gray-800">${escapeHtml(cpuRam)}</span></div>
-              <div class="flex items-center justify-between gap-3"><span class="text-gray-400">Storage</span><span class="truncate text-right font-mono text-[11px] text-gray-800">${escapeHtml(storage)}</span></div>
-              <div class="flex items-center justify-between gap-3"><span class="text-gray-400">Created</span><span class="text-gray-800">${escapeHtml(created)}</span></div>
-              <div class="flex items-center justify-between gap-3"><span class="text-gray-400">Owner</span><span class="text-gray-800">${escapeHtml(owner)}</span></div>
-              ${status !== "DELETED" ? `
-              <div class="pt-2">
-                <button type="button" class="delete-instance-btn text-xs font-medium text-red-600 underline decoration-red-200 underline-offset-4 hover:text-red-700"
-                        data-instance-id="${iid}"
-                        data-instance-name="${escapeHtml(instance.name || "")}"
-                        data-instance-status="${escapeHtml(instance.status || "")}"
-                        data-server-status="${escapeHtml(server.status || "")}"
-                        data-domain-status="${escapeHtml(instance.domain_status || "")}"
-                        data-ssl-status="${escapeHtml(instance.ssl_status || "")}"
-                        data-enterprise-status="${escapeHtml(instance.enterprise_status || "")}">Delete instance</button>
-              </div>` : ""}
-            </div>
-          </details>
+          <div class="flex items-center justify-between gap-3 text-xs">
+            ${status === "CONFIGURING"
+              ? `<a href="#instance-progress-card-${iid}" class="font-medium text-amber-700 underline decoration-amber-200 underline-offset-4 hover:text-amber-800">Live Progress</a>`
+              : `<a href="/deployments/odoo/instances/${iid}/" class="font-medium text-gray-600 underline decoration-gray-200 underline-offset-4 hover:text-gray-900">Details</a>`}
+            ${status !== "DELETED" ? `
+              <button type="button" class="delete-instance-btn text-xs font-medium text-red-600 underline decoration-red-200 underline-offset-4 hover:text-red-700"
+                      data-instance-id="${iid}"
+                      data-instance-name="${escapeHtml(instance.name || "")}"
+                      data-instance-status="${escapeHtml(instance.status || "")}"
+                      data-server-status="${escapeHtml(server.status || "")}"
+                      data-domain-status="${escapeHtml(instance.domain_status || "")}"
+                      data-ssl-status="${escapeHtml(instance.ssl_status || "")}"
+                      data-enterprise-status="${escapeHtml(instance.enterprise_status || "")}">Delete instance</button>`
+              : ""}
+          </div>
         </div>
-        <div class="grid grid-cols-4 border-t border-gray-100 bg-white">
+        <div class="grid grid-cols-3 border-t border-gray-100 bg-white">
           ${status !== "DELETED" ? `
-          <button type="button" class="manage-domain-btn inline-flex h-14 flex-col items-center justify-center gap-1 border-r border-gray-100 text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900"
-                  title="${instance.domain ? "Manage domain" : "Add domain"}"
+          <button type="button" class="manage-domain-btn inline-flex h-14 items-center justify-center border-r border-gray-100 text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900"
+                  title="Add or manage domains"
                   data-instance-id="${iid}"
                   data-instance-name="${escapeHtml(instance.name || "")}"
                   data-instance-domain="${escapeHtml(instance.domain || "")}"
@@ -2414,22 +2548,14 @@ chmod 600 ~/.ssh/authorized_keys</pre>
                   data-instance-status="${escapeHtml(instance.status || "")}"
                   data-server-status="${escapeHtml(server.status || "")}"
                   data-enterprise-status="${escapeHtml(instance.enterprise_status || "")}">
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0a3 3 0 11-6 0m6 0H9"/></svg>
-            <span>Domain</span>
-          </button>` : `<span class="inline-flex h-14 flex-col items-center justify-center gap-1 border-r border-gray-100 text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-300"><svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0a3 3 0 11-6 0m6 0H9"/></svg><span>Domain</span></span>`}
-          <a href="/deployments/odoo/instances/${iid}/" class="inline-flex h-14 flex-col items-center justify-center gap-1 border-r border-gray-100 text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900" title="Dashboard">
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.983 5.5a1.5 1.5 0 013 0l.18 1.24a1.5 1.5 0 001.178 1.238l1.221.27a1.5 1.5 0 01.75 2.49l-.84.93a1.5 1.5 0 000 2.008l.84.93a1.5 1.5 0 01-.75 2.49l-1.221.27a1.5 1.5 0 00-1.178 1.238l-.18 1.24a1.5 1.5 0 01-3 0l-.18-1.24a1.5 1.5 0 00-1.178-1.238l-1.221-.27a1.5 1.5 0 01-.75-2.49l.84-.93a1.5 1.5 0 000-2.008l-.84-.93a1.5 1.5 0 01.75-2.49l1.221-.27A1.5 1.5 0 0011.803 6.74l.18-1.24z"/><circle cx="13.5" cy="12" r="2.5" stroke-width="2"/></svg>
-            <span>Dashboard</span>
+            <span>Add Domain</span>
+          </button>` : `<span class="inline-flex h-14 items-center justify-center border-r border-gray-100 text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-300">Add Domain</span>`}
+          <a href="/deployments/odoo/instances/${iid}/?tab=addons" class="inline-flex h-14 items-center justify-center border-r border-gray-100 text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900" title="Addons">
+            Code
           </a>
-          <a href="/deployments/odoo/instances/${iid}/?tab=addons" class="inline-flex h-14 flex-col items-center justify-center gap-1 border-r border-gray-100 text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900" title="GitHub and code">
-            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M12 2a10 10 0 00-3.162 19.489c.5.092.684-.217.684-.483 0-.237-.009-.866-.014-1.7-2.782.605-3.369-1.342-3.369-1.342-.455-1.156-1.11-1.464-1.11-1.464-.908-.621.069-.608.069-.608 1.004.071 1.532 1.031 1.532 1.031.892 1.528 2.341 1.087 2.91.832.091-.646.349-1.087.635-1.337-2.221-.253-4.556-1.111-4.556-4.944 0-1.092.39-1.985 1.03-2.684-.104-.253-.446-1.271.097-2.65 0 0 .84-.269 2.75 1.026A9.565 9.565 0 0112 6.844a9.56 9.56 0 012.504.337c1.909-1.295 2.748-1.026 2.748-1.026.545 1.379.203 2.397.1 2.65.64.699 1.028 1.592 1.028 2.684 0 3.842-2.338 4.688-4.566 4.936.358.309.677.92.677 1.855 0 1.338-.012 2.419-.012 2.749 0 .269.18.58.69.481A10 10 0 0012 2z" clip-rule="evenodd"/></svg>
-            <span>Code</span>
-          </a>
-          ${status !== "DELETED" ? `
-          <a href="/deployments/odoo/instances/${iid}/" class="inline-flex h-14 flex-col items-center justify-center gap-1 bg-gray-950 text-[11px] font-semibold uppercase tracking-[0.2em] text-white transition-colors hover:bg-gray-800" title="Open instance dashboard">
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 3h7m0 0v7m0-7L10 14"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5h5M5 5a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2v-5"/></svg>
-            <span>Open</span>
-          </a>` : `<span class="inline-flex h-14 flex-col items-center justify-center gap-1 bg-gray-100 text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-300" title="Instance not ready yet"><svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 3h7m0 0v7m0-7L10 14"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 5h5M5 5a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2v-5"/></svg><span>Open</span></span>`}
+          ${openUrl && status !== "DELETED"
+            ? `<a href="${escapeHtml(openUrl)}" target="_blank" rel="noopener noreferrer" class="inline-flex h-14 items-center justify-center bg-gray-950 text-[11px] font-semibold uppercase tracking-[0.2em] text-white transition-colors hover:bg-gray-800" title="Open domain">Open</a>`
+            : `<span class="inline-flex h-14 items-center justify-center bg-gray-100 text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-300" title="Domain not ready yet">Open</span>`}
         </div>
       </article>`;
   }
@@ -2797,8 +2923,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
       instanceBtn.dataset.serverStatus = server.status || "";
       instanceBtn.dataset.serverIsReachable = reachable ? "true" : "false";
       instanceBtn.dataset.serverLastCheckedAt = server.last_checked_at || "";
-      instanceBtn.dataset.targetUrl = `/deployments/create/?server_id=${sid}&section=instances#instances`;
-      instanceBtn.textContent = "Create Instance";
+      instanceBtn.textContent = "Instances";
       instanceBtn.disabled = !(provisioned && (!server.last_checked_at || reachable));
       instanceBtn.className = instanceBtn.disabled
         ? "open-server-instances-btn flex-1 inline-flex items-center justify-center px-3 py-2 text-xs font-medium rounded-lg transition-colors text-gray-400 bg-gray-100 cursor-not-allowed"
@@ -3035,6 +3160,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
           const btn = document.querySelector(`.open-server-instances-btn[data-server-id="${serverId}"]`);
           if (btn) {
             btn.disabled = false;
+            btn.textContent = "Instances";
             btn.className = "open-server-instances-btn flex-1 inline-flex items-center justify-center px-3 py-2 text-xs font-medium rounded-lg transition-colors text-white bg-gray-900 hover:bg-gray-700";
           }
           refreshServerCards();
@@ -3131,11 +3257,15 @@ chmod 600 ~/.ssh/authorized_keys</pre>
         <div class="flex items-center gap-2"><span class="w-12 text-[10px] text-gray-400 shrink-0">Disk</span><div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div id="server-metrics-disk-bar-${sid}" class="h-full rounded-full bg-green-400 transition-all duration-500" style="width:0%"></div></div><span id="server-metrics-disk-val-${sid}" class="w-9 text-right text-[10px] text-gray-500 tabular-nums">—</span></div>
         <div class="flex items-center gap-2"><span class="w-12 text-[10px] text-gray-400 shrink-0">Conn.</span><div class="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden"><div id="server-metrics-conn-bar-${sid}" class="h-full rounded-full bg-green-400 transition-all duration-500" style="width:0%"></div></div><span id="server-metrics-conn-val-${sid}" class="w-9 text-right text-[10px] text-gray-500 tabular-nums">—</span></div>
       </div>
-      <div class="mt-4 flex gap-2">
+      <div class="mt-4 grid grid-cols-4 gap-2">
+        <a href="/deployments/create/?server_id=${sid}&section=instances&server_tab=dashboard#server-workspace-tabs"
+           class="inline-flex items-center justify-center px-3 py-2 text-xs font-medium rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors">
+          Dashboard
+        </a>
         <button type="button" disabled
                 class="open-server-instances-btn flex-1 inline-flex items-center justify-center px-3 py-2 text-xs font-medium rounded-lg transition-colors text-gray-400 bg-gray-100 cursor-not-allowed"
-                data-server-id="${sid}" data-server-name="${name}" data-target-url="/deployments/create/?server_id=${sid}&section=instances#instances">
-          Create Instance
+                data-server-id="${sid}" data-server-name="${name}" data-server-ip="${escapeHtml(server.ip_address || "")}" data-server-min-port="${escapeHtml(server.min_port || 8069)}" data-server-mode="${escapeHtml(server.deployment_mode || "")}" data-server-status="${escapeHtml(server.status || "")}" data-server-is-reachable="${server.is_reachable ? "true" : "false"}" data-server-last-checked-at="${escapeHtml(server.last_checked_at || "")}">
+          Instances
         </button>
         <button type="button"
                 class="open-ssh-keys-modal px-3 py-2 text-xs font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
@@ -3146,13 +3276,6 @@ chmod 600 ~/.ssh/authorized_keys</pre>
           SSH Keys
         </button>
         <button type="button"
-                class="archive-server-btn px-3 py-2 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-                data-server-id="${sid}"
-                data-server-name="${name}"
-                data-server-status="${escapeHtml(server.status || "")}">
-          Archive
-        </button>
-        <button type="button"
                 class="toggle-server-details px-3 py-2 text-xs font-medium text-gray-700 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
                 data-server-id="${sid}"
                 aria-expanded="false">
@@ -3161,28 +3284,38 @@ chmod 600 ~/.ssh/authorized_keys</pre>
       </div>`;
     newCard.innerHTML += `
       <div id="server-details-${sid}" class="hidden mt-3 pt-3 border-t border-gray-100 space-y-3">
-        <div class="grid grid-cols-2 gap-2 text-xs text-gray-600">
+        <div class="flex flex-wrap gap-2">
+          <a href="#server-monitoring-${sid}" class="inline-flex items-center rounded-full border border-gray-200 px-2.5 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50">Monitoring</a>
+          <a href="#server-postgres-${sid}" class="inline-flex items-center rounded-full border border-gray-200 px-2.5 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50">Postgres</a>
+          <a href="#server-settings-${sid}" class="inline-flex items-center rounded-full border border-gray-200 px-2.5 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50">Settings</a>
+        </div>
+        <div id="server-monitoring-${sid}" class="rounded-2xl border border-gray-200 bg-gray-50 p-3">
           <div class="flex items-center justify-between gap-3">
-            <span class="text-gray-500">IP</span>
-            <span id="server-ip-${sid}" class="font-mono text-[11px] text-gray-800">${server.ip_address || "—"}</span>
+            <div>
+              <p class="text-[10px] uppercase tracking-wide text-gray-400">Monitoring</p>
+              <p class="mt-1 text-xs text-gray-600">Live resource usage and connection health for this server.</p>
+            </div>
+            <button type="button" class="server-refresh-metrics-btn text-[10px] font-medium text-gray-500 underline hover:text-gray-700" data-server-id="${sid}">
+              Refresh
+            </button>
           </div>
-          ${deployMode === "DOCKER"
-            ? `<div class="flex items-center justify-between gap-3"><span class="text-gray-500">Routing</span><span id="server-routing-${sid}" class="text-[11px] text-gray-800">Domain → HTTPS (Traefik)</span></div>`
-            : `<div class="flex items-center justify-between gap-3"><span class="text-gray-500">Port Range</span><span id="server-port-range-${sid}" class="font-mono text-[11px] text-gray-800">${server.min_port || 8069}–${server.max_port || 8100}</span></div>`
-          }
-          <div class="flex items-center justify-between gap-3">
-            <span class="text-gray-500">Instances</span>
-            <span id="server-instances-${sid}">${typeof server.instance_count === "number" ? server.instance_count : 0}/${server.max_instances || "—"}</span>
-          </div>
+        </div>
+        <div id="server-postgres-${sid}" class="rounded-2xl border border-gray-200 bg-gray-50 p-3 space-y-2">
+          <p class="text-[10px] uppercase tracking-wide text-gray-400">Postgres</p>
+          ${(server.deployment_mode || "").toUpperCase() === "DOCKER"
+            ? `<div class="flex items-center justify-between gap-3 text-xs text-gray-600"><span class="text-gray-500">Host</span><span class="font-mono text-gray-800">${escapeHtml(server.ip_address || "pending")}:5432</span></div><div class="flex items-center justify-between gap-3 text-xs text-gray-600"><span class="text-gray-500">Engine</span><span class="text-gray-800">Shared Docker PostgreSQL</span></div>`
+            : `<p class="text-xs text-gray-600">Postgres is managed inside each bare-metal instance layout. Use the server dashboard and instance pages for database-level operations.</p>`}
+        </div>
+        <div id="server-settings-${sid}" class="rounded-2xl border border-gray-200 bg-gray-50 p-3 space-y-2">
+          <p class="text-[10px] uppercase tracking-wide text-gray-400">Settings</p>
+          <p class="text-xs text-gray-600">Use these lower-frequency actions without crowding the main card.</p>
+        </div>
+        <div class="grid grid-cols-1 gap-2 text-xs text-gray-600">
           <div class="flex items-center justify-between gap-3">
             <span class="text-gray-500">Connection</span>
             <button type="button" class="check-connectivity-btn text-[10px] text-gray-400 hover:text-gray-600 underline"
                     data-server-id="${sid}"
                     data-server-status="${escapeHtml(server.status || "")}">Check now</button>
-          </div>
-          <div class="flex items-center justify-between gap-3 col-span-2">
-            <span class="text-gray-500">Example access</span>
-            <span id="server-example-access-${sid}" class="${exampleAccessClass}">${exampleAccessText}</span>
           </div>
         </div>
         <div id="server-progress-wrap-${sid}" class="hidden">
@@ -3196,7 +3329,14 @@ chmod 600 ~/.ssh/authorized_keys</pre>
           <p class="text-[10px] uppercase tracking-wide text-gray-400 mb-1.5">Installation Summary</p>
           <pre id="server-summary-text-${sid}" class="text-[11px] font-mono text-gray-700 bg-gray-50 border border-gray-100 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap"></pre>
         </div>
-        <div class="pt-2">
+        <div class="pt-2 flex items-center justify-between gap-3">
+          <button type="button"
+                  class="archive-server-btn text-[11px] font-medium text-gray-600 underline decoration-gray-200 underline-offset-4"
+                  data-server-id="${sid}"
+                  data-server-name="${name}"
+                  data-server-status="${escapeHtml(server.status || "")}">
+            Archive
+          </button>
           <button type="button"
                   class="delete-server-btn text-[11px] font-medium text-red-600 underline"
                   data-server-id="${sid}"
@@ -3853,34 +3993,36 @@ chmod 600 ~/.ssh/authorized_keys</pre>
   });
 
   // ─── create instance modal ───────────────────────────────────────────────
+  function openInstanceModalFromButton(btn) {
+    if (!btn || btn.disabled) return;
+    selectedServerId      = btn.dataset.serverId || "";
+    selectedServerIp      = btn.dataset.serverIp || "";
+    selectedServerMinPort = parseInt(btn.dataset.serverMinPort || "8069", 10);
+    selectedServerMode    = btn.dataset.serverMode || "BARE_METAL";
+    $("instance-server-name").textContent = btn.dataset.serverName || "";
+    $("instance-name").value = "";
+    $("instance-db-name").value = "";
+    if ($("instance-platform-label")) $("instance-platform-label").value = randomPlatformLabel();
+    syncAutogeneratedInstanceFields(true);
+    setMsg($("instance-modal-msg"), "");
+    const modeBadge = $("instance-server-mode-badge");
+    const accessBox   = $("instance-access-box");
+    const accessLabel = $("instance-access-label");
+    if (selectedServerMode === "DOCKER") {
+      if (modeBadge)   { modeBadge.textContent = "Docker"; modeBadge.className = "ml-2 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700"; show(modeBadge); }
+      if (accessBox)   accessBox.className = "border rounded-lg px-3 py-2.5 bg-purple-50 border-purple-100";
+      if (accessLabel) { accessLabel.textContent = "Primary access URL"; accessLabel.className = "text-xs text-purple-600 mb-1"; }
+    } else {
+      if (modeBadge)   { modeBadge.textContent = "Bare-metal"; modeBadge.className = "ml-2 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-700"; show(modeBadge); }
+      if (accessBox)   accessBox.className = "border rounded-lg px-3 py-2.5 bg-blue-50 border-blue-100";
+      if (accessLabel) { accessLabel.textContent = "Preferred access URL"; accessLabel.className = "text-xs text-blue-600 mb-1"; }
+    }
+    updateAccessPreview();
+    show(instanceModal);
+  }
+
   document.querySelectorAll(".open-instance-modal").forEach(btn => {
-    btn.addEventListener("click", () => {
-      if (btn.disabled) return;
-      selectedServerId      = btn.dataset.serverId || "";
-      selectedServerIp      = btn.dataset.serverIp || "";
-      selectedServerMinPort = parseInt(btn.dataset.serverMinPort || "8069", 10);
-      selectedServerMode    = btn.dataset.serverMode || "BARE_METAL";
-      $("instance-server-name").textContent = btn.dataset.serverName || "";
-      $("instance-name").value = "";
-      $("instance-db-name").value = "";
-      if ($("instance-platform-label")) $("instance-platform-label").value = randomPlatformLabel();
-      syncAutogeneratedInstanceFields(true);
-      setMsg($("instance-modal-msg"), "");
-      const modeBadge = $("instance-server-mode-badge");
-      const accessBox   = $("instance-access-box");
-      const accessLabel = $("instance-access-label");
-      if (selectedServerMode === "DOCKER") {
-        if (modeBadge)   { modeBadge.textContent = "Docker"; modeBadge.className = "ml-2 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-100 text-purple-700"; show(modeBadge); }
-        if (accessBox)   accessBox.className = "border rounded-lg px-3 py-2.5 bg-purple-50 border-purple-100";
-        if (accessLabel) { accessLabel.textContent = "Primary access URL"; accessLabel.className = "text-xs text-purple-600 mb-1"; }
-      } else {
-        if (modeBadge)   { modeBadge.textContent = "Bare-metal"; modeBadge.className = "ml-2 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-700"; show(modeBadge); }
-        if (accessBox)   accessBox.className = "border rounded-lg px-3 py-2.5 bg-blue-50 border-blue-100";
-        if (accessLabel) { accessLabel.textContent = "Preferred access URL"; accessLabel.className = "text-xs text-blue-600 mb-1"; }
-      }
-      updateAccessPreview();
-      show(instanceModal);
-    });
+    btn.addEventListener("click", () => openInstanceModalFromButton(btn));
   });
 
   function updateAccessPreview() {
@@ -3995,9 +4137,19 @@ chmod 600 ~/.ssh/authorized_keys</pre>
   document.addEventListener("click", async (e) => {
     const btn = e.target.closest(".open-server-instances-btn");
     if (!btn) return;
-    if (btn.disabled) return;
-    const targetUrl = btn.dataset.targetUrl || `/deployments/create/?server_id=${btn.dataset.serverId || ""}&section=instances#instances`;
-    window.location.href = targetUrl;
+    openInstanceModalFromButton(btn);
+  });
+
+  document.addEventListener("click", async (e) => {
+    const btn = e.target.closest(".server-refresh-metrics-btn");
+    if (!btn) return;
+    const sid = btn.dataset.serverId;
+    if (!sid) return;
+    btn.disabled = true;
+    btn.textContent = "Refreshing…";
+    await fetchServerMetrics(sid);
+    btn.disabled = false;
+    btn.textContent = "Refresh";
   });
 
   document.addEventListener("click", async (e) => {
