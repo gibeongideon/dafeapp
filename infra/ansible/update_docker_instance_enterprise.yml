@@ -38,6 +38,12 @@
         msg: "Enterprise addons directory not found on server: {{ enterprise_addons_host_path }}. Run sync_enterprise_to_server.yml first."
       when: not ent_stat.stat.exists
 
+    - name: Re-render per-instance odoo.conf with enterprise addons_path
+      template:
+        src: "{{ playbook_dir }}/../docker/templates/odoo.conf.j2"
+        dest: "{{ docker_compose_dir }}/instances/{{ client_name }}.conf"
+        mode: "0644"
+
     - name: Re-render instance docker-compose with enterprise volume
       template:
         src: "{{ playbook_dir }}/../docker/templates/docker-compose.instance.yml.j2"
@@ -59,3 +65,19 @@
       until: container_status.stdout == "running"
       retries: 12
       delay: 5
+      failed_when: false
+
+    - name: Capture container logs if container did not reach running state
+      command: docker logs --tail 60 {{ container_name }}
+      register: container_logs
+      when: container_status.stdout != "running"
+      failed_when: false
+
+    - name: Fail with logs if container did not reach running state
+      fail:
+        msg: |
+          Container {{ container_name }} did not reach running state (last status: {{ container_status.stdout | default('unknown') }}).
+          --- Recent logs ---
+          {{ container_logs.stdout | default('') }}
+          {{ container_logs.stderr | default('') }}
+      when: container_status.stdout != "running"
