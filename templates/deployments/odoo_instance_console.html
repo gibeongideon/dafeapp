@@ -204,12 +204,12 @@
         </div>
         <div class="bg-gray-50 border border-gray-200 rounded-lg p-3">
           <p class="text-xs text-gray-500 mb-0.5">Access URL</p>
-          {% if odoo_server.deployment_mode == "DOCKER" and odoo_instance.ssl_enabled and odoo_instance.domain %}
-          <a href="https://{{ odoo_instance.domain }}" target="_blank"
-             class="text-sm font-medium text-purple-600 hover:underline truncate block">https://{{ odoo_instance.domain }} ↗</a>
+          {% if odoo_instance.ssl_enabled and odoo_instance.domain %}
+          <a href="{{ odoo_instance.domain_access_url }}" target="_blank"
+             class="text-sm font-medium text-purple-600 hover:underline truncate block">{{ odoo_instance.domain_access_url }} ↗</a>
           {% elif odoo_instance.domain %}
-          <a href="{{ odoo_instance.access_url }}" target="_blank"
-             class="text-sm font-medium text-blue-600 hover:underline truncate block">Open ↗</a>
+          <a href="{{ odoo_instance.direct_access_url }}" target="_blank"
+             class="text-sm font-medium text-blue-600 hover:underline truncate block">{{ odoo_instance.direct_access_url }} ↗</a>
           {% else %}
           <p class="text-sm font-medium text-gray-800">{{ odoo_server.ip_address }}:{{ odoo_instance.http_port }}</p>
           {% endif %}

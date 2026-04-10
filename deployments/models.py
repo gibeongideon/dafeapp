@@ -523,7 +523,11 @@ class OdooInstance(models.Model):
         if self.server_id and self.server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
             return self.domain_access_url
 
-        if self.domain_status == self.DomainStatus.ACTIVE or self.ssl_status == self.SSLStatus.ACTIVE or self.ssl_enabled:
+        tls_mode = self.server.tls_mode if self.server_id else OdooServer.TLSMode.LETS_ENCRYPT
+        tls_disabled = tls_mode == OdooServer.TLSMode.DISABLED
+        domain_active = self.domain_status == self.DomainStatus.ACTIVE
+        ssl_active = self.ssl_enabled or self.ssl_status == self.SSLStatus.ACTIVE
+        if domain_active and (tls_disabled or ssl_active):
             return self.domain_access_url
         return self.direct_access_url
 

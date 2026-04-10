@@ -455,7 +455,8 @@
   </div>
 
   {% if selected_server or show_instances_view %}
-  <div class="grid gap-5 xl:grid-cols-[240px_minmax(0,1fr)] items-start">
+  <div class="{% if selected_server %}space-y-4{% else %}grid gap-5 xl:grid-cols-[240px_minmax(0,1fr)] items-start{% endif %}">
+    {% if not selected_server %}
     <aside class="xl:sticky xl:top-6 space-y-4">
       <section class="rounded-xl border border-gray-200 bg-white p-3">
         <div class="flex items-end justify-between gap-3">
@@ -511,6 +512,7 @@
         </div>
       </section>
     </aside>
+    {% endif %}
 
     <div class="space-y-4">
       <section class="bg-white border border-gray-200 rounded-3xl p-5 shadow-sm">
@@ -828,7 +830,7 @@
                 Code
               </a>
               {% if oi.domain or oi.preferred_access_url and oi.status != 'DELETED' %}
-              <a href="{% if oi.domain %}https://{{ oi.domain }}{% else %}{{ oi.preferred_access_url }}{% endif %}"
+              <a href="{{ oi.preferred_access_url }}"
                  target="_blank" rel="noopener noreferrer"
                  class="inline-flex h-12 items-center justify-center text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900"
                  title="Open domain">
@@ -894,27 +896,27 @@
               <td class="px-5 py-3">
                 {% if oi.server.deployment_mode == 'DOCKER' %}
                   {% if oi.domain and oi.domain_status == 'ACTIVE' %}
-                  <a href="https://{{ oi.domain }}"
+                  <a href="{{ oi.domain_access_url }}"
                      target="_blank" rel="noopener noreferrer"
                      class="inline-flex items-center gap-1 font-mono text-xs text-purple-600 hover:text-purple-800 hover:underline">
-                    https://{{ oi.domain }}
+                    {{ oi.domain_access_url }}
                     <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
                   </a>
                   {% elif oi.domain %}
                   <div class="space-y-1">
                     <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 text-amber-700">Awaiting activation</span>
-                    <div class="font-mono text-xs text-gray-400">https://{{ oi.domain }}</div>
+                    <div class="font-mono text-xs text-gray-400">{{ oi.domain_access_url }}</div>
                   </div>
                   {% else %}
                   <span class="text-xs text-gray-400">no domain set</span>
                   {% endif %}
                 {% else %}
-                  {% if oi.domain and oi.domain_status == 'ACTIVE' %}
+                  {% if oi.domain and oi.ssl_enabled %}
                   <div class="space-y-1">
-                    <a href="https://{{ oi.domain }}"
+                    <a href="{{ oi.domain_access_url }}"
                        target="_blank" rel="noopener noreferrer"
                        class="inline-flex items-center gap-1 font-mono text-xs text-indigo-600 hover:text-indigo-800 hover:underline">
-                      https://{{ oi.domain }}
+                      {{ oi.domain_access_url }}
                       <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
                     </a>
                     {% if oi.direct_access_url %}
@@ -923,8 +925,8 @@
                   </div>
                   {% elif oi.domain %}
                   <div class="space-y-1">
-                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 text-amber-700">Awaiting activation</span>
-                    <div class="font-mono text-xs text-gray-400">https://{{ oi.domain }}</div>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 text-amber-700">Awaiting SSL</span>
+                    <div class="font-mono text-xs text-gray-400">{{ oi.domain_access_url }}</div>
                     {% if oi.direct_access_url %}
                     <a href="{{ oi.direct_access_url }}"
                        target="_blank" rel="noopener noreferrer"
