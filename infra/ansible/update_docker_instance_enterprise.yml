@@ -13,6 +13,7 @@
 #   postgres_password            - DB password
 #   restart_policy               - Docker restart policy  (e.g. unless-stopped)
 #   container_name               - container name  (e.g. odoo-acme-prod)
+#   http_port                    - host port mapped to Odoo container (e.g. 8069)
 #   cpu_limit                    - float  (e.g. 1.0)
 #   mem_limit_mb                 - int MB  (e.g. 1024)
 #   enterprise_addons_host_path  - absolute host path to enterprise addons dir on this server

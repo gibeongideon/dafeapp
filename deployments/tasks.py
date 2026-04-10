@@ -3778,6 +3778,7 @@ def activate_enterprise_for_instance(self, instance_id: int, source_id: int | No
                         "postgres_password": server.docker_postgres_password,
                         "restart_policy": instance.restart_policy or "unless-stopped",
                         "container_name": instance.container_name or f"odoo-{client_name}",
+                        "http_port": instance.http_port,
                         "cpu_limit": float(instance.requested_cpu_cores or 1),
                         "mem_limit_mb": int(instance.requested_ram_mb or 1024),
                         "enterprise_addons_host_path": enterprise_host_path,
