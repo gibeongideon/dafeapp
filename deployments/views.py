@@ -89,6 +89,7 @@ from deployments.tasks import (
     refresh_instance_addons,
     remove_instance_repo,
     restart_odoo_instance,
+    stop_odoo_instance,
     rollback_odoo_instance,
     rollback_instance_repo,
     sync_instance_repo_status,
@@ -3792,6 +3793,38 @@ class OdooInstanceRestartAPIView(LoginRequiredMixin, View):
         except Exception:
             pass
 
+        return JsonResponse({"ok": True, "job_id": job.id})
+
+
+class OdooInstanceStopAPIView(LoginRequiredMixin, View):
+    """POST /api/deployments/odoo/instances/<id>/maintenance/stop/ — stop the Odoo service."""
+
+    def post(self, request, instance_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if request.org_role not in ("SUPER_ADMIN", "ADMIN", "MANAGER"):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        instance = get_object_or_404(
+            OdooInstance.objects.select_related("server"),
+            pk=instance_id,
+            organization=org,
+        )
+        if instance.status in (OdooInstance.Status.DELETED, OdooInstance.Status.STOPPED):
+            return JsonResponse({"error": f"Instance is already {instance.status.lower()}."}, status=400)
+        lock_reason = _instance_mutation_lock_reason(instance)
+        if lock_reason:
+            return JsonResponse({"error": lock_reason}, status=409)
+
+        job = DeploymentJob.objects.create(
+            organization=org,
+            job_type=DeploymentJob.JobType.RESTART_INSTANCE,
+            odoo_instance=instance,
+            odoo_server=instance.server,
+            created_by=request.user,
+        )
+        _dispatch(stop_odoo_instance, instance.id, job.id)
         return JsonResponse({"ok": True, "job_id": job.id})
 
 

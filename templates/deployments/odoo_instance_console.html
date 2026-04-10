@@ -1104,6 +1104,62 @@
                  x-text="restartMsg"></div>
           </div>
 
+          <!-- Stop Instance -->
+          <div class="rounded-xl border border-gray-200 bg-white p-5 flex flex-col gap-3">
+            <div class="flex items-start gap-3">
+              <div class="mt-0.5 rounded-lg bg-amber-50 p-2">
+                <svg class="w-5 h-5 text-amber-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 7.5A2.25 2.25 0 017.5 5.25h9a2.25 2.25 0 012.25 2.25v9a2.25 2.25 0 01-2.25 2.25h-9a2.25 2.25 0 01-2.25-2.25v-9z"/>
+                </svg>
+              </div>
+              <div>
+                <p class="text-sm font-semibold text-gray-900">Stop Instance</p>
+                <p class="text-xs text-gray-500 mt-0.5">Stops the Odoo service. The database and data are preserved — use Restart to bring it back.</p>
+              </div>
+            </div>
+            <button @click="stopInstance()"
+                    :disabled="stopLoading || instanceActionsLocked()"
+                    class="inline-flex items-center justify-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed transition">
+              <svg x-show="stopLoading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+              </svg>
+              <span x-text="stopLoading ? 'Stopping…' : 'Stop Instance'"></span>
+            </button>
+            <div x-show="stopMsg"
+                 :class="stopOk ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'"
+                 class="rounded-lg border px-3 py-2 text-xs"
+                 x-text="stopMsg"></div>
+          </div>
+
+          <!-- Delete Instance -->
+          <div class="rounded-xl border border-red-100 bg-white p-5 flex flex-col gap-3">
+            <div class="flex items-start gap-3">
+              <div class="mt-0.5 rounded-lg bg-red-50 p-2">
+                <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"/>
+                </svg>
+              </div>
+              <div>
+                <p class="text-sm font-semibold text-gray-900">Delete Instance</p>
+                <p class="text-xs text-gray-500 mt-0.5">Permanently removes the container/service, drops the database, and frees the port. This cannot be undone.</p>
+              </div>
+            </div>
+            <button @click="deleteInstance()"
+                    :disabled="deleteLoading || instanceActionsLocked()"
+                    class="inline-flex items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition">
+              <svg x-show="deleteLoading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+              </svg>
+              <span x-text="deleteLoading ? 'Deleting…' : 'Delete Instance'"></span>
+            </button>
+            <div x-show="deleteMsg"
+                 :class="deleteOk ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'"
+                 class="rounded-lg border px-3 py-2 text-xs"
+                 x-text="deleteMsg"></div>
+          </div>
+
         </div>
       </div>
 
@@ -1342,6 +1398,12 @@ function instanceConsole(instanceId) {
     restartLoading: false,
     restartOk: false,
     restartMsg: null,
+    stopLoading: false,
+    stopOk: false,
+    stopMsg: null,
+    deleteLoading: false,
+    deleteOk: false,
+    deleteMsg: null,
 
     // ── Init ──
     init() {
@@ -3084,6 +3146,54 @@ function instanceConsole(instanceId) {
         this.restartMsg = 'Network error: ' + err.message;
       } finally {
         this.restartLoading = false;
+      }
+    },
+
+    async stopInstance() {
+      if (this.instanceActionsLocked()) {
+        this.stopOk  = false;
+        this.stopMsg = this.instanceActionLockReason();
+        return;
+      }
+      if (!confirm('Stop this Odoo instance? The database and data are preserved.')) return;
+      this.stopLoading = true;
+      this.stopMsg     = null;
+      try {
+        const res  = await fetch(`/deployments/odoo/instances/${this.instanceId}/maintenance/stop/`, {
+          method: 'POST',
+          headers: { 'X-CSRFToken': this.getCsrf() },
+        });
+        const data = await res.json();
+        this.stopOk  = res.ok;
+        this.stopMsg = data.error ?? (res.ok ? 'Stop queued — watch the Jobs tab for progress.' : 'Failed to queue stop.');
+        if (res.ok) { this.loadJobs(); this.setToolbarTab('upgrade-tools'); }
+      } catch (err) {
+        this.stopOk  = false;
+        this.stopMsg = 'Network error: ' + err.message;
+      } finally {
+        this.stopLoading = false;
+      }
+    },
+
+    async deleteInstance() {
+      if (!confirm('Permanently delete this instance? This drops the database and cannot be undone.')) return;
+      if (!confirm('Are you sure? All data will be lost.')) return;
+      this.deleteLoading = true;
+      this.deleteMsg     = null;
+      try {
+        const res  = await fetch(`/deployments/odoo/instances/${this.instanceId}/delete/`, {
+          method: 'POST',
+          headers: { 'X-CSRFToken': this.getCsrf() },
+        });
+        const data = await res.json();
+        this.deleteOk  = res.ok;
+        this.deleteMsg = data.error ?? (res.ok ? 'Instance deletion queued. Redirecting…' : 'Failed to delete instance.');
+        if (res.ok) { setTimeout(() => { window.location.href = '/deployments/create/'; }, 1500); }
+      } catch (err) {
+        this.deleteOk  = false;
+        this.deleteMsg = 'Network error: ' + err.message;
+      } finally {
+        this.deleteLoading = false;
       }
     },
 

@@ -60,4 +60,5 @@ urlpatterns = [
     path("odoo/instances/<int:instance_id>/commands/", views.OdooInstanceCommandsAPIView.as_view(), name="odoo-instance-commands"),
     path("odoo/instances/<int:instance_id>/maintenance/update-modules/", views.OdooInstanceUpdateModulesAPIView.as_view(), name="odoo-instance-update-modules"),
     path("odoo/instances/<int:instance_id>/maintenance/restart/", views.OdooInstanceRestartAPIView.as_view(), name="odoo-instance-restart"),
+    path("odoo/instances/<int:instance_id>/maintenance/stop/", views.OdooInstanceStopAPIView.as_view(), name="odoo-instance-stop"),
 ]

@@ -353,6 +353,7 @@ class OdooInstance(models.Model):
         PENDING = "PENDING", "Pending"
         CONFIGURING = "CONFIGURING", "Configuring"
         RUNNING = "RUNNING", "Running"
+        STOPPED = "STOPPED", "Stopped"
         FAILED = "FAILED", "Failed"
         DELETED = "DELETED", "Deleted"
 

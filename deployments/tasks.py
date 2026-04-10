@@ -307,18 +307,21 @@ def _instance_runtime_context(instance: OdooInstance) -> dict:
     if server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
         client_name = db_name.replace("_", "-")
         addons_root = instance.addons_root_path or f"/data/odoo/{client_name}/addons"
+        container = instance.container_name or f"odoo-{client_name}"
         return {
             "mode": "docker",
             "addons_root_path": addons_root,
             "config_file": summary.get("config_file") or f"/opt/odoo-docker/instances/{client_name}.conf",
             "core_addons_path": "/usr/lib/python3/dist-packages/odoo/addons",
             "container_addons_root": "/var/lib/odoo/addons",
-            "restart_command": f"docker restart {shlex.quote(instance.container_name or f'odoo-{client_name}')}",
-            "container_name": instance.container_name or f"odoo-{client_name}",
+            "restart_command": f"docker restart {shlex.quote(container)}",
+            "stop_command": f"docker stop {shlex.quote(container)}",
+            "container_name": container,
         }
 
     if summary.get("core_addons_dir"):
         addons_root = instance.addons_root_path or summary.get("custom_addons_dir") or f"/odoo/instances/{db_name}/addons/custom"
+        svc = shlex.quote(instance.systemd_service or f"odoo-{db_name}")
         return {
             "mode": "bare_direct",
             "addons_root_path": addons_root,
@@ -326,12 +329,14 @@ def _instance_runtime_context(instance: OdooInstance) -> dict:
             "config_file": summary.get("config_file") or f"/etc/odoo-{db_name}.conf",
             "core_addons_path": summary.get("core_addons_dir") or f"/odoo/instances/{db_name}/addons/core",
             "odoo_bin": f"{summary.get('venv_dir') or f'/odoo/instances/{db_name}/venv'}/bin/python {summary.get('source_dir') or '/odoo/odoo-server'}/odoo-bin",
-            "restart_command": f"systemctl restart {shlex.quote(instance.systemd_service or f'odoo-{db_name}')}",
+            "restart_command": f"systemctl restart {svc}",
+            "stop_command": f"systemctl stop {svc}",
         }
 
     instance_dir = summary.get("instance_dir") or f"/opt/odoo{server.odoo_version}/instances/{db_name}"
     odoo_home = f"/opt/odoo{server.odoo_version}"
     addons_root = instance.addons_root_path or f"{instance_dir}/addons"
+    svc = shlex.quote(instance.systemd_service or f"odoo-{db_name}")
     return {
         "mode": "bare_domain",
         "addons_root_path": addons_root,
@@ -339,7 +344,8 @@ def _instance_runtime_context(instance: OdooInstance) -> dict:
         "config_file": summary.get("config_file") or f"{instance_dir}/odoo.conf",
         "core_addons_path": summary.get("addons_dir") or f"{odoo_home}/src/odoo/addons",
         "odoo_bin": f"{summary.get('venv_dir') or f'{odoo_home}/venv'}/bin/python {summary.get('source_dir') or f'{odoo_home}/src/odoo'}/odoo-bin",
-        "restart_command": f"systemctl restart {shlex.quote(instance.systemd_service or f'odoo-{db_name}')}",
+        "restart_command": f"systemctl restart {svc}",
+        "stop_command": f"systemctl stop {svc}",
     }
 
 
@@ -5081,3 +5087,56 @@ def restart_odoo_instance(self, instance_id: int, job_id: int | None = None):
         _job_done(job_id, ok=False, log=full_log)
         _broadcast_instance(instance_id, "restart", "FAILED", done=True, log=str(exc))
         logger.exception("restart_odoo_instance failed for instance %s", instance_id)
+
+
+@shared_task(bind=True, max_retries=0)
+def stop_odoo_instance(self, instance_id: int, job_id: int | None = None):
+    """Stop the Odoo service/container for an instance without deleting it."""
+    instance = OdooInstance.objects.select_related(
+        "organization",
+        "server",
+        "server__infrastructure",
+        "server__infrastructure__external_server",
+    ).get(pk=instance_id)
+    server = instance.server
+
+    _job_start(job_id, self.request.id)
+    ws_group = f"odoo.instance.{instance_id}"
+    log_parts: list[str] = []
+
+    def on_line(line: str):
+        log_parts.append(line)
+        _broadcast_log_line(ws_group, line)
+
+    try:
+        if not server.ip_address:
+            raise RuntimeError("Server has no IP address; cannot stop service.")
+
+        runtime = _instance_runtime_context(instance)
+        stop_cmd = runtime.get("stop_command")
+        if not stop_cmd:
+            raise RuntimeError("Stop command not available for this instance mode.")
+
+        _broadcast_instance(instance_id, "stop", instance.status, log="Stopping instance…")
+        on_line("=== Stop Service ===")
+        on_line(f"Command: {stop_cmd}")
+        code, output = _ssh_run(server, stop_cmd, on_line=on_line, timeout=60)
+        log_parts.append(output)
+        if code != 0:
+            raise RuntimeError(output or "Service stop returned non-zero exit code.")
+
+        instance.status = OdooInstance.Status.STOPPED
+        instance.is_reachable = False
+        instance.last_health_check = timezone.now()
+        instance.provisioning_log = _append_text(instance.provisioning_log, "[stop]\nInstance stopped.")
+        instance.save(update_fields=["status", "is_reachable", "last_health_check", "provisioning_log", "updated_at"])
+
+        full_log = "\n".join(log_parts)
+        _job_done(job_id, ok=True, log=full_log)
+        _broadcast_instance(instance_id, "stop", "STOPPED", done=True, log="Instance stopped.")
+
+    except Exception as exc:
+        full_log = "\n".join(log_parts) + f"\nError: {exc}\n{traceback.format_exc()}"
+        _job_done(job_id, ok=False, log=full_log)
+        _broadcast_instance(instance_id, "stop", "FAILED", done=True, log=str(exc))
+        logger.exception("stop_odoo_instance failed for instance %s", instance_id)
