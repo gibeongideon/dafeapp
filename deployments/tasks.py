@@ -708,6 +708,38 @@ def _restart_and_refresh_instance_addons(
     return _append_text(restart_output, output)
 
 
+def _upgrade_all_instance_modules_once(
+    instance: OdooInstance,
+    *,
+    on_line=None,
+) -> str:
+    """
+    Run a one-shot `-u all --stop-after-init --no-http` using the instance config.
+    This is stronger than update_list() and helps rebuild assets/action registries
+    after addons_path changes such as Enterprise activation.
+    """
+    runtime = _instance_runtime_context(instance)
+    db = shlex.quote(instance.db_name)
+    service_user = runtime.get("service_user") or "odoo"
+
+    if runtime["mode"] == "docker":
+        container = shlex.quote(runtime.get("container_name", ""))
+        update_cmd = (
+            f"docker exec {container} odoo -c /etc/odoo/odoo.conf -d {db} "
+            f"-u all --stop-after-init --no-http"
+        )
+    else:
+        odoo_bin = runtime.get("odoo_bin", "odoo-bin")
+        config = shlex.quote(runtime.get("config_file", ""))
+        inner = f"{odoo_bin} -c {config} -d {db} -u all --stop-after-init --no-http"
+        update_cmd = f"su -s /bin/bash {shlex.quote(service_user)} -c {shlex.quote(inner)}"
+
+    code, output = _ssh_run(instance.server, update_cmd, on_line=on_line, timeout=3600)
+    if code != 0:
+        raise RuntimeError(output or "Failed to upgrade modules after Enterprise activation.")
+    return output
+
+
 def _prepare_remote_git_key(server: OdooServer, repo: OdooInstanceGitRepo) -> tuple[str, str]:
     credential = repo.credential
     if not credential:
@@ -3830,9 +3862,9 @@ def activate_enterprise_for_instance(self, instance_id: int, source_id: int | No
             if not ok:
                 raise RuntimeError(upload_log or "Failed to upload user Enterprise source to instance.")
 
-        # ── Step 3 (all paths): config + restart + refresh ───────────────────
+        # ── Step 3 (all paths): config + full module upgrade + restart ───────
         step_label = "3/3" if (is_platform or is_docker) else "2/2"
-        _broadcast_log_line(ws_group, f"=== Step {step_label}: Update config, restart, refresh modules ===")
+        _broadcast_log_line(ws_group, f"=== Step {step_label}: Update config, upgrade modules, restart ===")
 
         instance.enterprise_enabled = True
         instance.enterprise_source = source
@@ -3855,8 +3887,11 @@ def activate_enterprise_for_instance(self, instance_id: int, source_id: int | No
         )
 
         sync_log = _sync_instance_addons_config(instance, on_line=lambda line: _broadcast_log_line(ws_group, line))
+        _broadcast_log_line(ws_group, "=== Rebuilding installed modules and assets (-u all) ===")
+        upgrade_log = _upgrade_all_instance_modules_once(instance, on_line=lambda line: _broadcast_log_line(ws_group, line))
+        _broadcast_log_line(ws_group, "=== Restarting service and refreshing module registry ===")
         refresh_log = _restart_and_refresh_instance_addons(instance, on_line=lambda line: _broadcast_log_line(ws_group, line))
-        full_log = _append_text(full_log, _append_text(sync_log, refresh_log))
+        full_log = _append_text(full_log, _append_text(sync_log, _append_text(upgrade_log, refresh_log)))
 
         _broadcast_instance(
             instance.id,

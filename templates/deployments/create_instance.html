@@ -612,19 +612,6 @@
             </div>
 
             <div class="space-y-4 px-5 py-4">
-              <div class="grid grid-cols-2 gap-2 text-sm">
-                <div class="rounded-xl border border-gray-200 bg-gray-50 px-2.5 py-2">
-                  <p class="text-[10px] uppercase tracking-[0.16em] text-gray-400">Domain</p>
-                  <p id="instance-domain-{{ oi.id }}" class="mt-1.5 truncate text-[13px] font-medium {% if oi.domain %}text-gray-900{% else %}text-gray-400{% endif %}">
-                    {{ oi.domain|default:"Auto domain" }}
-                  </p>
-                </div>
-                <div class="rounded-xl border border-gray-200 bg-gray-50 px-2.5 py-2">
-                  <p class="text-[10px] uppercase tracking-[0.16em] text-gray-400">Version</p>
-                  <p class="mt-1.5 text-[13px] font-medium text-gray-900">Odoo {{ oi.server.odoo_version }}</p>
-                </div>
-              </div>
-
               {% if oi.status == 'CONFIGURING' %}
               <div class="rounded-2xl border border-amber-100 bg-amber-50 px-3 py-3">
                 <p class="text-[10px] uppercase tracking-[0.16em] text-amber-600">Provisioning</p>
@@ -2345,8 +2332,6 @@ chmod 600 ~/.ssh/authorized_keys</pre>
     const server = instance.server || {};
     const status = (instance.status || "").toUpperCase();
     const presentation = instancePresentation(instance);
-    const domainText = instance.domain || "Auto domain";
-    const domainClass = instance.domain ? "text-gray-900" : "text-gray-400";
     const ipText = server.ip_address ? `${server.ip_address}:${instance.http_port}` : "—";
     const cpuRam = `${instance.requested_cpu_cores || 1} vCPU / ${instance.requested_ram_mb || 1024} MB`;
     const storage = resolveInstanceStorage(instance) || "—";
@@ -2382,16 +2367,6 @@ chmod 600 ~/.ssh/authorized_keys</pre>
           </div>
         </div>
         <div class="space-y-4 px-5 py-4">
-          <div class="grid grid-cols-2 gap-2 text-sm">
-            <div class="rounded-xl border border-gray-200 bg-gray-50 px-2.5 py-2">
-              <p class="text-[10px] uppercase tracking-[0.16em] text-gray-400">Domain</p>
-              <p id="instance-domain-${iid}" class="mt-1.5 truncate text-[13px] font-medium ${domainClass}">${escapeHtml(domainText)}</p>
-            </div>
-            <div class="rounded-xl border border-gray-200 bg-gray-50 px-2.5 py-2">
-              <p class="text-[10px] uppercase tracking-[0.16em] text-gray-400">Version</p>
-              <p class="mt-1.5 text-[13px] font-medium text-gray-900">Odoo ${escapeHtml(server.odoo_version || "—")}</p>
-            </div>
-          </div>
           ${status === "CONFIGURING" && !progressLines.length ? `
             <div class="rounded-2xl border border-amber-100 bg-amber-50 px-3 py-3">
               <p class="text-[10px] uppercase tracking-[0.16em] text-amber-600">Provisioning</p>
