@@ -17,6 +17,8 @@ urlpatterns = [
 
     # Cloud accounts (DO)
     path("accounts/add/", views.AddCloudAccountView.as_view(), name="add-account"),
+    path("accounts/digitalocean/oauth/start/", views.DigitalOceanOAuthStartView.as_view(), name="digitalocean-oauth-start"),
+    path("accounts/digitalocean/oauth/callback/", views.DigitalOceanOAuthCallbackView.as_view(), name="digitalocean-oauth-callback"),
     path("accounts/<int:pk>/verify/", views.VerifyAccountView.as_view(), name="verify-account"),
     path("accounts/<int:pk>/options/", views.CloudAccountOptionsView.as_view(), name="account-options"),
 

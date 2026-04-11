@@ -31,6 +31,7 @@ from django.views.generic import TemplateView
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 
+from cloud.forms import PyOSSSHSettingsForm
 from cloud.models import CloudAccount, PyOSSSHSettings
 from cloud.providers import get_provider
 from cloud.pyos import looks_like_public_key_text
@@ -90,6 +91,7 @@ from deployments.tasks import (
     provision_odoo_server,
     refresh_instance_addons,
     remove_instance_repo,
+    swap_instance_repo,
     create_staging_instance,
     restart_odoo_instance,
     stop_odoo_instance,
@@ -649,11 +651,13 @@ def _create_instance_repo_and_dispatch(
     display_order=None,
 ):
     repo_name = _derive_repo_name(repo_name, git_url)
-    if instance.git_repos.filter(repo_name=repo_name).exists():
-        raise ValueError("A repo with that name already exists on this instance.")
+
+    # Auto-replace: collect any existing linked repo so we can swap it out
+    existing_repos = list(instance.git_repos.all())
+    old_repo = existing_repos[0] if existing_repos else None
 
     if display_order in ("", None):
-        display_order = instance.git_repos.count()
+        display_order = 0
 
     repo = OdooInstanceGitRepo.objects.create(
         instance=instance,
@@ -671,13 +675,25 @@ def _create_instance_repo_and_dispatch(
         default_branch=(branch or "main").strip() or "main",
         created_by=user,
     )
-    job = _repo_job(
-        org,
-        job_type=DeploymentJob.JobType.CLONE_INSTANCE_REPO,
-        instance=instance,
-        user=user,
-    )
-    _dispatch(clone_instance_repo, repo.id, job.id)
+
+    if old_repo is not None:
+        # Swap: remove old repo dir + DB record, then clone new repo — all under one lock
+        job = _repo_job(
+            org,
+            job_type=DeploymentJob.JobType.CLONE_INSTANCE_REPO,
+            instance=instance,
+            user=user,
+        )
+        _dispatch(swap_instance_repo, old_repo.id, repo.id, job.id)
+    else:
+        job = _repo_job(
+            org,
+            job_type=DeploymentJob.JobType.CLONE_INSTANCE_REPO,
+            instance=instance,
+            user=user,
+        )
+        _dispatch(clone_instance_repo, repo.id, job.id)
+
     return repo, job
 
 
@@ -1344,6 +1360,9 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
         } if self.request.user.is_platform_admin else {}
         ctx["enterprise_archive_root"] = str(_enterprise_archive_root())
         ctx["enterprise_extract_root"] = str(_enterprise_extract_root())
+        ctx["pyos_ssh_settings_form"] = PyOSSSHSettingsForm(
+            instance=PyOSSSHSettings.get_or_create_settings()
+        )
         from cloud.models import ExternalServer
 
         ctx["external_servers"] = ExternalServer.objects.filter(
@@ -1442,6 +1461,22 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
         return f"{reverse('deployments:create-instance')}?{urlencode(params)}#instances"
 
     def post(self, request):
+        if (
+            request.user.is_platform_admin
+            and (request.POST.get("action") or "").strip() == "save_pyos_ssh_settings"
+        ):
+            settings_obj = PyOSSSHSettings.get_or_create_settings()
+            form = PyOSSSHSettingsForm(request.POST, instance=settings_obj)
+            if form.is_valid():
+                form.save()
+                messages.success(request, "Default SSH key path saved.")
+                return redirect(f"{reverse('deployments:create-instance')}?section=enterprise#enterprise-settings")
+
+            context = self.get_context_data()
+            context["pyos_ssh_settings_form"] = form
+            context["show_enterprise_view"] = True
+            return self.render_to_response(context)
+
         org = request.organization
         enforcer = getattr(request, "subscription_enforcer", SubscriptionEnforcer(org))
         try:

@@ -7,7 +7,6 @@ import logging
 import requests
 
 from cloud.base import AbstractCloudProvider
-from cloud.encryption import FieldEncryptor
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +59,7 @@ class DigitalOceanProvider(AbstractCloudProvider):
 
     def __init__(self, cloud_account):
         self.account = cloud_account
-        self._token = FieldEncryptor.decrypt(cloud_account.encrypted_api_token)
+        self._token = cloud_account.api_token
         self._session = requests.Session()
         self._session.headers.update(
             {

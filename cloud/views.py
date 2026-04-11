@@ -1,9 +1,16 @@
 import logging
+import secrets
+from datetime import timedelta
+from urllib.parse import urlencode
 
+import requests
+
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import HttpResponse
 from django.http import JsonResponse
+from django.urls import reverse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.generic import TemplateView, View
@@ -27,6 +34,10 @@ from cloud.providers import get_provider
 from core.utils import log_audit
 
 logger = logging.getLogger(__name__)
+
+DO_OAUTH_AUTHORIZE_URL = "https://cloud.digitalocean.com/v1/oauth/authorize"
+DO_OAUTH_TOKEN_URL = "https://cloud.digitalocean.com/v1/oauth/token"
+DO_OAUTH_STATE_SESSION_KEY = "do_oauth_state"
 
 
 def _dispatch(task, *args):
@@ -66,6 +77,7 @@ class CloudDashboardView(CloudSuperAdminMixin, TemplateView):
             organization=org
         ).exclude(status=CloudServer.Status.DELETED)
         ctx["pyos_ssh_settings"] = PyOSSSHSettings.get_or_create_settings()
+        ctx["digitalocean_oauth_enabled"] = _digitalocean_oauth_enabled()
         return ctx
 
 
@@ -187,7 +199,11 @@ class AddCloudAccountView(CloudSuperAdminMixin, View):
     template_name = "cloud/add_account.html"
 
     def get(self, request):
-        return render(request, self.template_name, {"form": CloudAccountForm()})
+        return render(
+            request,
+            self.template_name,
+            {"form": CloudAccountForm(), "digitalocean_oauth_enabled": _digitalocean_oauth_enabled()},
+        )
 
     def post(self, request):
         form = CloudAccountForm(request.POST)
@@ -211,7 +227,129 @@ class AddCloudAccountView(CloudSuperAdminMixin, View):
 
             return redirect("cloud:dashboard")
 
-        return render(request, self.template_name, {"form": form})
+        return render(
+            request,
+            self.template_name,
+            {"form": form, "digitalocean_oauth_enabled": _digitalocean_oauth_enabled()},
+        )
+
+
+def _digitalocean_oauth_enabled() -> bool:
+    return bool(
+        getattr(settings, "DIGITALOCEAN_CLIENT_ID", "").strip()
+        and getattr(settings, "DIGITALOCEAN_CLIENT_SECRET", "").strip()
+    )
+
+
+def _digitalocean_redirect_uri(request) -> str:
+    return request.build_absolute_uri(reverse("cloud:digitalocean-oauth-callback"))
+
+
+class DigitalOceanOAuthStartView(CloudSuperAdminMixin, View):
+    def get(self, request):
+        if not _digitalocean_oauth_enabled():
+            messages.error(
+                request,
+                "DigitalOcean OAuth is not configured yet. Set DIGITALOCEAN_CLIENT_ID and DIGITALOCEAN_CLIENT_SECRET first.",
+            )
+            return redirect("cloud:add-account")
+
+        state = secrets.token_urlsafe(24)
+        request.session[DO_OAUTH_STATE_SESSION_KEY] = state
+        params = {
+            "client_id": settings.DIGITALOCEAN_CLIENT_ID,
+            "redirect_uri": _digitalocean_redirect_uri(request),
+            "response_type": "code",
+            "scope": "read write",
+            "state": state,
+        }
+        return redirect(f"{DO_OAUTH_AUTHORIZE_URL}?{urlencode(params)}")
+
+
+class DigitalOceanOAuthCallbackView(CloudSuperAdminMixin, View):
+    def get(self, request):
+        expected_state = request.session.pop(DO_OAUTH_STATE_SESSION_KEY, "")
+        returned_state = (request.GET.get("state") or "").strip()
+        if not expected_state or not returned_state or expected_state != returned_state:
+            messages.error(request, "DigitalOcean OAuth state check failed. Please try again.")
+            return redirect("cloud:add-account")
+
+        if request.GET.get("error"):
+            error = request.GET.get("error_description") or request.GET.get("error") or "Authorization was denied."
+            messages.error(request, f"DigitalOcean OAuth failed: {error}")
+            return redirect("cloud:add-account")
+
+        code = (request.GET.get("code") or "").strip()
+        if not code:
+            messages.error(request, "DigitalOcean did not return an authorization code.")
+            return redirect("cloud:add-account")
+
+        try:
+            response = requests.post(
+                DO_OAUTH_TOKEN_URL,
+                data={
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "client_id": settings.DIGITALOCEAN_CLIENT_ID,
+                    "client_secret": settings.DIGITALOCEAN_CLIENT_SECRET,
+                    "redirect_uri": _digitalocean_redirect_uri(request),
+                },
+                timeout=20,
+            )
+            payload = response.json()
+        except requests.RequestException as exc:
+            messages.error(request, f"Could not complete DigitalOcean OAuth: {exc}")
+            return redirect("cloud:add-account")
+        except ValueError:
+            payload = {}
+
+        if not response.ok:
+            messages.error(
+                request,
+                f"DigitalOcean OAuth token exchange failed: {payload.get('error_description') or payload.get('error') or response.status_code}",
+            )
+            return redirect("cloud:add-account")
+
+        access_token = (payload.get("access_token") or "").strip()
+        refresh_token = (payload.get("refresh_token") or "").strip()
+        expires_in = payload.get("expires_in")
+        if not access_token:
+            messages.error(request, "DigitalOcean OAuth succeeded but no access token was returned.")
+            return redirect("cloud:add-account")
+
+        account = CloudAccount(
+            organization=request.organization,
+            provider=CloudAccount.Provider.DIGITALOCEAN,
+            name=f"DigitalOcean OAuth · {timezone.now().strftime('%Y-%m-%d %H:%M')}",
+            do_auth_method=CloudAccount.DOAuthMethod.OAUTH,
+            encrypted_api_token="",
+            encrypted_aws_access_key_id="",
+            encrypted_aws_secret_access_key="",
+            aws_default_region="",
+        )
+        account._raw_do_oauth_token = access_token
+        if refresh_token:
+            account._raw_do_oauth_refresh_token = refresh_token
+        if expires_in:
+            try:
+                account.do_oauth_token_expiry = timezone.now() + timedelta(seconds=int(expires_in))
+            except Exception:
+                account.do_oauth_token_expiry = None
+        account.save()
+
+        log_audit(
+            request.user,
+            AuditLog.Action.CLOUD_ACCT_ADD,
+            request,
+            f"Added cloud account '{account.name}' ({account.get_provider_display()}) via OAuth",
+        )
+        messages.success(request, f"Account '{account.name}' connected. Verifying access…")
+
+        from cloud.tasks import validate_cloud_account
+        from django.db import transaction
+
+        transaction.on_commit(lambda: _dispatch(validate_cloud_account, account.pk))
+        return redirect("cloud:dashboard")
 
 
 class VerifyAccountView(CloudSuperAdminMixin, View):

@@ -40,6 +40,17 @@ class DigitalOceanProviderTests(TestCase):
         account = _make_account(self.org)
         return DigitalOceanProvider(account)
 
+    def test_provider_uses_oauth_token_when_auth_method_is_oauth(self):
+        from cloud.digitalocean import DigitalOceanProvider
+
+        account = _make_account(self.org)
+        account.do_auth_method = CloudAccount.DOAuthMethod.OAUTH
+        account.encrypted_do_oauth_token = FieldEncryptor.encrypt("oauth-token-123")
+
+        provider = DigitalOceanProvider(account)
+
+        self.assertEqual(provider._token, "oauth-token-123")
+
     @patch("requests.Session.get")
     def test_validate_credentials_success(self, mock_get):
         """GET /v2/account → 200 → validate_credentials returns (True, …)."""

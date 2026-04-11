@@ -104,6 +104,36 @@
       <p class="mt-1 text-xs text-gray-500">Instance activation copies detected addon roots from here.</p>
     </div>
   </div>
+  <section class="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+    <div class="px-5 py-4 border-b border-gray-100">
+      <p class="text-xs uppercase tracking-wide text-gray-400">Platform Setting</p>
+      <h3 class="mt-1 text-sm font-semibold text-gray-900">Default SSH Key Path</h3>
+    </div>
+    <form method="post" class="p-5 space-y-4">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="save_pyos_ssh_settings">
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1" for="{{ pyos_ssh_settings_form.default_ssh_key_path.id_for_label }}">
+          {{ pyos_ssh_settings_form.default_ssh_key_path.label }}
+        </label>
+        {{ pyos_ssh_settings_form.default_ssh_key_path }}
+        {% if pyos_ssh_settings_form.default_ssh_key_path.errors %}
+        <p class="mt-1 text-xs text-red-600">{{ pyos_ssh_settings_form.default_ssh_key_path.errors.0 }}</p>
+        {% endif %}
+        {% if pyos_ssh_settings_form.default_ssh_key_path.help_text %}
+        <p class="mt-1 text-xs text-gray-500">{{ pyos_ssh_settings_form.default_ssh_key_path.help_text }}</p>
+        {% endif %}
+      </div>
+      <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        Use the private key file path on the DafeApp host, not a <span class="font-mono">.pub</span> file or pasted public key text.
+      </div>
+      <div class="flex items-center gap-3">
+        <button type="submit" class="inline-flex items-center px-4 py-2.5 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700 transition-colors">
+          Save SSH Path
+        </button>
+      </div>
+    </form>
+  </section>
   <div class="grid gap-6 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
     <section class="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
       <div class="px-5 py-4 border-b border-gray-100">

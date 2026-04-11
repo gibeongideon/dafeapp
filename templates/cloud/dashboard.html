@@ -7,7 +7,7 @@
 {# Full-bleed dot-grid background that overrides the layout padding #}
 <div class="-m-6 min-h-full"
      style="background-color:#f8fafc;background-image:radial-gradient(circle,#cbd5e1 1.2px,transparent 1.2px);background-size:22px 22px;"
-     x-data="{ view: 'list' }">
+     x-data="{ view: 'list', cloudModalOpen: false }">
 
   <div class="max-w-6xl mx-auto px-8 py-8 space-y-14">
 
@@ -17,51 +17,20 @@
         <p class="text-[10px] font-bold tracking-[0.2em] uppercase text-gray-400 mb-2">DafeApp · Phase 3</p>
         <h1 class="text-[28px] font-bold text-gray-950 tracking-tight leading-none">Connections</h1>
         <p class="text-sm text-gray-500 mt-2 max-w-sm leading-relaxed">
-          Connect cloud accounts and VPS targets used by the Servers page.
+          Connect and review cloud providers used by the Servers page.
         </p>
       </div>
       <div class="flex items-center gap-2 mt-1">
-        <a href="{% url 'cloud:ssh-settings' %}"
-           class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-xl hover:border-gray-300 shadow-sm transition-all">
-          <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.25 3.75H6A2.25 2.25 0 003.75 6v12A2.25 2.25 0 006 20.25h12A2.25 2.25 0 0020.25 18V12.75m-6.75-9l6 6m0 0v-5.25m0 5.25h-5.25"/>
-          </svg>
-          SSH Settings
-        </a>
-        <a href="{% url 'cloud:add-account' %}"
+        <button type="button"
+           @click="cloudModalOpen = true"
            class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-xl hover:border-gray-300 shadow-sm transition-all">
           <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"/>
           </svg>
           Connect Provider
-        </a>
-        <a href="{% url 'cloud:add-server' %}"
-           class="flex items-center gap-1.5 px-4 py-2.5 bg-gray-950 text-white text-sm font-medium rounded-xl hover:bg-gray-800 shadow-sm transition-all">
-          <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-          </svg>
-          Connect VPS
-        </a>
+        </button>
       </div>
     </header>
-
-    <section class="bg-white rounded-3xl border border-gray-200 shadow-sm p-5 flex items-center justify-between gap-4">
-      <div>
-        <p class="text-[10px] font-bold tracking-[0.18em] uppercase text-gray-400">PYOS SSH</p>
-        <h2 class="text-lg font-semibold text-gray-950 mt-1">Default SSH key path</h2>
-        <p class="text-sm text-gray-500 mt-1">
-          {% if pyos_ssh_settings.default_ssh_key_path %}
-            {{ pyos_ssh_settings.default_ssh_key_path }}
-          {% else %}
-            No default path set. PYOS will fall back to DafeApp’s managed SSH keypair.
-          {% endif %}
-        </p>
-      </div>
-      <a href="{% url 'cloud:ssh-settings' %}"
-         class="px-4 py-2.5 rounded-xl bg-gray-950 text-white text-sm font-medium hover:bg-gray-800">
-        Configure
-      </a>
-    </section>
 
     {# CLOUD PROVIDERS MARKETPLACE #}
     <section>
@@ -322,247 +291,20 @@
     </section>
     {% endif %}
 
-    {# PYOS — PROVISION YOUR OWN SERVER #}
-    <section>
-      <div class="flex items-center justify-between mb-6">
-        <div class="flex items-center gap-4">
-          <div class="flex items-center gap-2.5">
-            <div class="w-5 h-5 bg-gray-950 rounded-md flex items-center justify-center shrink-0">
-              <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M8 9l3 3-3 3m5 0h3"/>
-              </svg>
-            </div>
-            <h2 class="text-xs font-bold text-gray-900 tracking-widest uppercase">PYOS — Provision Your Own Server</h2>
-          </div>
-          <div class="h-px w-8 bg-gray-200"></div>
-          {% if external_servers %}
-          <span class="text-[11px] font-semibold text-gray-500">{{ external_servers|length }} server{{ external_servers|length|pluralize }}</span>
-          {% endif %}
-        </div>
-
-        {# View toggle #}
-        <div class="flex items-center gap-3">
-          <div class="flex bg-white border border-gray-200 rounded-xl p-0.5 gap-0.5 shadow-sm">
-            <button @click="view='list'"
-                    :class="view==='list' ? 'bg-gray-950 text-white shadow-sm' : 'text-gray-400 hover:text-gray-600'"
-                    class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150">
-              <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
-              </svg>
-              List
-            </button>
-            <button @click="view='kanban'"
-                    :class="view==='kanban' ? 'bg-gray-950 text-white shadow-sm' : 'text-gray-400 hover:text-gray-600'"
-                    class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150">
-              <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"/>
-              </svg>
-              Kanban
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {% if external_servers %}
-
-      {# ── LIST VIEW ─────────────────────────────────────────────────────── #}
-      <div x-show="view==='list'"
-           x-transition:enter="transition-opacity ease-out duration-150"
-           x-transition:enter-start="opacity-0 translate-y-1"
-           x-transition:enter-end="opacity-100 translate-y-0">
-        <div class="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
-          <table class="w-full">
-            <thead>
-              <tr class="border-b border-gray-50 bg-gray-50/60">
-                <th class="text-left px-5 py-3.5 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Server</th>
-                <th class="text-left px-5 py-3.5 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Endpoint</th>
-                <th class="text-left px-5 py-3.5 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Auth</th>
-                <th class="text-left px-5 py-3.5 text-[10px] font-bold text-gray-400 uppercase tracking-widest">State</th>
-                <th class="text-left px-5 py-3.5 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Prep</th>
-                <th class="px-5 py-3.5"></th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-50">
-              {% for server in external_servers %}
-              <tr class="group hover:bg-gray-50/50 transition-colors">
-                <td class="px-5 py-4">
-                  <div class="flex items-center gap-3">
-                    <div class="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center shrink-0 group-hover:bg-gray-200 transition-colors">
-                      <svg class="w-3.5 h-3.5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3"/>
-                      </svg>
-                    </div>
-                    <div>
-                      <a href="{% url 'cloud:server-detail' server.pk %}"
-                         class="text-sm font-bold text-gray-900 hover:underline">{{ server.name }}</a>
-                      <p class="text-[10px] font-mono text-gray-400 mt-0.5">{{ server.username }}</p>
-                    </div>
-                  </div>
-                </td>
-                <td class="px-5 py-4">
-                  <span class="font-mono text-xs text-gray-600 bg-gray-50 px-2 py-1 rounded-md border border-gray-100">
-                    {{ server.host }}:{{ server.port }}
-                  </span>
-                </td>
-                <td class="px-5 py-4">
-                  <span class="text-xs text-gray-500">{{ server.get_auth_type_display }}</span>
-                </td>
-                <td class="px-5 py-4">
-                  {% if server.is_verified %}
-                  <span class="flex items-center gap-1.5 text-[11px] font-bold text-gray-800">
-                    <span class="w-1.5 h-1.5 rounded-full bg-gray-900"></span>SSH OK
-                  </span>
-                  {% else %}
-                  <span class="flex items-center gap-1.5 text-[11px] font-medium text-gray-400">
-                    <span class="w-1.5 h-1.5 rounded-full bg-gray-300"></span>Unverified
-                  </span>
-                  {% endif %}
-                </td>
-                <td class="px-5 py-4">
-                  {% if server.is_prepared %}
-                  <span class="flex items-center gap-1.5 text-[11px] font-bold text-gray-800">
-                    <span class="w-1.5 h-1.5 rounded-full bg-gray-900"></span>Docker ready
-                  </span>
-                  {% elif server.is_verified %}
-                  <span class="flex items-center gap-1.5 text-[11px] font-medium text-gray-400">
-                    <span class="w-1.5 h-1.5 rounded-full bg-gray-300"></span>Needs prep
-                  </span>
-                  {% else %}
-                  <span class="text-[11px] text-gray-300">—</span>
-                  {% endif %}
-                </td>
-                <td class="px-5 py-4 text-right">
-                  <a href="{% url 'cloud:server-detail' server.pk %}"
-                     class="text-[11px] font-semibold text-gray-400 border border-gray-200 px-3 py-1.5 rounded-lg
-                            hover:text-gray-800 hover:border-gray-400 bg-white transition-all">
-                    Open →
-                  </a>
-                </td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {# ── KANBAN VIEW ───────────────────────────────────────────────────── #}
-      <div x-show="view==='kanban'"
-           x-transition:enter="transition-opacity ease-out duration-150"
-           x-transition:enter-start="opacity-0"
-           x-transition:enter-end="opacity-100"
-           class="grid grid-cols-3 gap-4">
-
-        {# Column: Unverified #}
+    <section class="bg-white border border-gray-200 rounded-3xl shadow-sm p-6">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <div class="flex items-center gap-2 mb-3 px-1">
-            <span class="w-2 h-2 rounded-full bg-gray-300"></span>
-            <h3 class="text-[10px] font-bold uppercase tracking-widest text-gray-400">Unverified</h3>
-            <span class="ml-auto text-[10px] font-bold text-gray-300">
-              {{ external_servers|length }}
-            </span>
-          </div>
-          <div class="space-y-2.5 min-h-[120px]">
-            {% for server in external_servers %}{% if not server.is_verified %}
-            <a href="{% url 'cloud:server-detail' server.pk %}"
-               class="group block bg-white border border-gray-100 rounded-2xl p-4 hover:border-gray-300 hover:shadow-sm transition-all">
-              <div class="flex items-center gap-2.5 mb-2.5">
-                <div class="w-7 h-7 bg-gray-100 rounded-lg flex items-center justify-center shrink-0 group-hover:bg-gray-200 transition-colors">
-                  <svg class="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3"/>
-                  </svg>
-                </div>
-                <p class="text-xs font-bold text-gray-900 truncate">{{ server.name }}</p>
-              </div>
-              <p class="font-mono text-[10px] text-gray-400 truncate">{{ server.host }}:{{ server.port }}</p>
-              {% if server.verification_error %}
-              <p class="text-[10px] text-gray-400 mt-1.5 truncate">{{ server.verification_error|truncatechars:50 }}</p>
-              {% endif %}
-            </a>
-            {% endif %}{% endfor %}
-          </div>
-        </div>
-
-        {# Column: SSH Verified #}
-        <div>
-          <div class="flex items-center gap-2 mb-3 px-1">
-            <span class="w-2 h-2 rounded-full bg-gray-600"></span>
-            <h3 class="text-[10px] font-bold uppercase tracking-widest text-gray-500">SSH Verified</h3>
-          </div>
-          <div class="space-y-2.5 min-h-[120px]">
-            {% for server in external_servers %}{% if server.is_verified and not server.is_prepared %}
-            <a href="{% url 'cloud:server-detail' server.pk %}"
-               class="group block bg-white border border-gray-100 rounded-2xl p-4 hover:border-gray-300 hover:shadow-sm transition-all">
-              <div class="flex items-center gap-2.5 mb-2.5">
-                <div class="w-7 h-7 bg-gray-100 rounded-lg flex items-center justify-center shrink-0">
-                  <svg class="w-3 h-3 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3"/>
-                  </svg>
-                </div>
-                <p class="text-xs font-bold text-gray-900 truncate">{{ server.name }}</p>
-              </div>
-              <p class="font-mono text-[10px] text-gray-400 truncate">{{ server.host }}:{{ server.port }}</p>
-              <div class="mt-2">
-                <span class="text-[10px] font-medium text-gray-500">{{ server.get_preparation_status_display }}</span>
-              </div>
-            </a>
-            {% endif %}{% endfor %}
-          </div>
-        </div>
-
-        {# Column: Docker Ready #}
-        <div>
-          <div class="flex items-center gap-2 mb-3 px-1">
-            <span class="w-2 h-2 rounded-full bg-gray-900"></span>
-            <h3 class="text-[10px] font-bold uppercase tracking-widest text-gray-700">Docker Ready</h3>
-          </div>
-          <div class="space-y-2.5 min-h-[120px]">
-            {% for server in external_servers %}{% if server.is_prepared %}
-            <a href="{% url 'cloud:server-detail' server.pk %}"
-               class="group block bg-white border-2 border-gray-200 rounded-2xl p-4 hover:border-gray-400 hover:shadow-sm transition-all">
-              <div class="flex items-center gap-2.5 mb-2.5">
-                <div class="w-7 h-7 bg-gray-950 rounded-lg flex items-center justify-center shrink-0">
-                  <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                  </svg>
-                </div>
-                <p class="text-xs font-bold text-gray-900 truncate">{{ server.name }}</p>
-              </div>
-              <p class="font-mono text-[10px] text-gray-400 truncate">{{ server.host }}:{{ server.port }}</p>
-              {% if server.last_verified_at %}
-              <p class="text-[10px] text-gray-400 mt-1.5">Verified {{ server.last_verified_at|timesince }} ago</p>
-              {% endif %}
-            </a>
-            {% endif %}{% endfor %}
-
-          </div>
-        </div>
-
-      </div>
-
-      {% else %}
-      {# ── Empty state ──────────────────────────────────────────────────── #}
-      <div class="bg-white border-2 border-dashed border-gray-200 rounded-2xl px-8 py-16 flex flex-col items-center gap-5">
-        <div class="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center">
-          <svg class="w-7 h-7 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-          </svg>
-        </div>
-        <div class="text-center">
-          <p class="text-base font-bold text-gray-800">No PYOS servers connected</p>
-          <p class="text-sm text-gray-400 mt-1.5 max-w-xs leading-relaxed">
-            Bring any VPS — DafeApp will SSH in, verify the connection, and install Docker automatically.
+          <p class="text-[10px] font-bold tracking-[0.18em] uppercase text-gray-400">Provider Scope</p>
+          <h2 class="mt-1 text-lg font-semibold text-gray-950">Cloud providers only</h2>
+          <p class="mt-1 text-sm text-gray-500 max-w-2xl">
+            PYOS and direct server connections are managed from the Servers and Enterprise platform settings pages.
           </p>
         </div>
-        <a href="{% url 'cloud:add-server' %}"
-           class="flex items-center gap-2 px-5 py-2.5 bg-gray-950 text-white text-sm font-semibold rounded-xl hover:bg-gray-800 transition-all shadow-sm">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-          </svg>
-          Connect your first server
+        <a href="{% url 'deployments:create-instance' %}"
+           class="inline-flex items-center justify-center px-4 py-2.5 rounded-xl bg-gray-950 text-white text-sm font-medium hover:bg-gray-800">
+          Open Servers
         </a>
       </div>
-      {% endif %}
-
     </section>
 
     {# ── Footer note ─────────────────────────────────────────────────────── #}
@@ -571,6 +313,337 @@
         DafeApp Connections — Phase 3 · More providers coming soon
       </p>
     </footer>
+
+    <div x-show="cloudModalOpen"
+         x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"
+         @keydown.escape.window="cloudModalOpen = false">
+      <div x-show="cloudModalOpen"
+           x-transition:enter="transition ease-out duration-200"
+           x-transition:enter-start="opacity-0 translate-y-2 scale-[0.98]"
+           x-transition:enter-end="opacity-100 translate-y-0 scale-100"
+           class="relative max-h-[92vh] w-full max-w-7xl overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-[0_30px_120px_rgba(15,23,42,0.28)]"
+           @click.outside="cloudModalOpen = false">
+        <div class="flex items-start justify-between gap-6 border-b border-slate-200 bg-[linear-gradient(135deg,#f8fafc_0%,#eef2ff_45%,#eff6ff_100%)] px-6 py-6 sm:px-8">
+          <div class="space-y-2">
+            <p class="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Add Cloud Account</p>
+            <h2 class="text-3xl font-semibold tracking-tight text-slate-950">Select a cloud provider to add credentials</h2>
+          </div>
+          <button type="button"
+                  @click="cloudModalOpen = false"
+                  class="inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:text-slate-700">
+            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+
+        <div class="max-h-[calc(92vh-7rem)] overflow-y-auto px-6 py-6 sm:px-8">
+          <div class="space-y-8">
+            <section class="space-y-4">
+              <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p class="text-sm font-semibold text-slate-950">One-Click Connect (OAuth)</p>
+                  <p class="text-sm text-slate-500">Connect securely without sharing API keys</p>
+                </div>
+                <span class="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
+                  Recommended
+                </span>
+              </div>
+              <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <article class="group rounded-[1.5rem] border border-slate-200 bg-[linear-gradient(180deg,#f9fafb_0%,#ffffff_100%)] p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-lg">
+                  <div class="flex items-start justify-between gap-4">
+                    <div class="flex items-center gap-3">
+                      <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#0078D4] text-white shadow-sm">
+                        <svg viewBox="0 0 48 48" class="h-7 w-7" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M14 36L24 12l6 12-8 4 6 8z" fill="currentColor" opacity=".95"/>
+                          <path d="M26 24l8-12 4 24H22z" fill="currentColor" opacity=".65"/>
+                        </svg>
+                      </div>
+                      <div>
+                        <h3 class="text-base font-semibold text-slate-950">Microsoft Azure</h3>
+                        <p class="text-sm text-slate-500">Microsoft Azure</p>
+                      </div>
+                    </div>
+                    <span class="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-800">Soon</span>
+                  </div>
+                  <div class="mt-5 flex flex-wrap gap-2">
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Compute</span>
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Storage</span>
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">DNS</span>
+                  </div>
+                </article>
+
+                <article class="group rounded-[1.5rem] border border-slate-200 bg-[linear-gradient(180deg,#f9fafb_0%,#ffffff_100%)] p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-lg">
+                  <div class="flex items-start justify-between gap-4">
+                    <div class="flex items-center gap-3">
+                      <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
+                        <svg viewBox="0 0 48 48" class="h-8 w-8" xmlns="http://www.w3.org/2000/svg">
+                          <path fill="#EA4335" d="M24 9.5c3.5 0 6.7 1.2 9.2 3.3l6.9-6.9C35.8 2.1 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.3l8.1 6.3C12.7 13.6 17.9 9.5 24 9.5z"/>
+                          <path fill="#4285F4" d="M46.5 24.5c0-1.7-.1-2.9-.4-4.2H24v8h12.9c-.3 2-1.8 5-5.1 7l7.9 6.1c4.7-4.3 6.8-10.6 6.8-16.9z"/>
+                          <path fill="#34A853" d="M10.7 28.4c-.5-1.4-.7-2.8-.7-4.4s.3-3 .7-4.4l-8.1-6.3C.9 16.4 0 20 0 24s.9 7.6 2.6 10.7l8.1-6.3z"/>
+                          <path fill="#FBBC05" d="M24 48c6.3 0 11.7-2.1 15.6-5.7l-7.9-6.1c-2.1 1.5-4.9 2.3-7.7 2.3-6.1 0-11.3-4.1-13.2-9.7l-8.1 6.3C6.5 42.6 14.6 48 24 48z"/>
+                        </svg>
+                      </div>
+                      <div>
+                        <h3 class="text-base font-semibold text-slate-950">Google Cloud Platform</h3>
+                        <p class="text-sm text-slate-500">Google Cloud Platform</p>
+                      </div>
+                    </div>
+                    <span class="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-800">Soon</span>
+                  </div>
+                  <div class="mt-5 flex flex-wrap gap-2">
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Compute</span>
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Storage</span>
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">DNS</span>
+                  </div>
+                </article>
+
+                <article class="group rounded-[1.5rem] border-2 border-slate-900 bg-[linear-gradient(180deg,#eff6ff_0%,#ffffff_100%)] p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
+                  <div class="flex items-start justify-between gap-4">
+                    <div class="flex items-center gap-3">
+                      <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#0080FF] text-white shadow-sm">
+                        <svg viewBox="0 0 120 120" class="h-8 w-8" xmlns="http://www.w3.org/2000/svg">
+                          <circle cx="60" cy="60" r="60" fill="currentColor"/>
+                          <path d="M60 17C36.8 17 18 35.8 18 59s18.8 42 42 42V82.5c-12.9 0-23.5-10.5-23.5-23.5S47.1 35.5 60 35.5 83.5 46 83.5 59c0 12.9-10.5 23.5-23.5 23.5V101c23.2 0 42-18.8 42-42S83.2 17 60 17z" fill="white"/>
+                          <rect x="18" y="82.5" width="17.5" height="9" rx="2" fill="white"/>
+                          <rect x="18" y="94" width="11" height="9" rx="2" fill="white"/>
+                        </svg>
+                      </div>
+                      <div>
+                        <h3 class="text-base font-semibold text-slate-950">DigitalOcean</h3>
+                        <p class="text-sm text-slate-500">DigitalOcean</p>
+                      </div>
+                    </div>
+                    <span class="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-800">Live</span>
+                  </div>
+                  <div class="mt-5 flex flex-wrap gap-2">
+                    <span class="rounded-full bg-sky-100 px-3 py-1 text-xs font-medium text-sky-800">Compute</span>
+                    <span class="rounded-full bg-sky-100 px-3 py-1 text-xs font-medium text-sky-800">Storage</span>
+                    <span class="rounded-full bg-sky-100 px-3 py-1 text-xs font-medium text-sky-800">DNS</span>
+                  </div>
+                  <div class="mt-5 flex flex-wrap gap-3">
+                    {% if digitalocean_oauth_enabled %}
+                    <a href="{% url 'cloud:digitalocean-oauth-start' %}"
+                       class="inline-flex items-center justify-center rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800">
+                      Connect with DigitalOcean
+                    </a>
+                    {% else %}
+                    <span class="inline-flex items-center justify-center rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-900">
+                      OAuth not configured
+                    </span>
+                    {% endif %}
+                  </div>
+                </article>
+              </div>
+            </section>
+
+            <section class="space-y-4">
+              <div>
+                <p class="text-sm font-semibold text-slate-950">API Key Authentication</p>
+                <p class="text-sm text-slate-500">Enter your API credentials manually</p>
+              </div>
+              <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <article class="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
+                  <div class="flex items-start justify-between gap-4">
+                    <div class="flex items-center gap-3">
+                      <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#FF9900] text-white shadow-sm">
+                        <span class="text-sm font-black">AWS</span>
+                      </div>
+                      <div>
+                        <h3 class="text-base font-semibold text-slate-950">Amazon Web Services</h3>
+                        <p class="text-sm text-slate-500">Amazon Web Services</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="mt-5 flex flex-wrap gap-2">
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Compute</span>
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Storage</span>
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">DNS</span>
+                  </div>
+                  <a href="{% url 'cloud:add-account' %}"
+                     class="mt-5 inline-flex items-center justify-center rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50">
+                    Configure credentials
+                  </a>
+                </article>
+
+                <article class="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
+                  <div class="flex items-center gap-3">
+                    <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#007BFC] text-white shadow-sm">
+                      <span class="text-base font-black">V</span>
+                    </div>
+                    <div>
+                      <h3 class="text-base font-semibold text-slate-950">Vultr</h3>
+                      <p class="text-sm text-slate-500">Vultr</p>
+                    </div>
+                  </div>
+                  <div class="mt-5 flex flex-wrap gap-2">
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Compute</span>
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Storage</span>
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">DNS</span>
+                  </div>
+                </article>
+
+                <article class="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
+                  <div class="flex items-center gap-3">
+                    <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#02B159] text-white shadow-sm">
+                      <span class="text-sm font-black">Li</span>
+                    </div>
+                    <div>
+                      <h3 class="text-base font-semibold text-slate-950">Linode (Akamai)</h3>
+                      <p class="text-sm text-slate-500">Linode (Akamai)</p>
+                    </div>
+                  </div>
+                  <div class="mt-5 flex flex-wrap gap-2">
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Compute</span>
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Storage</span>
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">DNS</span>
+                  </div>
+                </article>
+
+                <article class="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
+                  <div class="flex items-center gap-3">
+                    <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#123F6D] text-white shadow-sm">
+                      <span class="text-sm font-black">OVH</span>
+                    </div>
+                    <div>
+                      <h3 class="text-base font-semibold text-slate-950">OVHcloud</h3>
+                      <p class="text-sm text-slate-500">OVHcloud</p>
+                    </div>
+                  </div>
+                  <div class="mt-5 flex flex-wrap gap-2">
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Compute</span>
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Storage</span>
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">DNS</span>
+                  </div>
+                </article>
+
+                <article class="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
+                  <div class="flex items-center gap-3">
+                    <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#D50C2D] text-white shadow-sm">
+                      <span class="text-sm font-black">H</span>
+                    </div>
+                    <div>
+                      <h3 class="text-base font-semibold text-slate-950">Hetzner Cloud</h3>
+                      <p class="text-sm text-slate-500">Hetzner Cloud</p>
+                    </div>
+                  </div>
+                  <div class="mt-5 flex flex-wrap gap-2">
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Compute</span>
+                  </div>
+                </article>
+
+                <article class="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
+                  <div class="flex items-center gap-3">
+                    <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#F38020] text-white shadow-sm">
+                      <span class="text-sm font-black">CF</span>
+                    </div>
+                    <div>
+                      <h3 class="text-base font-semibold text-slate-950">Cloudflare</h3>
+                      <p class="text-sm text-slate-500">Cloudflare</p>
+                    </div>
+                  </div>
+                  <div class="mt-5 flex flex-wrap gap-2">
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Storage</span>
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">DNS</span>
+                  </div>
+                </article>
+
+                <article class="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
+                  <div class="flex items-center gap-3">
+                    <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#E21E2B] text-white shadow-sm">
+                      <span class="text-sm font-black">B2</span>
+                    </div>
+                    <div>
+                      <h3 class="text-base font-semibold text-slate-950">Backblaze B2</h3>
+                      <p class="text-sm text-slate-500">Backblaze B2</p>
+                    </div>
+                  </div>
+                  <div class="mt-5 flex flex-wrap gap-2">
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Storage</span>
+                  </div>
+                </article>
+
+                <article class="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
+                  <div class="flex items-start justify-between gap-4">
+                    <div class="flex items-center gap-3">
+                      <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#C72C48] text-white shadow-sm">
+                        <span class="text-sm font-black">M</span>
+                      </div>
+                      <div>
+                        <h3 class="text-base font-semibold text-slate-950">MinIO</h3>
+                        <p class="text-sm text-slate-500">MinIO</p>
+                      </div>
+                    </div>
+                    <span class="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-800">Soon</span>
+                  </div>
+                  <div class="mt-5 flex flex-wrap gap-2">
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Storage</span>
+                  </div>
+                </article>
+
+                <article class="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
+                  <div class="flex items-center gap-3">
+                    <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#5BC0EB] text-white shadow-sm">
+                      <span class="text-sm font-black">W</span>
+                    </div>
+                    <div>
+                      <h3 class="text-base font-semibold text-slate-950">Wasabi</h3>
+                      <p class="text-sm text-slate-500">Wasabi</p>
+                    </div>
+                  </div>
+                  <div class="mt-5 flex flex-wrap gap-2">
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Storage</span>
+                  </div>
+                </article>
+
+                <article class="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
+                  <div class="flex items-center gap-3">
+                    <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#F38020] text-white shadow-sm">
+                      <span class="text-sm font-black">CT</span>
+                    </div>
+                    <div>
+                      <h3 class="text-base font-semibold text-slate-950">Cloudflare Tunnel</h3>
+                      <p class="text-sm text-slate-500">Cloudflare Tunnel</p>
+                    </div>
+                  </div>
+                </article>
+
+                <article class="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
+                  <div class="flex items-center gap-3">
+                    <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#334155] text-white shadow-sm">
+                      <span class="text-sm font-black">FT</span>
+                    </div>
+                    <div>
+                      <h3 class="text-base font-semibold text-slate-950">FTP Server</h3>
+                      <p class="text-sm text-slate-500">FTP Server</p>
+                    </div>
+                  </div>
+                  <div class="mt-5 flex flex-wrap gap-2">
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Storage</span>
+                  </div>
+                </article>
+
+                <article class="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
+                  <div class="flex items-center gap-3">
+                    <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#0F766E] text-white shadow-sm">
+                      <span class="text-sm font-black">SF</span>
+                    </div>
+                    <div>
+                      <h3 class="text-base font-semibold text-slate-950">SFTP Server</h3>
+                      <p class="text-sm text-slate-500">SFTP Server</p>
+                    </div>
+                  </div>
+                  <div class="mt-5 flex flex-wrap gap-2">
+                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Storage</span>
+                  </div>
+                </article>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </div>
 
   </div>
 </div>

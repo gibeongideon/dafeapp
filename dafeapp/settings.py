@@ -406,6 +406,8 @@ GITHUB_SECRET = env("GITHUB_SECRET", default="")
 GITLAB_CLIENT_ID = env("GITLAB_CLIENT_ID", default="")
 GITLAB_SECRET = env("GITLAB_SECRET", default="")
 GITLAB_URL = env("GITLAB_URL", default="https://gitlab.com")
+DIGITALOCEAN_CLIENT_ID = env("DIGITALOCEAN_CLIENT_ID", default="")
+DIGITALOCEAN_CLIENT_SECRET = env("DIGITALOCEAN_CLIENT_SECRET", default="")
 
 # ---------------------------------------------------------------------------
 # Extra built-ins

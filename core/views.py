@@ -177,6 +177,160 @@ class ConnectionsView(LoginRequiredMixin, TemplateView):
         return ctx
 
 
+class CatalogView(LoginRequiredMixin, TemplateView):
+    template_name = "dashboard/catalog.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        resp = super().dispatch(request, *args, **kwargs)
+        if not request.user.is_authenticated:
+            return resp
+        if not request.organization:
+            return redirect("organizations:select")
+        return resp
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["catalog_categories"] = [
+            "All",
+            "eCommerce",
+            "Manufacturing",
+            "Accounting",
+            "General",
+            "POS",
+            "HR",
+            "Education",
+        ]
+        ctx["catalog_templates"] = [
+            {
+                "name": "Enterprise Suite",
+                "summary": "Full-featured enterprise setup with all major modules",
+                "type": "Production",
+                "resources": "4.00 CPU · 16 GB · 50 GB",
+                "users": "~40 users",
+                "deploys": 7,
+                "featured": True,
+            },
+            {
+                "name": "Dev Sandbox",
+                "summary": "Lightweight development environment for testing and prototyping",
+                "type": "Development",
+                "resources": "0.50 CPU · 1 GB · 10 GB",
+                "users": "~5 users",
+                "deploys": 3,
+                "featured": False,
+            },
+            {
+                "name": "Accounting Firm",
+                "summary": "Streamlined setup for accounting and financial management",
+                "type": "Production",
+                "resources": "1.00 CPU · 2 GB · 20 GB",
+                "users": "~10 users",
+                "deploys": 2,
+                "featured": False,
+            },
+            {
+                "name": "Staging Standard",
+                "summary": "Pre-production staging environment for QA and testing",
+                "type": "Staging",
+                "resources": "1.00 CPU · 2 GB · 15 GB",
+                "users": "~10 users",
+                "deploys": 2,
+                "featured": False,
+            },
+            {
+                "name": "Manufacturing ERP",
+                "summary": "Full manufacturing suite with MRP, PLM, and quality control",
+                "type": "Production",
+                "resources": "2.00 CPU · 4 GB · 30 GB",
+                "users": "~20 users",
+                "deploys": 1,
+                "featured": False,
+            },
+            {
+                "name": "High Performance",
+                "summary": "Maximum performance for large enterprises with heavy workloads",
+                "type": "Production",
+                "resources": "8.00 CPU · 32 GB · 100 GB",
+                "users": "~80 users",
+                "deploys": 1,
+                "featured": False,
+            },
+            {
+                "name": "Production Starter",
+                "summary": "Entry-level production setup for small businesses",
+                "type": "Production",
+                "resources": "1.00 CPU · 2 GB · 20 GB",
+                "users": "~10 users",
+                "deploys": 1,
+                "featured": False,
+            },
+            {
+                "name": "POS Retail",
+                "summary": "Point of Sale optimized for retail with inventory management",
+                "type": "Production",
+                "resources": "2.00 CPU · 4 GB · 20 GB",
+                "users": "~20 users",
+                "deploys": 1,
+                "featured": False,
+            },
+            {
+                "name": "HR & Payroll",
+                "summary": "Human resources management with payroll and attendance",
+                "type": "Production",
+                "resources": "2.00 CPU · 4 GB · 20 GB",
+                "users": "~20 users",
+                "deploys": 1,
+                "featured": False,
+            },
+            {
+                "name": "OpenEduCat Community",
+                "summary": "Open-source education ERP with admissions, students, courses, and attendance management",
+                "type": "Production",
+                "resources": "2.00 CPU · 4 GB · 30 GB",
+                "users": "~20 users",
+                "deploys": 0,
+                "featured": False,
+            },
+            {
+                "name": "eCommerce High-Traffic",
+                "summary": "High-performance setup for busy online stores with heavy traffic",
+                "type": "Production",
+                "resources": "4.00 CPU · 8 GB · 50 GB",
+                "users": "~40 users",
+                "deploys": 0,
+                "featured": False,
+            },
+            {
+                "name": "OpenEduCat Dev",
+                "summary": "Development sandbox for OpenEduCat module customization and testing",
+                "type": "Development",
+                "resources": "1.00 CPU · 2 GB · 15 GB",
+                "users": "~10 users",
+                "deploys": 0,
+                "featured": False,
+            },
+            {
+                "name": "eCommerce Store",
+                "summary": "Optimized for online stores with website and e-commerce modules",
+                "type": "Production",
+                "resources": "2.00 CPU · 4 GB · 30 GB",
+                "users": "~20 users",
+                "deploys": 0,
+                "featured": False,
+            },
+            {
+                "name": "Production Standard",
+                "summary": "Balanced production environment for mid-size businesses",
+                "type": "Production",
+                "resources": "2.00 CPU · 4 GB · 20 GB",
+                "users": "~20 users",
+                "deploys": 0,
+                "featured": False,
+            },
+        ]
+        return ctx
+
+
 class VCSManagementView(LoginRequiredMixin, TemplateView):
     """
     Dashboard page for managing connected VCS (GitHub/GitLab) accounts.

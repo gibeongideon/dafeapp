@@ -4332,6 +4332,104 @@ def remove_instance_repo(self, repo_id: int, job_id: int | None = None):
         _release_repo_lock(instance.id, lock_token)
 
 
+@shared_task(bind=True, max_retries=0)
+def swap_instance_repo(self, old_repo_id: int, new_repo_id: int, job_id: int | None = None):
+    """Remove old linked repo from the server and clone the new one under a single lock."""
+    old_repo = _repo_task_context(old_repo_id)
+    new_repo = _repo_task_context(new_repo_id)
+    instance = new_repo.instance
+    server = instance.server
+    _job_start(job_id, self.request.id)
+
+    try:
+        lock_token = _acquire_repo_lock(instance.id)
+    except RuntimeError as exc:
+        _repo_mark_error(new_repo, str(exc), job_id=job_id)
+        return
+
+    ws_group = f"odoo.instance.{instance.id}"
+    full_log = ""
+    try:
+        # ── Step 1: remove old repo directory from server ──
+        old_label = old_repo.repo_name
+        old_path = old_repo.local_path
+        _broadcast_log_line(ws_group, f"=== Removing old repo '{old_label}' from server ===")
+        if old_path:
+            code, rm_out = _ssh_run(
+                server,
+                f"rm -rf {shlex.quote(old_path)}",
+                on_line=lambda line: _broadcast_log_line(ws_group, line),
+            )
+            if code != 0:
+                logger.warning("swap_instance_repo: rm -rf exited %s for %s — continuing anyway", code, old_path)
+            full_log = _append_text(full_log, rm_out)
+
+        old_repo.delete()
+        _broadcast_repo_event(
+            instance.id,
+            {"type": "repo.removed", "repo_name": old_label, "status": "removed"},
+        )
+
+        # ── Step 2: clone new repo ──
+        _broadcast_log_line(ws_group, f"=== Linking new repo '{new_repo.repo_name}' ({new_repo.branch}) ===")
+        _update_repo_paths(instance, new_repo)
+        instance.addons_sync_status = OdooInstance.AddonsSyncStatus.PENDING
+        instance.save(update_fields=["addons_sync_status", "updated_at"])
+        _set_repo_status(
+            new_repo,
+            status=OdooInstanceGitRepo.Status.CLONING,
+            last_error="",
+            append_log=f"Cloning {new_repo.repo_name} ({new_repo.branch})…",
+            reset_log=True,
+            started=True,
+        )
+        new_commit, clone_out = _clean_clone_instance_repo(
+            server,
+            new_repo,
+            new_repo.branch,
+            on_line=lambda line: _broadcast_log_line(ws_group, line),
+        )
+        new_repo.last_pulled_commit = new_commit
+        new_repo.previous_commit = ""
+        new_repo.last_remote_commit = new_commit
+        new_repo.default_branch = new_repo.default_branch or new_repo.branch
+        new_repo.last_pulled_at = timezone.now()
+        new_repo.last_detected_modules = _detect_repo_modules(server, new_repo.local_path)
+        if new_repo.credential_id:
+            new_repo.credential.last_used_at = timezone.now()
+            new_repo.credential.save(update_fields=["last_used_at", "updated_at"])
+        new_repo.save(
+            update_fields=[
+                "last_pulled_commit",
+                "previous_commit",
+                "last_remote_commit",
+                "default_branch",
+                "last_pulled_at",
+                "last_detected_modules",
+                "updated_at",
+            ]
+        )
+        full_log = _append_text(full_log, clone_out)
+
+        follow_up = _repo_follow_up_success(
+            new_repo,
+            log_blob=clone_out,
+            modules=None,
+            allow_refresh_failure=True,
+            on_line=lambda line: _broadcast_log_line(ws_group, line),
+        )
+        full_log = _append_text(full_log, follow_up)
+        _job_done(job_id, ok=True, log=full_log)
+    except Exception as exc:
+        logger.exception("swap_instance_repo failed (old=%s, new=%s)", old_repo_id, new_repo_id)
+        try:
+            _repo_mark_error(new_repo, str(exc), job_id=job_id)
+        except Exception:
+            pass
+    finally:
+        _release_repo_lock(instance.id, lock_token)
+
+
 @shared_task
 def sync_instance_repo_status(repo_id: int):
     repo = _repo_task_context(repo_id)

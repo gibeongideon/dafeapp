@@ -76,6 +76,15 @@
       {% endif %}
 
       {% if current_role == 'SUPER_ADMIN' or current_role == 'ADMIN' or current_role == 'MANAGER' %}
+      {% url 'core:catalog' as u_catalog %}
+      <a href="{{ u_catalog }}"
+         class="flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition
+                {% if request.path == u_catalog %}bg-blue-600 text-white{% else %}text-slate-300 hover:bg-slate-800{% endif %}">
+        <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7h16M4 12h16M4 17h10" />
+        </svg>
+        <span x-show="sidebarOpen" x-transition>Catalog</span>
+      </a>
       {% url 'deployments_ui:create-instance' as u_deployments %}
       <a href="{{ u_deployments }}?section=servers"
          class="flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition

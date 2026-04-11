@@ -196,14 +196,29 @@
                 <span class="rounded-full bg-sky-500/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-sky-200"
                       x-text="`${developmentEnvironments().length} branch${developmentEnvironments().length === 1 ? '' : 'es'}`"></span>
               </div>
+              <div x-show="linkedRepoBranchesLoading" class="text-[11px] text-slate-400">Loading branches…</div>
+              <div x-show="!linkedRepoBranchesLoading && developmentEnvironments().length === 0 && linkedRepo"
+                   class="text-[11px] text-slate-500 py-1">No other branches yet.</div>
               <div class="space-y-2">
                 <template x-for="env in developmentEnvironments()" :key="env.slug">
-                  <a :href="environmentHref(env)"
-                     class="block rounded-2xl border border-white/10 bg-white/5 px-4 py-3 transition hover:border-sky-300/30 hover:bg-white/10">
-                    <p class="text-sm font-medium text-white" x-text="env.name"></p>
-                    <p class="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">Other branch</p>
-                    <p class="mt-2 text-sm text-slate-300" x-text="env.branch"></p>
-                  </a>
+                  <div class="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 transition hover:border-sky-300/30 hover:bg-white/10">
+                    <p class="text-sm font-medium text-white truncate" x-text="env.branch"></p>
+                    <p class="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">Dev branch</p>
+                    <div class="mt-2 flex gap-2">
+                      <button type="button"
+                              @click="switchProductionBranch(env.branch)"
+                              :disabled="instanceActionsLocked()"
+                              class="rounded-lg border border-white/10 bg-white/10 px-2.5 py-1 text-[10px] font-medium text-white hover:bg-white/20 disabled:opacity-40">
+                        Set Production
+                      </button>
+                      <button type="button"
+                              @click="openStagingModalForBranch(env.branch)"
+                              :disabled="instanceActionsLocked() || !linkedRepo"
+                              class="rounded-lg border border-amber-400/30 bg-amber-500/10 px-2.5 py-1 text-[10px] font-medium text-amber-200 hover:bg-amber-500/20 disabled:opacity-40">
+                        Staging
+                      </button>
+                    </div>
+                  </div>
                 </template>
               </div>
             </div>
@@ -348,8 +363,8 @@
     <div x-show="activeTab === 'addons'" class="p-5 space-y-4">
       <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
-          <p class="text-sm font-medium text-gray-700">Git Addon Sources</p>
-          <p class="mt-1 text-xs text-gray-500">Choose the lightest path for getting addon code onto this instance.</p>
+          <p class="text-sm font-medium text-gray-700">Linked Repository</p>
+          <p class="mt-1 text-xs text-gray-500">One repository per instance. Its branches map to your production, staging, and development environments.</p>
         </div>
         <div class="flex flex-wrap gap-2">
           <button type="button"
@@ -357,26 +372,55 @@
                   class="inline-flex items-center justify-center px-3 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
                   x-text="showAddonSummary ? 'Hide Summary' : 'Show Summary'">
           </button>
+          <!-- No repo linked: show link buttons -->
           <button type="button"
+                  x-show="!linkedRepo"
                   @click="openRepoModal('github')"
                   :disabled="instanceActionsLocked()"
                   :title="instanceActionLockReason()"
                   class="inline-flex items-center justify-center px-3 py-2 text-xs font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800">
-            Add From GitHub
+            Link from GitHub
           </button>
           <button type="button"
+                  x-show="!linkedRepo"
                   @click="openRepoModal('manual')"
                   :disabled="instanceActionsLocked()"
                   :title="instanceActionLockReason()"
                   class="inline-flex items-center justify-center px-3 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
-            Add Git Repo
+            Link Manually
           </button>
           <button type="button"
+                  x-show="!linkedRepo"
                   @click="openRepoModal('upload')"
                   :disabled="instanceActionsLocked()"
                   :title="instanceActionLockReason()"
                   class="inline-flex items-center justify-center px-3 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
-            Upload To GitHub
+            Create &amp; Upload GitHub Repo
+          </button>
+          <!-- Repo linked: show management buttons -->
+          <button type="button"
+                  x-show="linkedRepo"
+                  @click="openSyncRepoModal(linkedRepo)"
+                  :disabled="instanceActionsLocked() || repoIsWorking(linkedRepo)"
+                  :title="instanceActionLockReason()"
+                  class="inline-flex items-center justify-center px-3 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50">
+            Sync Now
+          </button>
+          <button type="button"
+                  x-show="linkedRepo"
+                  @click="openRepoModal('edit', linkedRepo)"
+                  :disabled="instanceActionsLocked() || repoIsWorking(linkedRepo)"
+                  :title="instanceActionLockReason()"
+                  class="inline-flex items-center justify-center px-3 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">
+            Settings
+          </button>
+          <button type="button"
+                  x-show="linkedRepo"
+                  @click="removeRepo(linkedRepo)"
+                  :disabled="instanceActionsLocked() || repoIsWorking(linkedRepo)"
+                  :title="instanceActionLockReason()"
+                  class="inline-flex items-center justify-center px-3 py-2 text-xs font-medium text-red-600 bg-white border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50">
+            Unlink Repo
           </button>
         </div>
       </div>
@@ -521,85 +565,188 @@
            class="p-3 text-sm border rounded-lg"
            x-text="repoMessage"></div>
 
-      <div x-show="reposLoading" class="text-sm text-gray-500 py-6 text-center">Loading repositories…</div>
+      <div x-show="reposLoading" class="text-sm text-gray-500 py-6 text-center">Loading…</div>
 
-      <div x-show="!reposLoading && repos.length > 0" class="overflow-x-auto border border-gray-200 rounded-lg">
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="bg-gray-50 border-b border-gray-100 text-xs text-gray-500">
-              <th class="text-left px-4 py-3 font-medium">Repo</th>
-              <th class="text-left px-4 py-3 font-medium">Branch</th>
-              <th class="text-left px-4 py-3 font-medium">Actions</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-gray-100">
-            <template x-for="repo in repos" :key="repo.id">
-            <tr :class="repoWorkingRowClass(repo)" class="transition-colors">
-              <td class="px-4 py-3 align-top">
-                <p class="font-medium text-gray-900" x-text="repo.repo_name"></p>
-                <div class="mt-1 flex flex-wrap items-center gap-2">
-                  <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium"
-                        :class="repoStatusClass(repo.status)">
-                    <span x-show="repoIsWorking(repo)" class="mr-1.5 inline-flex h-3 w-3 rounded-full border-2 border-current border-r-transparent animate-spin"></span>
-                    <span x-text="repoStatusLabel(repo.status)"></span>
+      <!-- ── No repo linked ── -->
+      <div x-show="!linkedRepo && !reposLoading"
+           class="flex flex-col items-center gap-4 rounded-2xl border border-dashed border-gray-300 bg-gray-50/60 py-10 text-center">
+        <svg class="h-10 w-10 text-gray-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25H12"/>
+        </svg>
+        <div>
+          <p class="text-sm font-medium text-gray-700">No repository linked</p>
+          <p class="mt-1 text-xs text-gray-400">Link one git repository. Its branches will become your production, staging, and development environments.</p>
+        </div>
+        <div class="flex flex-wrap justify-center gap-2">
+          <button type="button"
+                  @click="openRepoModal('github')"
+                  :disabled="instanceActionsLocked()"
+                  class="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-xs font-medium text-white hover:bg-gray-800 disabled:opacity-50">
+            Link from GitHub
+          </button>
+          <button type="button"
+                  @click="openRepoModal('manual')"
+                  :disabled="instanceActionsLocked()"
+                  class="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-4 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+            Link Manually
+          </button>
+        </div>
+      </div>
+
+      <!-- ── Single linked repo card ── -->
+      <div x-show="linkedRepo && !reposLoading" class="rounded-2xl border border-gray-200 bg-white overflow-hidden">
+
+        <!-- Repo header -->
+        <div class="flex items-start justify-between gap-4 border-b border-gray-100 bg-gray-50/70 px-5 py-4">
+          <div class="min-w-0">
+            <div class="flex flex-wrap items-center gap-2">
+              <p class="text-sm font-semibold text-gray-900" x-text="linkedRepo?.repo_name"></p>
+              <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                    :class="repoStatusClass(linkedRepo?.status)">
+                <span x-show="repoIsWorking(linkedRepo)" class="mr-1 inline-flex h-2.5 w-2.5 rounded-full border-2 border-current border-r-transparent animate-spin"></span>
+                <span x-text="repoStatusLabel(linkedRepo?.status)"></span>
+              </span>
+              <span x-show="linkedRepo?.auto_update"
+                    class="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                Auto-sync on push
+              </span>
+            </div>
+            <p class="mt-1 text-xs font-mono text-gray-400 break-all" x-text="linkedRepo?.git_url"></p>
+            <p x-show="repoIsWorking(linkedRepo)"
+               class="mt-1.5 text-[11px] font-medium text-amber-700">
+              Sync in progress — refreshing code and addons…
+            </p>
+          </div>
+          <div class="flex shrink-0 flex-wrap gap-2">
+            <button x-show="repoNeedsGithubUpload(linkedRepo)"
+                    @click="prepareGithubUpload(linkedRepo)"
+                    :disabled="instanceActionsLocked() || repoIsWorking(linkedRepo)"
+                    class="inline-flex items-center rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-medium text-emerald-800 hover:bg-emerald-50 disabled:opacity-50">
+              Upload Zip
+            </button>
+            <button @click="openRepoLog(linkedRepo)"
+                    class="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
+              Sync Log
+            </button>
+          </div>
+        </div>
+
+        <!-- Production branch row -->
+        <div class="grid gap-0 divide-y divide-gray-100 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+          <div class="space-y-1 px-5 py-4">
+            <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-400">Production Branch</p>
+            <div class="flex items-center gap-2">
+              <span class="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
+                <svg class="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
+                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clip-rule="evenodd"/>
+                </svg>
+                <span x-text="linkedRepo?.branch || 'main'"></span>
+              </span>
+              <span class="text-[11px] text-gray-400">Live on this instance</span>
+            </div>
+            <p class="text-[11px] text-gray-400"
+               x-text="linkedRepo?.last_pulled_commit ? ('Commit: ' + (linkedRepo.last_pulled_commit || '').slice(0,8)) : 'Not yet cloned'"></p>
+          </div>
+          <div class="space-y-1 px-5 py-4">
+            <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-400">Last Sync</p>
+            <p class="text-sm text-gray-800"
+               x-text="linkedRepo?.last_pulled_at ? fmtDate(linkedRepo.last_pulled_at) : '—'"></p>
+            <div class="flex flex-wrap gap-2 pt-1">
+              <button @click="rollbackRepo(linkedRepo)"
+                      :disabled="!linkedRepo?.previous_commit || instanceActionsLocked() || repoIsWorking(linkedRepo)"
+                      class="inline-flex items-center rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-40 disabled:cursor-not-allowed">
+                Rollback
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Branch list: production / staging / dev -->
+        <div class="border-t border-gray-100 px-5 py-4 space-y-3">
+          <div class="flex items-center justify-between">
+            <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-400">All Branches</p>
+            <div class="flex items-center gap-2">
+              <div x-show="linkedRepoBranchesLoading" class="text-[11px] text-gray-400">Loading branches…</div>
+              <button x-show="!linkedRepoBranchesLoading && linkedRepo?.credential"
+                      @click="loadLinkedRepoBranches()"
+                      class="text-[11px] text-blue-600 hover:underline">Refresh</button>
+            </div>
+          </div>
+
+          <!-- Branches fetched from GitHub -->
+          <div x-show="linkedRepoBranches.length > 0" class="space-y-1.5">
+            <template x-for="branch in linkedRepoBranches" :key="branch">
+              <div class="flex items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50/60 px-4 py-2.5">
+                <div class="flex flex-wrap items-center gap-2 min-w-0">
+                  <span class="text-sm font-medium text-gray-800 truncate" x-text="branch"></span>
+                  <!-- Production badge -->
+                  <span x-show="branch === linkedRepo?.branch"
+                        class="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                    Production
                   </span>
-                  <span class="text-[11px] text-gray-400" x-text="repo.credential_name ? ('Credential: ' + repo.credential_name) : authLabel(repo.auth_type)"></span>
-                </div>
-                <p x-show="repoIsWorking(repo)" class="mt-2 text-[11px] font-medium text-amber-700">
-                  Sync in progress. Refreshing code and addons on this instance...
-                </p>
-              </td>
-              <td class="px-4 py-3 align-top text-gray-700">
-                <p x-text="repo.branch"></p>
-                <p class="mt-1 text-[11px] text-gray-400" x-text="repo.auto_update ? 'Auto update when pushed' : 'Manual updates only'"></p>
-              </td>
-              <td class="px-4 py-3 align-top">
-                <div class="flex flex-wrap items-center gap-2 text-xs">
-                  <button @click="openSyncRepoModal(repo)"
-                          :disabled="instanceActionsLocked() || repoIsWorking(repo)"
-                          :title="instanceActionLockReason()"
-                          class="text-blue-600 hover:underline disabled:opacity-50">Sync now</button>
-                  <button @click="rollbackRepo(repo)"
-                          :disabled="!repo.previous_commit || instanceActionsLocked() || repoIsWorking(repo)"
-                          :title="instanceActionLockReason()"
-                          class="text-amber-600 hover:underline disabled:opacity-40">Rollback</button>
-                  <button @click="removeRepo(repo)"
-                          :disabled="instanceActionsLocked() || repoIsWorking(repo)"
-                          :title="instanceActionLockReason()"
-                          class="text-red-600 hover:underline disabled:opacity-50">Remove repo</button>
-                  <button x-show="repoNeedsGithubUpload(repo)"
-                          @click="prepareGithubUpload(repo)"
-                          :disabled="instanceActionsLocked() || repoIsWorking(repo)"
-                          :title="instanceActionLockReason()"
-                          class="text-emerald-700 hover:underline">Upload Zip</button>
-                  <button @click="openRepoModal('edit', repo)"
-                          :disabled="instanceActionsLocked() || repoIsWorking(repo)"
-                          :title="instanceActionLockReason()"
-                          class="text-blue-600 hover:underline">Settings</button>
-                  <button @click="openRepoLog(repo)"
-                          class="text-gray-600 hover:underline">Details</button>
-                  <span x-show="repoIsWorking(repo)" class="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-1 text-[11px] font-medium text-amber-800">
-                    <span class="inline-flex h-3 w-3 rounded-full border-2 border-current border-r-transparent animate-spin"></span>
-                    Working
+                  <!-- Staging badge -->
+                  <span x-show="stagingEnvironments.some(e => e.branch === branch)"
+                        class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                    Staging
                   </span>
                 </div>
-              </td>
-            </tr>
-            <tr x-show="githubUploadTarget && String(githubUploadTarget.id) === String(repo.id)">
-              <td colspan="3" class="bg-emerald-50/60 px-4 pb-4">
-                <div :id="`github-upload-inline-${repo.id}`" class="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 space-y-4">
-                  <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                    <div>
-                      <p class="text-xs font-semibold uppercase tracking-wide text-emerald-700">Upload Zip</p>
-                      <p class="mt-1 text-sm font-medium text-emerald-950" x-text="githubUploadTarget?.full_name || ''"></p>
-                    </div>
-                    <a x-show="githubUploadTarget?.html_url"
-                       :href="githubUploadTarget?.html_url"
-                       target="_blank"
-                       class="inline-flex items-center rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-medium text-emerald-800 hover:bg-emerald-100">
-                      Open on GitHub
+                <div class="flex shrink-0 items-center gap-2">
+                  <!-- Switch to production -->
+                  <button x-show="branch !== linkedRepo?.branch"
+                          @click="switchProductionBranch(branch)"
+                          :disabled="instanceActionsLocked() || repoIsWorking(linkedRepo)"
+                          class="inline-flex items-center rounded-lg border border-emerald-200 bg-white px-2.5 py-1 text-[11px] font-medium text-emerald-800 hover:bg-emerald-50 disabled:opacity-40 disabled:cursor-not-allowed">
+                    Set Production
+                  </button>
+                  <!-- Create staging -->
+                  <button x-show="branch !== linkedRepo?.branch && !stagingEnvironments.some(e => e.branch === branch)"
+                          @click="openStagingModalForBranch(branch)"
+                          :disabled="instanceActionsLocked()"
+                          class="inline-flex items-center rounded-lg border border-amber-200 bg-white px-2.5 py-1 text-[11px] font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-40 disabled:cursor-not-allowed">
+                    Create Staging
+                  </button>
+                  <!-- Open staging instance -->
+                  <template x-if="stagingEnvironments.some(e => e.branch === branch)">
+                    <a :href="`/deployments/odoo/instances/${(stagingEnvironments.find(e => e.branch === branch) || {}).staging_instance?.id}/`"
+                       class="inline-flex items-center rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50">
+                      Open Staging
                     </a>
-                  </div>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- No branches (no GitHub credential or not fetched yet) -->
+          <div x-show="!linkedRepoBranches.length && !linkedRepoBranchesLoading"
+               class="rounded-xl border border-dashed border-gray-200 bg-gray-50/40 px-4 py-4 text-center">
+            <p class="text-xs text-gray-400">
+              <span x-show="linkedRepo?.credential">No branches loaded yet.</span>
+              <span x-show="!linkedRepo?.credential">Branches are only auto-loaded for repos with a GitHub OAuth or token credential.</span>
+            </p>
+            <p class="mt-1 text-xs text-gray-400">
+              Current production branch:
+              <span class="font-semibold text-emerald-700" x-text="linkedRepo?.branch || 'main'"></span>
+            </p>
+          </div>
+        </div>
+
+        <!-- GitHub upload inline -->
+        <div x-show="githubUploadTarget && linkedRepo && String(githubUploadTarget.id) === String(linkedRepo?.id)"
+             class="border-t border-emerald-100 bg-emerald-50/40 px-5 pb-5">
+          <div :id="`github-upload-inline-${linkedRepo?.id}`" class="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 mt-4 space-y-4">
+            <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div>
+                <p class="text-xs font-semibold uppercase tracking-wide text-emerald-700">Upload Zip</p>
+                <p class="mt-1 text-sm font-medium text-emerald-950" x-text="githubUploadTarget?.full_name || ''"></p>
+              </div>
+              <a x-show="githubUploadTarget?.html_url"
+                 :href="githubUploadTarget?.html_url"
+                 target="_blank"
+                 class="inline-flex items-center rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-medium text-emerald-800 hover:bg-emerald-100">
+                Open on GitHub
+              </a>
+            </div>
 
                   <div>
                     <label class="block text-xs font-medium text-emerald-900 mb-1">Zip File</label>
@@ -643,32 +790,25 @@
                       Cancel
                     </button>
                   </div>
-                </div>
-              </td>
-            </tr>
-            </template>
-          </tbody>
-        </table>
-      </div>
+              </div><!-- /github-upload-inline -->
+          </div><!-- /githubUploadTarget x-show -->
 
-      <div x-show="!reposLoading && repos.length === 0"
-           class="text-sm text-gray-400 py-8 text-center border border-dashed border-gray-200 rounded-lg">
-        No addon repositories linked yet.
-      </div>
+      </div><!-- /linkedRepo card -->
 
-      <div x-show="selectedRepo" class="border border-gray-200 rounded-lg overflow-hidden">
-        <div class="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-200">
+      <!-- ── Repo Detail / Sync Log Panel ── -->
+      <div x-show="selectedRepo" class="rounded-2xl border border-gray-200 overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-3 bg-gray-50 border-b border-gray-200">
           <div>
-            <p class="text-sm font-medium text-gray-800" x-text="selectedRepo ? selectedRepo.repo_name : ''"></p>
-            <p class="text-xs text-gray-500" x-text="selectedRepo ? selectedRepo.git_url : ''"></p>
+            <p class="text-sm font-medium text-gray-800" x-text="selectedRepo?.repo_name"></p>
+            <p class="text-xs text-gray-400 font-mono" x-text="selectedRepo?.git_url"></p>
           </div>
           <button @click="selectedRepo = null" class="text-xs text-gray-500 hover:text-gray-700">Close</button>
         </div>
-        <div class="grid gap-4 p-4 md:grid-cols-2">
+        <div class="grid gap-4 p-5 md:grid-cols-2">
           <div class="space-y-3">
             <div>
               <div class="flex items-center justify-between gap-3">
-                <p class="text-xs uppercase tracking-wide text-gray-400">Instance Addons Root</p>
+                <p class="text-xs uppercase tracking-wide text-gray-400">Addons Root Path</p>
                 <button type="button"
                         @click="copyText(addonsRootPath)"
                         :disabled="!addonsRootPath"
@@ -676,30 +816,14 @@
                   Copy
                 </button>
               </div>
-              <button type="button"
-                      @click="copyText(addonsRootPath)"
-                      :disabled="!addonsRootPath"
-                      class="mt-1 text-left text-sm font-mono text-blue-600 break-all hover:underline disabled:cursor-not-allowed disabled:text-gray-400 disabled:no-underline"
-                      x-text="addonsRootPath || 'Not configured yet'"></button>
+              <p class="mt-1 text-sm font-mono text-gray-700 break-all" x-text="addonsRootPath || 'Not configured yet'"></p>
             </div>
             <div>
-              <div class="flex items-center justify-between gap-3">
-                <p class="text-xs uppercase tracking-wide text-gray-400">Computed Addons Path</p>
-                <button type="button"
-                        @click="copyText(addonsPathCache)"
-                        :disabled="!addonsPathCache"
-                        class="inline-flex items-center rounded-lg border border-gray-300 bg-white px-2.5 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50">
-                  Copy
-                </button>
-              </div>
-              <button type="button"
-                      @click="copyText(addonsPathCache)"
-                      :disabled="!addonsPathCache"
-                      class="mt-1 text-left text-sm font-mono text-blue-600 break-all hover:underline disabled:cursor-not-allowed disabled:text-gray-400 disabled:no-underline"
-                      x-text="addonsPathCache || 'Not built yet'"></button>
+              <p class="text-xs uppercase tracking-wide text-gray-400">Computed Addons Path</p>
+              <p class="mt-1 text-sm font-mono text-gray-700 break-all" x-text="addonsPathCache || 'Not built yet'"></p>
             </div>
             <div>
-              <p class="text-xs uppercase tracking-wide text-gray-400">Current Branch</p>
+              <p class="text-xs uppercase tracking-wide text-gray-400">Production Branch</p>
               <p class="text-sm text-gray-800" x-text="selectedRepo?.branch || '—'"></p>
             </div>
             <div>
@@ -707,17 +831,18 @@
               <p class="text-sm font-mono text-gray-800 break-all" x-text="selectedRepo?.pinned_commit || '—'"></p>
             </div>
             <div>
-              <p class="text-xs uppercase tracking-wide text-gray-400">Detected Modules</p>
-              <p class="text-sm text-gray-800" x-text="(selectedRepo?.last_detected_modules || []).join(', ') || '—'"></p>
+              <p class="text-xs uppercase tracking-wide text-gray-400">Last Pulled Commit</p>
+              <p class="text-sm font-mono text-gray-800 break-all" x-text="selectedRepo?.last_pulled_commit || '—'"></p>
             </div>
             <div>
-              <p class="text-xs uppercase tracking-wide text-gray-400">Last Remote Commit</p>
-              <p class="text-sm font-mono text-gray-800 break-all" x-text="selectedRepo?.last_remote_commit || '—'"></p>
+              <p class="text-xs uppercase tracking-wide text-gray-400">Detected Modules</p>
+              <p class="text-sm text-gray-800" x-text="(selectedRepo?.last_detected_modules || []).join(', ') || '—'"></p>
             </div>
           </div>
           <div>
             <p class="text-xs uppercase tracking-wide text-gray-400 mb-2">Sync Log</p>
-            <pre class="bg-gray-950 text-green-400 text-xs p-4 rounded-lg overflow-auto max-h-64 whitespace-pre-wrap" x-text="selectedRepo?.last_sync_log || '(empty)'"></pre>
+            <pre class="bg-gray-950 text-green-400 text-xs p-4 rounded-xl overflow-auto max-h-72 whitespace-pre-wrap"
+                 x-text="selectedRepo?.last_sync_log || '(empty)'"></pre>
           </div>
         </div>
       </div>
@@ -1534,6 +1659,10 @@ function instanceConsole(instanceId) {
     stagingBranchesLoading: false,
     stagingForm: { repoId: '', branch: '', ttlDays: 7 },
 
+    // Linked repo branches (fetched from GitHub for branch switcher)
+    linkedRepoBranches: [],
+    linkedRepoBranchesLoading: false,
+
     // ── Init ──
     init() {
       this.resetRepoForm();
@@ -1542,10 +1671,16 @@ function instanceConsole(instanceId) {
       this.syncEnterpriseToggle();
       this.connectWS();
       this.loadJobs();
-      this.loadRepos();
+      this.loadRepos().then(() => {
+        if (this.linkedRepo) this.loadLinkedRepoBranches();
+      });
       this.loadCredentials().then(() => this.resumeGitHubFlowFromRedirect());
       if (this.activeTab === 'logs') this.startRuntimeLogPolling();
       window.addEventListener('pagehide', () => this.stopRuntimeLogPolling());
+    },
+
+    get linkedRepo() {
+      return this.repos.length > 0 ? this.repos[0] : null;
     },
 
     setActiveTab(tabId) {
@@ -1574,69 +1709,34 @@ function instanceConsole(instanceId) {
     },
 
     productionEnvironment() {
+      const branch = this.linkedRepo?.branch || 'main';
+      const repoName = this.linkedRepo?.repo_name || 'production';
       return {
         slug: 'production',
-        name: 'production-branch',
-        branch: this.primaryBranchName(),
+        name: repoName,
+        branch,
         url: this.preferredAccessUrl || `${window.location.pathname}?tab=overview#production`,
       };
     },
 
-    stagingEnvironment() {
-      return {
-        slug: 'stagging',
-        name: 'stagging-branch',
-        branch: this.stagingBranchName(),
-        url: `${window.location.pathname}?tab=addons#stagging`,
-      };
-    },
-
     developmentEnvironments() {
-      const seen = [];
-      const items = [];
-      const primary = this.primaryBranchName();
-      const staging = this.stagingBranchName();
-      (this.repos || []).forEach((repo, index) => {
-        const branch = ((repo.branch || repo.default_branch || '').trim() || '').trim();
-        if (!branch || branch === primary || branch === staging || seen.includes(branch)) return;
-        seen.push(branch);
-        items.push({
-          slug: `development-${index + 1}`,
-          name: `dev-${index + 1}`,
-          branch,
-          url: `${window.location.pathname}?tab=addons#development-${index + 1}`,
-        });
-      });
-      if (!items.length) {
-        return [
-          {
-            slug: 'development-1',
-            name: 'dev-1',
-            branch: `feature/${this.primaryBranchName().replace(/\s+/g, '-').toLowerCase()}-copy`,
-            url: `${window.location.pathname}?tab=addons#development-1`,
-          },
-          {
-            slug: 'development-2',
-            name: 'dev-2',
-            branch: 'feature/custom-module',
-            url: `${window.location.pathname}?tab=addons#development-2`,
-          },
-        ];
-      }
-      return items;
+      const productionBranch = this.linkedRepo?.branch || 'main';
+      const stagingBranches = new Set((this.stagingEnvironments || []).map(e => e.branch).filter(Boolean));
+      const sourceBranches = this.linkedRepoBranches.length
+        ? this.linkedRepoBranches
+        : [];
+      return sourceBranches
+        .filter(b => b !== productionBranch && !stagingBranches.has(b))
+        .map(b => ({
+          slug: `dev-${b}`,
+          name: b,
+          branch: b,
+          url: `${window.location.pathname}?tab=addons#dev-${b}`,
+        }));
     },
 
     primaryBranchName() {
-      const firstRepo = (this.repos || [])[0];
-      return ((firstRepo?.branch || firstRepo?.default_branch || 'main').trim() || 'main');
-    },
-
-    stagingBranchName() {
-      const stagedRepo = (this.repos || []).find((repo) => /stag|stage/i.test(repo.branch || repo.default_branch || ''));
-      if (stagedRepo) {
-        return ((stagedRepo.branch || stagedRepo.default_branch || 'staging').trim() || 'staging');
-      }
-      return `staging-${this.primaryBranchName()}`;
+      return this.linkedRepo?.branch || 'main';
     },
 
     environmentHref(env) {
@@ -2134,7 +2234,13 @@ function instanceConsole(instanceId) {
       try {
         const res = await fetch(`/deployments/odoo/instances/${this.instanceId}/repos/`);
         const data = await res.json();
+        const previousLinkedId = this.linkedRepo?.id;
         this.repos = data.results ?? [];
+        // Refresh branch list if the linked repo changed
+        if (this.linkedRepo && this.linkedRepo.id !== previousLinkedId) {
+          this.linkedRepoBranches = [];
+          this.loadLinkedRepoBranches();
+        }
         if (this.githubUploadTarget) {
           const currentUploadRepo = this.repos.find(repo => String(repo.id) === String(this.githubUploadTarget.id)) || null;
           if (!currentUploadRepo) {
@@ -2151,6 +2257,61 @@ function instanceConsole(instanceId) {
       } finally {
         if (showLoading) this.reposLoading = false;
       }
+    },
+
+    async loadLinkedRepoBranches() {
+      const repo = this.linkedRepo;
+      if (!repo) { this.linkedRepoBranches = []; return; }
+      const credId = repo.credential;
+      if (!credId) { this.linkedRepoBranches = []; return; }
+      this.linkedRepoBranchesLoading = true;
+      try {
+        const params = new URLSearchParams({ credential_id: credId });
+        const fullName = repo.git_url?.match(/github\.com[/:]([^/]+\/[^/.]+)/)?.[1];
+        if (fullName) params.set('repo_full_name', fullName);
+        const res = await fetch(`/deployments/github/branches/?${params}`);
+        const data = await res.json().catch(() => ({}));
+        this.linkedRepoBranches = (data.results || []).map(b => b.name || b).filter(Boolean);
+      } catch (_) {
+        this.linkedRepoBranches = [];
+      } finally {
+        this.linkedRepoBranchesLoading = false;
+      }
+    },
+
+    async switchProductionBranch(branch) {
+      const repo = this.linkedRepo;
+      if (!repo) return;
+      if (!confirm(`Switch production to branch "${branch}"? The instance will checkout and restart on this branch.`)) return;
+      this.repoBusyId = repo.id;
+      this.repoMessage = null;
+      try {
+        const res = await fetch(`/deployments/odoo/instances/${this.instanceId}/repos/${repo.id}/`, {
+          method: 'POST',
+          headers: { 'X-CSRFToken': this.getCsrf(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ branch }),
+        });
+        const data = await res.json().catch(() => ({}));
+        this.repoMessageOk = res.ok;
+        this.repoMessage = res.ok
+          ? `Switching to branch "${branch}" — watch the Jobs tab for progress.`
+          : (data.error || 'Failed to switch branch.');
+        if (res.ok) { this.loadRepos(); this.loadJobs(); this.setToolbarTab('upgrade-tools'); }
+      } catch (err) {
+        this.repoMessageOk = false;
+        this.repoMessage = 'Network error: ' + err.message;
+      } finally {
+        this.repoBusyId = null;
+      }
+    },
+
+    openStagingModalForBranch(branch) {
+      const repo = this.linkedRepo;
+      if (!repo) return;
+      this.stagingForm = { repoId: repo.id, branch, ttlDays: 7 };
+      this.stagingBranchList = this.linkedRepoBranches;
+      this.stagingModalMsg = null;
+      this.showStagingModal = true;
     },
 
     async loadCredentials() {

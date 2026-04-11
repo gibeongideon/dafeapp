@@ -41,10 +41,37 @@
         </div>
 
         <div id="do-fields">
-          <label class="block text-sm font-medium text-gray-700 mb-1">API Token</label>
-          {{ form.api_token }}
-          <p class="text-xs text-gray-400 mt-1">{{ form.api_token.help_text }}</p>
-          {% if form.api_token.errors %}<p class="text-xs text-red-500 mt-1">{{ form.api_token.errors.0 }}</p>{% endif %}
+          <div class="space-y-4">
+            <div class="rounded-xl border border-gray-200 bg-gray-50 p-4">
+              <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Option 1</p>
+              <label class="mt-2 block text-sm font-medium text-gray-700 mb-1">API Token</label>
+              {{ form.api_token }}
+              <p class="text-xs text-gray-400 mt-1">{{ form.api_token.help_text }}</p>
+              {% if form.api_token.errors %}<p class="text-xs text-red-500 mt-1">{{ form.api_token.errors.0 }}</p>{% endif %}
+            </div>
+            <div class="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p class="text-xs font-semibold uppercase tracking-wide text-emerald-700">Option 2</p>
+                  <p class="mt-2 text-sm font-medium text-emerald-950">Sign in to DigitalOcean and authorize DafeApp</p>
+                  <p class="mt-1 text-xs text-emerald-800">This redirects the user to DigitalOcean, then returns here with an OAuth token. No manual token copy is needed.</p>
+                </div>
+                {% if digitalocean_oauth_enabled %}
+                <a href="{% url 'cloud:digitalocean-oauth-start' %}"
+                   class="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-500">
+                  Sign in &amp; Authorize
+                </a>
+                {% else %}
+                <span class="inline-flex items-center justify-center rounded-lg border border-amber-300 bg-amber-100 px-4 py-2.5 text-sm font-semibold text-amber-900">
+                  OAuth not configured
+                </span>
+                {% endif %}
+              </div>
+              {% if not digitalocean_oauth_enabled %}
+              <p class="mt-3 text-xs text-amber-800">Set `DIGITALOCEAN_CLIENT_ID` and `DIGITALOCEAN_CLIENT_SECRET` to enable the redirect flow.</p>
+              {% endif %}
+            </div>
+          </div>
         </div>
 
         <div id="aws-fields" class="hidden space-y-4">

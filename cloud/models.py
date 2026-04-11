@@ -69,6 +69,10 @@ class CloudAccount(models.Model):
         DIGITALOCEAN = "DIGITALOCEAN", "DigitalOcean"
         AWS = "AWS", "Amazon Web Services"
 
+    class DOAuthMethod(models.TextChoices):
+        TOKEN = "TOKEN", "Personal Access Token"
+        OAUTH = "OAUTH", "OAuth"
+
     organization = models.ForeignKey(
         "organizations.Organization",
         on_delete=models.CASCADE,
@@ -82,6 +86,13 @@ class CloudAccount(models.Model):
     encrypted_aws_access_key_id = models.TextField(blank=True)
     encrypted_aws_secret_access_key = models.TextField(blank=True)
     aws_default_region = models.CharField(max_length=30, blank=True, default="")
+    # DigitalOcean OAuth fields
+    do_auth_method = models.CharField(
+        max_length=10, choices=DOAuthMethod.choices, default=DOAuthMethod.TOKEN
+    )
+    encrypted_do_oauth_token = models.TextField(blank=True)
+    encrypted_do_oauth_refresh_token = models.TextField(blank=True)
+    do_oauth_token_expiry = models.DateTimeField(null=True, blank=True)
     is_verified = models.BooleanField(default=False)
     verification_error = models.CharField(max_length=500, blank=True)
     last_verified_at = models.DateTimeField(null=True, blank=True)
@@ -95,6 +106,9 @@ class CloudAccount(models.Model):
 
     @property
     def api_token(self):
+        """Return the effective DigitalOcean token (OAuth or PAT)."""
+        if self.do_auth_method == self.DOAuthMethod.OAUTH:
+            return FieldEncryptor.decrypt(self.encrypted_do_oauth_token)
         return FieldEncryptor.decrypt(self.encrypted_api_token)
 
     @property
@@ -104,6 +118,14 @@ class CloudAccount(models.Model):
     @property
     def aws_secret_access_key(self):
         return FieldEncryptor.decrypt(self.encrypted_aws_secret_access_key)
+
+    @property
+    def do_oauth_token(self):
+        return FieldEncryptor.decrypt(self.encrypted_do_oauth_token)
+
+    @property
+    def do_oauth_refresh_token(self):
+        return FieldEncryptor.decrypt(self.encrypted_do_oauth_refresh_token)
 
     def save(self, *args, **kwargs):
         raw_token = getattr(self, "_raw_api_token", None)
@@ -120,6 +142,17 @@ class CloudAccount(models.Model):
         if raw_aws_secret:
             self.encrypted_aws_secret_access_key = FieldEncryptor.encrypt(raw_aws_secret)
             self._raw_aws_secret_access_key = None
+
+        raw_oauth_token = getattr(self, "_raw_do_oauth_token", None)
+        if raw_oauth_token:
+            self.encrypted_do_oauth_token = FieldEncryptor.encrypt(raw_oauth_token)
+            self._raw_do_oauth_token = None
+
+        raw_oauth_refresh = getattr(self, "_raw_do_oauth_refresh_token", None)
+        if raw_oauth_refresh:
+            self.encrypted_do_oauth_refresh_token = FieldEncryptor.encrypt(raw_oauth_refresh)
+            self._raw_do_oauth_refresh_token = None
+
         super().save(*args, **kwargs)
 
 
