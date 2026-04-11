@@ -13,6 +13,7 @@ from deployments.models import (
     OdooInstanceHistory,
     OdooServer,
     OdooServerHistory,
+    StagingEnvironment,
     TerraformRun,
 )
 
@@ -173,6 +174,7 @@ class OdooInstanceSerializer(serializers.ModelSerializer):
     domain_assignments = serializers.SerializerMethodField()
     all_domain_urls = serializers.SerializerMethodField()
     enterprise_source_name = serializers.SerializerMethodField()
+    is_staging = serializers.SerializerMethodField()
 
     def get_access_url(self, obj):
         return obj.access_url
@@ -215,6 +217,9 @@ class OdooInstanceSerializer(serializers.ModelSerializer):
         if not obj.enterprise_source_id:
             return ""
         return obj.enterprise_source.package_name
+
+    def get_is_staging(self, obj):
+        return hasattr(obj, "staging_environment")
 
     class Meta:
         model = OdooInstance
@@ -261,6 +266,7 @@ class OdooInstanceSerializer(serializers.ModelSerializer):
             "server",
             "created_at",
             "updated_at",
+            "is_staging",
         ]
 
 
@@ -459,4 +465,37 @@ class OdooInstanceHistorySerializer(serializers.ModelSerializer):
             "note",
             "deployed_by",
             "deployed_at",
+        ]
+
+
+class StagingEnvironmentSerializer(serializers.ModelSerializer):
+    from django.utils import timezone as _tz
+
+    staging_instance = OdooInstanceSerializer(read_only=True)
+    source_instance_name = serializers.SerializerMethodField()
+    is_expired = serializers.SerializerMethodField()
+
+    def get_source_instance_name(self, obj):
+        return obj.source_instance.name if obj.source_instance_id else ""
+
+    def get_is_expired(self, obj):
+        from datetime import timedelta
+        from django.utils import timezone
+        return timezone.now() > (obj.last_activity_at + timedelta(days=obj.ttl_days))
+
+    class Meta:
+        model = StagingEnvironment
+        fields = [
+            "id",
+            "staging_instance",
+            "source_instance",
+            "source_instance_name",
+            "source_repo",
+            "branch",
+            "auto_delete_enabled",
+            "ttl_days",
+            "last_activity_at",
+            "is_expired",
+            "created_at",
+            "updated_at",
         ]

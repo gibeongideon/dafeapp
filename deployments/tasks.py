@@ -28,10 +28,15 @@ from core.utils import log_audit
 from dns.models import DomainAssignment, DnsRecord, DnsZone, normalize_domain_name
 from dns.services.factory import get_dns_provider_service
 from deployments.domain_utils import (
+    build_platform_domain_label,
+    is_platform_domain_label_valid,
+    normalize_platform_domain_label,
     platform_base_domain,
     platform_dns_default_proxied,
     platform_dns_is_configured,
     platform_dns_provider_service,
+    platform_domain_for_label,
+    slugify_branch,
 )
 from deployments.models import (
     DeploymentJob,
@@ -44,6 +49,7 @@ from deployments.models import (
     OdooInstanceHistory,
     OdooServer,
     OdooServerHistory,
+    StagingEnvironment,
     TerraformRun,
 )
 
@@ -5140,3 +5146,205 @@ def stop_odoo_instance(self, instance_id: int, job_id: int | None = None):
         _job_done(job_id, ok=False, log=full_log)
         _broadcast_instance(instance_id, "stop", "FAILED", done=True, log=str(exc))
         logger.exception("stop_odoo_instance failed for instance %s", instance_id)
+
+
+def _staging_next_available_port(server: OdooServer) -> int | None:
+    """Port allocation for staging (duplicates views._next_available_port to avoid circular import)."""
+    used = set(
+        server.instances.exclude(status=OdooInstance.Status.DELETED).values_list("http_port", flat=True)
+    )
+    # Also check ports already listening on the server via SSH
+    if server.ip_address:
+        cmd = (
+            f"for port in $(seq {int(server.min_port)} {int(server.max_port)}); do "
+            f"ss -ltn \"( sport = :$port )\" 2>/dev/null | tail -n +2 | grep -q . && echo \"$port\"; "
+            "done"
+        )
+        try:
+            code, output = _ssh_run(server, cmd, timeout=60)
+            if code == 0:
+                for line in output.splitlines():
+                    line = line.strip()
+                    if line.isdigit():
+                        used.add(int(line))
+        except Exception:
+            pass
+    for port in range(server.min_port, server.max_port + 1):
+        if port not in used:
+            return port
+    return None
+
+
+@shared_task(bind=True, max_retries=0)
+def create_staging_instance(self, source_instance_id: int, repo_id: int, branch: str, job_id: int | None = None):
+    """
+    Create a staging Odoo Docker instance from a source instance and a git branch.
+    The staging instance is a regular OdooInstance tagged via StagingEnvironment.
+    """
+    source_instance = OdooInstance.objects.select_related(
+        "organization",
+        "server",
+        "server__infrastructure",
+        "server__infrastructure__external_server",
+    ).get(pk=source_instance_id)
+    server = source_instance.server
+
+    try:
+        source_repo = OdooInstanceGitRepo.objects.get(pk=repo_id)
+    except OdooInstanceGitRepo.DoesNotExist:
+        _job_done(job_id, ok=False, log=f"Git repo {repo_id} not found.")
+        return
+
+    _job_start(job_id, self.request.id)
+    ws_group = f"odoo.instance.{source_instance_id}"
+
+    try:
+        # Validate prerequisites
+        if source_instance.status != OdooInstance.Status.RUNNING:
+            raise RuntimeError(f"Source instance is not RUNNING (status={source_instance.status}).")
+        if server.deployment_mode != OdooServer.DeploymentMode.DOCKER:
+            raise RuntimeError("Staging environments are only supported on Docker servers.")
+        if not server.ip_address:
+            raise RuntimeError("Server has no IP address; cannot create staging instance.")
+
+        # Build naming
+        branch_slug = slugify_branch(branch)
+        src_slug = slugify_branch(source_instance.db_name)[:20]
+        db_name = f"stg_{source_instance.db_name[:20]}_{branch_slug[:20]}"
+        db_name = db_name[:63].rstrip("-_")
+
+        # Idempotency: if a live instance with this db_name already exists, abort
+        existing = OdooInstance.objects.filter(server=server, db_name=db_name).exclude(
+            status=OdooInstance.Status.DELETED
+        ).first()
+        if existing:
+            _job_done(job_id, ok=False, log=f"Staging instance for branch '{branch}' already exists (id={existing.id}).")
+            return
+
+        # Port allocation
+        port = _staging_next_available_port(server)
+        if port is None:
+            raise RuntimeError("No available ports on server for staging instance.")
+
+        # Domain label
+        label_candidate = normalize_platform_domain_label(f"{branch_slug}-{src_slug}")
+        if is_platform_domain_label_valid(label_candidate) and not OdooInstance.objects.filter(
+            domain=platform_domain_for_label(label_candidate)
+        ).exclude(status=OdooInstance.Status.DELETED).exists():
+            label = label_candidate
+        else:
+            label = build_platform_domain_label()
+        platform_domain = platform_domain_for_label(label) if platform_dns_is_configured() else ""
+
+        _broadcast_log_line(ws_group, f"=== Creating staging instance for branch '{branch}' ===")
+        _broadcast_log_line(ws_group, f"db_name={db_name}  port={port}  domain={platform_domain or '(none)'}")
+
+        # Create OdooInstance
+        staging_inst = OdooInstance.objects.create(
+            organization=source_instance.organization,
+            server=server,
+            name=f"[Staging] {source_instance.name} · {branch_slug}",
+            db_name=db_name,
+            domain=platform_domain,
+            http_port=port,
+            domain_status=(
+                OdooInstance.DomainStatus.PENDING if platform_domain
+                else OdooInstance.DomainStatus.NOT_CONFIGURED
+            ),
+            ssl_status=(
+                OdooInstance.SSLStatus.PENDING if platform_domain and server.tls_mode != OdooServer.TLSMode.DISABLED
+                else OdooInstance.SSLStatus.NOT_CONFIGURED
+            ),
+            requested_cpu_cores=source_instance.requested_cpu_cores,
+            requested_ram_mb=source_instance.requested_ram_mb,
+            restart_policy="on-failure",
+            created_by=source_instance.created_by,
+        )
+
+        # Create StagingEnvironment metadata
+        staging_env = StagingEnvironment.objects.create(
+            staging_instance=staging_inst,
+            source_instance=source_instance,
+            source_repo=source_repo,
+            branch=branch,
+            auto_delete_enabled=True,
+            ttl_days=7,
+            created_by=source_instance.created_by,
+        )
+
+        # Domain assignment
+        if platform_domain:
+            _ensure_domain_assignment(staging_inst, platform_domain)
+
+        # Provision the Docker container (full Ansible run)
+        _run_docker_instance_create(staging_inst, server, job_id, self.request.id)
+
+        # If provisioning succeeded, clone the source repo onto the staging instance
+        staging_inst.refresh_from_db()
+        if staging_inst.status == OdooInstance.Status.RUNNING:
+            _broadcast_log_line(ws_group, f"=== Cloning repo '{source_repo.repo_name}' at branch '{branch}' ===")
+            staging_repo = OdooInstanceGitRepo.objects.create(
+                instance=staging_inst,
+                credential=source_repo.credential,
+                repo_name=source_repo.repo_name,
+                git_url=source_repo.git_url,
+                branch=branch,
+                auth_type=source_repo.auth_type,
+                auto_update=True,
+                install_requirements_on_update=source_repo.install_requirements_on_update,
+                auto_upgrade_modules_on_update=source_repo.auto_upgrade_modules_on_update,
+                is_enabled=True,
+                created_by=source_instance.created_by,
+            )
+            _dispatch(clone_instance_repo, staging_repo.id)
+            staging_env.last_activity_at = timezone.now()
+            staging_env.save(update_fields=["last_activity_at", "updated_at"])
+
+        _broadcast_log_line(ws_group, "=== Staging instance creation complete ===")
+
+    except Exception as exc:
+        log = f"create_staging_instance failed: {exc}\n{traceback.format_exc()}"
+        _job_done(job_id, ok=False, log=log)
+        logger.exception("create_staging_instance failed for source_instance=%s branch=%s", source_instance_id, branch)
+
+
+@shared_task(bind=True, max_retries=0)
+def cleanup_expired_staging_instances(self):
+    """Periodic beat task: delete staging instances whose TTL has expired."""
+    from datetime import timedelta
+
+    now = timezone.now()
+    logger.info("cleanup_expired_staging_instances: scanning for expired environments")
+
+    expired = StagingEnvironment.objects.select_related(
+        "staging_instance",
+        "staging_instance__server",
+        "staging_instance__organization",
+    ).filter(
+        auto_delete_enabled=True,
+        staging_instance__status__in=[
+            OdooInstance.Status.RUNNING,
+            OdooInstance.Status.STOPPED,
+            OdooInstance.Status.FAILED,
+        ],
+    )
+
+    count = 0
+    for env in expired:
+        if now < env.last_activity_at + timedelta(days=env.ttl_days):
+            continue
+        staging_inst = env.staging_instance
+        logger.info(
+            "cleanup_expired_staging: queuing deletion for staging instance %s (branch=%s)",
+            staging_inst.id,
+            env.branch,
+        )
+        DeploymentJob.objects.create(
+            organization=staging_inst.organization,
+            job_type=DeploymentJob.JobType.CLEANUP_STAGING_INSTANCE,
+            odoo_instance=staging_inst,
+        )
+        _dispatch(delete_odoo_instance, staging_inst.id)
+        count += 1
+
+    logger.info("cleanup_expired_staging_instances: queued %d deletions", count)

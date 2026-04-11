@@ -58,20 +58,136 @@
 
             <div class="space-y-3">
               <div class="flex items-center justify-between">
-                <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Stagging</p>
+                <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Staging</p>
+                {% if is_docker_server and not is_staging %}
                 <button type="button"
-                        @click="createStagingClone()"
+                        @click="openStagingModal()"
                         class="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/10 text-lg leading-none text-white transition hover:bg-white/20"
-                        title="Create a stagging copy">
+                        title="Create a staging copy">
                   +
                 </button>
+                {% endif %}
               </div>
-              <a :href="environmentHref(stagingEnvironment())"
-                 class="block rounded-3xl border border-amber-400/20 bg-amber-500/10 px-4 py-4 transition hover:border-amber-300/40 hover:bg-amber-500/15">
-                <p class="text-sm font-semibold text-white" x-text="stagingEnvironment().name"></p>
-                <p class="mt-1 text-xs uppercase tracking-[0.18em] text-amber-100">Actual GitHub branch</p>
-                <p class="mt-2 text-sm text-slate-200" x-text="stagingEnvironment().branch"></p>
-              </a>
+
+              {% if is_staging %}
+              <!-- This instance IS a staging instance -->
+              <div class="rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-4">
+                <span class="inline-flex items-center rounded-full bg-amber-400/20 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-200">Staging</span>
+                {% if staging_source %}
+                <p class="mt-2 text-xs text-slate-300">Source: <span class="text-white font-medium">{{ staging_source.name }}</span></p>
+                {% endif %}
+              </div>
+              {% else %}
+              <!-- Staging instances spawned from this production instance -->
+              <div x-show="stagingLoading" class="text-xs text-slate-400 py-2">Loading…</div>
+              <div x-show="stagingMsg"
+                   :class="stagingOk ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200' : 'border-rose-400/30 bg-rose-500/10 text-rose-200'"
+                   class="rounded-xl border px-3 py-2 text-xs"
+                   x-text="stagingMsg"></div>
+              <template x-if="!stagingLoading && stagingEnvironments.length === 0">
+                <p class="text-xs text-slate-500 py-2">No staging environments yet. Press + to create one from a branch.</p>
+              </template>
+              <template x-for="env in stagingEnvironments" :key="env.id">
+                <div class="rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-4">
+                  <div class="flex items-start justify-between gap-2">
+                    <div class="min-w-0">
+                      <p class="text-sm font-semibold text-white truncate" x-text="env.staging_instance?.name || env.branch"></p>
+                      <p class="mt-1 text-xs text-amber-200 truncate" x-text="env.branch"></p>
+                      <span class="mt-2 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase"
+                            :class="{
+                              'bg-emerald-500/20 text-emerald-200': env.staging_instance?.status === 'RUNNING',
+                              'bg-amber-500/20 text-amber-200': ['PROVISIONING','CONFIGURING','PENDING'].includes(env.staging_instance?.status),
+                              'bg-rose-500/20 text-rose-200': env.staging_instance?.status === 'FAILED',
+                              'bg-white/10 text-slate-300': !['RUNNING','PROVISIONING','CONFIGURING','PENDING','FAILED'].includes(env.staging_instance?.status)
+                            }"
+                            x-text="env.staging_instance?.status || 'Unknown'"></span>
+                      <p x-show="env.is_expired"
+                         class="mt-1 text-[10px] text-rose-300">TTL expired</p>
+                    </div>
+                    <div class="flex flex-col gap-1.5 shrink-0">
+                      <a x-show="env.staging_instance?.id"
+                         :href="`/deployments/odoo/instances/${env.staging_instance?.id}/`"
+                         class="inline-flex items-center rounded-lg border border-white/10 bg-white/10 px-2.5 py-1 text-[10px] font-medium text-white hover:bg-white/20">
+                        Open
+                      </a>
+                      <button type="button"
+                              @click="deleteStagingEnv(env.id)"
+                              class="inline-flex items-center rounded-lg border border-rose-400/30 bg-rose-500/10 px-2.5 py-1 text-[10px] font-medium text-rose-200 hover:bg-rose-500/20">
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </template>
+              {% endif %}
+            </div>
+
+            <!-- ── Staging Create Modal ── -->
+            <div x-show="showStagingModal"
+                 class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 px-4"
+                 x-cloak>
+              <div class="w-full max-w-md rounded-2xl bg-white shadow-2xl p-6 space-y-5">
+                <div class="flex items-center justify-between">
+                  <h3 class="text-base font-semibold text-gray-900">Create Staging Environment</h3>
+                  <button type="button" @click="showStagingModal = false" class="text-gray-400 hover:text-gray-600">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                  </button>
+                </div>
+                <div class="space-y-4">
+                  <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1">Git Repo</label>
+                    <select x-model="stagingForm.repoId"
+                            @change="loadStagingBranches()"
+                            class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none">
+                      <option value="">— Select a repo —</option>
+                      <template x-for="repo in repos" :key="repo.id">
+                        <option :value="repo.id" x-text="repo.repo_name"></option>
+                      </template>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1">Branch</label>
+                    <div x-show="stagingBranchesLoading" class="text-xs text-amber-600">Loading branches…</div>
+                    <select x-show="!stagingBranchesLoading && stagingBranchList.length"
+                            x-model="stagingForm.branch"
+                            class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none">
+                      <option value="">— Select a branch —</option>
+                      <template x-for="b in stagingBranchList" :key="b">
+                        <option :value="b" x-text="b"></option>
+                      </template>
+                    </select>
+                    <input x-show="!stagingBranchesLoading && !stagingBranchList.length"
+                           type="text"
+                           x-model="stagingForm.branch"
+                           placeholder="e.g. feature/my-branch"
+                           class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none">
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-gray-700 mb-1">TTL (days)</label>
+                    <input type="number" x-model.number="stagingForm.ttlDays" min="1" max="30"
+                           class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none">
+                    <p class="mt-1 text-[11px] text-gray-400">Auto-deleted after this many days of inactivity.</p>
+                  </div>
+                  <div x-show="stagingModalMsg"
+                       :class="stagingModalOk ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'"
+                       class="rounded-lg border px-3 py-2 text-xs"
+                       x-text="stagingModalMsg"></div>
+                </div>
+                <div class="flex justify-end gap-3 pt-1">
+                  <button type="button" @click="showStagingModal = false"
+                          class="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                    Cancel
+                  </button>
+                  <button type="button"
+                          @click="submitCreateStaging()"
+                          :disabled="stagingCreating || !stagingForm.repoId || !stagingForm.branch"
+                          class="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                    <span x-text="stagingCreating ? 'Creating…' : 'Create Staging'"></span>
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div class="space-y-3">
@@ -1405,6 +1521,19 @@ function instanceConsole(instanceId) {
     deleteOk: false,
     deleteMsg: null,
 
+    // Staging environments
+    stagingEnvironments: {{ staging_envs_json|safe }},
+    stagingLoading: false,
+    stagingMsg: null,
+    stagingOk: false,
+    showStagingModal: false,
+    stagingCreating: false,
+    stagingModalMsg: null,
+    stagingModalOk: false,
+    stagingBranchList: [],
+    stagingBranchesLoading: false,
+    stagingForm: { repoId: '', branch: '', ttlDays: 7 },
+
     // ── Init ──
     init() {
       this.resetRepoForm();
@@ -1522,10 +1651,102 @@ function instanceConsole(instanceId) {
       return 'No module updates yet';
     },
 
+    openStagingModal() {
+      this.stagingForm = { repoId: this.repos[0]?.id || '', branch: '', ttlDays: 7 };
+      this.stagingBranchList = [];
+      this.stagingModalMsg = null;
+      this.showStagingModal = true;
+      if (this.stagingForm.repoId) this.loadStagingBranches();
+    },
+
+    async loadStagingBranches() {
+      const repo = this.repos.find(r => String(r.id) === String(this.stagingForm.repoId));
+      if (!repo) { this.stagingBranchList = []; return; }
+      // Try to fetch from GitHub if credential is available
+      const credId = repo.credential;
+      if (!credId) { this.stagingBranchList = []; return; }
+      this.stagingBranchesLoading = true;
+      try {
+        const params = new URLSearchParams({ credential_id: credId });
+        const fullName = repo.git_url?.match(/github\.com[/:]([^/]+\/[^/.]+)/)?.[1];
+        if (fullName) params.set('repo_full_name', fullName);
+        const res = await fetch(`/deployments/github/branches/?${params}`);
+        const data = await res.json().catch(() => ({}));
+        this.stagingBranchList = (data.results || []).map(b => b.name || b).filter(Boolean);
+      } catch (_) {
+        this.stagingBranchList = [];
+      } finally {
+        this.stagingBranchesLoading = false;
+      }
+    },
+
+    async submitCreateStaging() {
+      if (!this.stagingForm.repoId || !this.stagingForm.branch) return;
+      this.stagingCreating = true;
+      this.stagingModalMsg = null;
+      try {
+        const res = await fetch(`/deployments/odoo/instances/${this.instanceId}/staging/create/`, {
+          method: 'POST',
+          headers: { 'X-CSRFToken': this.getCsrf(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            repo_id: this.stagingForm.repoId,
+            branch: this.stagingForm.branch,
+            ttl_days: this.stagingForm.ttlDays,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          this.stagingModalOk = true;
+          this.stagingModalMsg = 'Staging environment queued. It will appear below when provisioned.';
+          this.stagingOk = true;
+          this.stagingMsg = `Staging for "${this.stagingForm.branch}" is being provisioned — check the Jobs tab.`;
+          setTimeout(() => { this.showStagingModal = false; this.loadStagingEnvs(); }, 1500);
+        } else {
+          this.stagingModalOk = false;
+          this.stagingModalMsg = data.error || 'Failed to create staging environment.';
+        }
+      } catch (err) {
+        this.stagingModalOk = false;
+        this.stagingModalMsg = 'Network error: ' + err.message;
+      } finally {
+        this.stagingCreating = false;
+      }
+    },
+
+    async loadStagingEnvs() {
+      this.stagingLoading = true;
+      try {
+        const res = await fetch(`/deployments/odoo/instances/${this.instanceId}/staging/`);
+        const data = await res.json().catch(() => ({}));
+        this.stagingEnvironments = data.results || [];
+      } catch (_) {
+        // keep current list
+      } finally {
+        this.stagingLoading = false;
+      }
+    },
+
+    async deleteStagingEnv(stagingId) {
+      if (!confirm('Delete this staging environment? The instance and its database will be permanently removed.')) return;
+      this.stagingMsg = null;
+      try {
+        const res = await fetch(`/deployments/odoo/staging/${stagingId}/delete/`, {
+          method: 'POST',
+          headers: { 'X-CSRFToken': this.getCsrf() },
+        });
+        const data = await res.json().catch(() => ({}));
+        this.stagingOk = res.ok;
+        this.stagingMsg = res.ok ? 'Staging deletion queued.' : (data.error || 'Failed to delete staging environment.');
+        if (res.ok) { this.stagingEnvironments = this.stagingEnvironments.filter(e => e.id !== stagingId); }
+      } catch (err) {
+        this.stagingOk = false;
+        this.stagingMsg = 'Network error: ' + err.message;
+      }
+    },
+
     createStagingClone() {
-      this.envMessageOk = true;
-      this.envMessage = `Stagging clone flow placeholder: this will copy ${this.primaryBranchName()} into a new staging instance.`;
-      this.setToolbarTab('settings');
+      // Legacy placeholder — replaced by openStagingModal
+      this.openStagingModal();
     },
 
     get repoHealth() {

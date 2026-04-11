@@ -791,6 +791,9 @@ class DeploymentJob(models.Model):
         UPDATE_MODULES_ALL = "UPDATE_MODULES_ALL", "Update All Modules"
         UPDATE_MODULES_SELECTED = "UPDATE_MODULES_SELECTED", "Update Selected Modules"
         RESTART_INSTANCE = "RESTART_INSTANCE", "Restart Instance"
+        CREATE_STAGING_INSTANCE = "CREATE_STAGING_INSTANCE", "Create Staging Instance"
+        DELETE_STAGING_INSTANCE = "DELETE_STAGING_INSTANCE", "Delete Staging Instance"
+        CLEANUP_STAGING_INSTANCE = "CLEANUP_STAGING_INSTANCE", "Cleanup Staging (TTL)"
 
     class Status(models.TextChoices):
         QUEUED = "QUEUED", "Queued"
@@ -937,3 +940,54 @@ class OdooInstanceHistory(models.Model):
 
     def __str__(self):
         return f"Instance #{self.instance_id} ({self.db_name}) @ {self.deployed_at:%Y-%m-%d %H:%M}"
+
+
+class StagingEnvironment(models.Model):
+    """
+    Links a staging OdooInstance back to the source instance and git branch it was
+    created from. The staging_instance IS a regular OdooInstance — this model is
+    purely relational metadata that marks it as a staging environment.
+    """
+
+    staging_instance = models.OneToOneField(
+        OdooInstance,
+        on_delete=models.CASCADE,
+        related_name="staging_environment",
+    )
+    source_instance = models.ForeignKey(
+        OdooInstance,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="staging_environments",
+    )
+    source_repo = models.ForeignKey(
+        OdooInstanceGitRepo,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="staging_environments",
+    )
+    branch = models.CharField(max_length=120)
+    auto_delete_enabled = models.BooleanField(default=True)
+    ttl_days = models.PositiveIntegerField(default=7)
+    last_activity_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="created_staging_environments",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["source_instance", "branch"], name="dep_staging_src_branch_idx"),
+            models.Index(fields=["auto_delete_enabled", "last_activity_at"], name="dep_staging_ttl_idx"),
+        ]
+
+    def __str__(self):
+        return f"Staging [{self.branch}] → {self.staging_instance_id}"

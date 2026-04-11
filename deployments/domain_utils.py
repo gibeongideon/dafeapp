@@ -68,6 +68,20 @@ def platform_dns_default_proxied() -> bool:
     return bool(getattr(settings, "PLATFORM_DNS_PROXIED", False))
 
 
+def slugify_branch(branch: str) -> str:
+    """Convert a git branch name to a DNS-safe label segment.
+
+    Examples:
+        feature/invoice-v2  →  feature-invoice-v2
+        release/2026.04     →  release-2026-04
+        HOTFIX_AUTH         →  hotfix-auth
+        main                →  main
+    """
+    slug = re.sub(r"[^a-z0-9]+", "-", branch.lower()).strip("-")
+    slug = re.sub(r"-{2,}", "-", slug)
+    return slug[:40] or "branch"
+
+
 def platform_dns_provider_service():
     provider = getattr(settings, "PLATFORM_DNS_PROVIDER", "").strip().upper()
     if provider != "CLOUDFLARE":

@@ -61,4 +61,9 @@ urlpatterns = [
     path("odoo/instances/<int:instance_id>/maintenance/update-modules/", views.OdooInstanceUpdateModulesAPIView.as_view(), name="odoo-instance-update-modules"),
     path("odoo/instances/<int:instance_id>/maintenance/restart/", views.OdooInstanceRestartAPIView.as_view(), name="odoo-instance-restart"),
     path("odoo/instances/<int:instance_id>/maintenance/stop/", views.OdooInstanceStopAPIView.as_view(), name="odoo-instance-stop"),
+    # Staging environments
+    path("odoo/instances/<int:instance_id>/staging/", views.StagingEnvironmentListAPIView.as_view(), name="staging-list"),
+    path("odoo/instances/<int:instance_id>/staging/create/", views.StagingEnvironmentCreateAPIView.as_view(), name="staging-create"),
+    path("odoo/staging/<int:staging_id>/", views.StagingEnvironmentDetailAPIView.as_view(), name="staging-detail"),
+    path("odoo/staging/<int:staging_id>/delete/", views.StagingEnvironmentDeleteAPIView.as_view(), name="staging-delete"),
 ]

@@ -179,7 +179,13 @@ CELERY_BEAT_SCHEDULE = {
         "task": "deployments.tasks.reconcile_instance_domains",
         "schedule": 300.0,  # every 5 minutes
     },
+    "cleanup-expired-staging-instances": {
+        "task": "deployments.tasks.cleanup_expired_staging_instances",
+        "schedule": 3600.0,  # every hour
+    },
 }
+
+STAGING_AUTO_CREATE_ON_PUSH = env.bool("STAGING_AUTO_CREATE_ON_PUSH", default=False)
 
 TRAEFIK_DYNAMIC_CONFIG_DIR = env("TRAEFIK_DYNAMIC_CONFIG_DIR", default="/etc/traefik/dynamic")
 TRAEFIK_ACME_STORAGE = env("TRAEFIK_ACME_STORAGE", default="/var/lib/traefik/acme.json")

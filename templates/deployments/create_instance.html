@@ -580,7 +580,12 @@
             <div class="border-b border-gray-100 px-5 py-4">
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0">
-                  <p id="instance-name-{{ oi.id }}" class="truncate text-base font-semibold tracking-tight text-gray-950">{{ oi.name }}</p>
+                  <p id="instance-name-{{ oi.id }}" class="truncate text-base font-semibold tracking-tight text-gray-950">
+                    {{ oi.name }}
+                    {% if oi.staging_environment %}
+                    <span class="ml-1 inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-semibold bg-amber-100 text-amber-700">Staging</span>
+                    {% endif %}
+                  </p>
                   <p class="mt-1 truncate text-xs font-mono text-gray-400">{{ oi.db_name }}</p>
                 </div>
                 <div class="flex items-center gap-2">
@@ -760,7 +765,12 @@
             {% for oi in visible_instances %}
             <tr id="instance-row-{{ oi.id }}">
               <td class="px-5 py-3">
-                <div class="font-medium text-gray-900">{{ oi.name }}</div>
+                <div class="flex items-center gap-1.5 font-medium text-gray-900">
+                  {{ oi.name }}
+                  {% if oi.staging_environment %}
+                  <span class="inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-semibold bg-amber-100 text-amber-700">Staging</span>
+                  {% endif %}
+                </div>
                 <div class="text-xs text-gray-500">{{ oi.db_name }}</div>
                 <div class="mt-1">
                   <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold {% if oi.enterprise_status == 'ACTIVE' %}bg-emerald-100 text-emerald-700{% else %}bg-gray-200 text-gray-700{% endif %}">

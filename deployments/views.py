@@ -48,6 +48,7 @@ from deployments.models import (
     OdooServer,
     OdooServerHistory,
     ServerSSHKey,
+    StagingEnvironment,
     TerraformRun,
 )
 from deployments.domain_utils import (
@@ -72,6 +73,7 @@ from deployments.serializers import (
     OdooInstanceSerializer,
     OdooServerHistorySerializer,
     OdooServerSerializer,
+    StagingEnvironmentSerializer,
     TerraformRunSerializer,
 )
 from deployments.tasks import (
@@ -88,6 +90,7 @@ from deployments.tasks import (
     provision_odoo_server,
     refresh_instance_addons,
     remove_instance_repo,
+    create_staging_instance,
     restart_odoo_instance,
     stop_odoo_instance,
     rollback_odoo_instance,
@@ -1358,7 +1361,7 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
         instance_queryset = (
             OdooInstance.objects.filter(organization=org, server__is_active=True)
             .exclude(status=OdooInstance.Status.DELETED)
-            .select_related("server")
+            .select_related("server", "staging_environment")
             .order_by("-created_at")
         )
         ctx["selected_server"] = None
@@ -3222,6 +3225,14 @@ class GitHubWebhookAPIView(View):
             queued_repo_ids=queued_repo_ids,
         )
 
+        # Refresh staging TTL for any staging instance whose repo was just queued for update
+        if queued_repo_ids:
+            now = timezone.now()
+            staging_envs = StagingEnvironment.objects.filter(
+                staging_instance__git_repos__id__in=queued_repo_ids
+            ).distinct()
+            staging_envs.update(last_activity_at=now, updated_at=now)
+
         return JsonResponse(
             {
                 "ok": True,
@@ -3283,6 +3294,18 @@ class OdooInstanceConsoleView(LoginRequiredMixin, TemplateView):
             OdooInstanceGitRepoSerializer(repos, many=True).data
         )
         ctx["installation_summary_text"] = instance.installation_summary_text or instance.server.installation_summary_text
+        staging_envs = (
+            StagingEnvironment.objects.filter(source_instance=instance)
+            .select_related("staging_instance", "staging_instance__server", "source_repo")
+            .order_by("-created_at")
+        )
+        ctx["staging_envs_json"] = json.dumps(
+            StagingEnvironmentSerializer(staging_envs, many=True).data,
+            default=str,
+        )
+        ctx["is_staging"] = hasattr(instance, "staging_environment")
+        ctx["staging_source"] = getattr(getattr(instance, "staging_environment", None), "source_instance", None)
+        ctx["is_docker_server"] = instance.server.deployment_mode == OdooServer.DeploymentMode.DOCKER
         ctx["env_sections"] = ["Production", "Staging", "Development"]
         ctx["tool_tabs"] = [
             "GitHistory",
@@ -3826,6 +3849,111 @@ class OdooInstanceStopAPIView(LoginRequiredMixin, View):
         )
         _dispatch(stop_odoo_instance, instance.id, job.id)
         return JsonResponse({"ok": True, "job_id": job.id})
+
+
+class StagingEnvironmentListAPIView(LoginRequiredMixin, View):
+    """GET /api/deployments/odoo/instances/<id>/staging/ — list staging envs for a source instance."""
+
+    def get(self, request, instance_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        instance = get_object_or_404(OdooInstance, pk=instance_id, organization=org)
+        staging_envs = (
+            StagingEnvironment.objects.filter(source_instance=instance)
+            .select_related("staging_instance", "staging_instance__server")
+            .order_by("-created_at")
+        )
+        return JsonResponse({"results": StagingEnvironmentSerializer(staging_envs, many=True).data})
+
+
+class StagingEnvironmentCreateAPIView(LoginRequiredMixin, View):
+    """POST /api/deployments/odoo/instances/<id>/staging/create/ — create a staging instance from a branch."""
+
+    def post(self, request, instance_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if request.org_role not in ("SUPER_ADMIN", "ADMIN", "MANAGER"):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        instance = get_object_or_404(
+            OdooInstance.objects.select_related("server"),
+            pk=instance_id,
+            organization=org,
+        )
+        if instance.status != OdooInstance.Status.RUNNING:
+            return JsonResponse({"error": "Source instance must be RUNNING."}, status=400)
+        if instance.server.deployment_mode != OdooServer.DeploymentMode.DOCKER:
+            return JsonResponse({"error": "Staging is only supported on Docker servers."}, status=400)
+
+        data = _request_data(request)
+        repo_id = data.get("repo_id")
+        branch = (data.get("branch") or "").strip()
+        ttl_days = int(data.get("ttl_days") or 7)
+        auto_delete = bool(data.get("auto_delete", True))
+
+        if not repo_id or not branch:
+            return JsonResponse({"error": "repo_id and branch are required."}, status=400)
+
+        try:
+            source_repo = OdooInstanceGitRepo.objects.get(pk=repo_id, instance=instance)
+        except OdooInstanceGitRepo.DoesNotExist:
+            return JsonResponse({"error": "Git repo not found on this instance."}, status=404)
+
+        # Idempotency check
+        if StagingEnvironment.objects.filter(source_repo=source_repo, branch=branch).exclude(
+            staging_instance__status=OdooInstance.Status.DELETED
+        ).exists():
+            return JsonResponse({"error": f"Staging environment for branch '{branch}' already exists."}, status=409)
+
+        job = DeploymentJob.objects.create(
+            organization=org,
+            job_type=DeploymentJob.JobType.CREATE_STAGING_INSTANCE,
+            odoo_instance=instance,
+            odoo_server=instance.server,
+            created_by=request.user,
+        )
+        _dispatch(create_staging_instance, instance.id, source_repo.id, branch, job.id)
+        return JsonResponse({"ok": True, "job_id": job.id}, status=202)
+
+
+class StagingEnvironmentDetailAPIView(LoginRequiredMixin, View):
+    """GET /api/deployments/odoo/staging/<staging_id>/ — detail for one staging env."""
+
+    def get(self, request, staging_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        staging_env = get_object_or_404(
+            StagingEnvironment.objects.select_related("staging_instance", "staging_instance__server"),
+            pk=staging_id,
+            staging_instance__organization=org,
+        )
+        return JsonResponse(StagingEnvironmentSerializer(staging_env).data)
+
+
+class StagingEnvironmentDeleteAPIView(LoginRequiredMixin, View):
+    """POST /api/deployments/odoo/staging/<staging_id>/delete/ — delete a staging env."""
+
+    def post(self, request, staging_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if request.org_role not in ("SUPER_ADMIN", "ADMIN", "MANAGER"):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        staging_env = get_object_or_404(
+            StagingEnvironment,
+            pk=staging_id,
+            staging_instance__organization=org,
+        )
+        # Disable auto-delete to prevent TTL re-queue racing this manual delete
+        staging_env.auto_delete_enabled = False
+        staging_env.save(update_fields=["auto_delete_enabled", "updated_at"])
+
+        _dispatch(delete_odoo_instance, staging_env.staging_instance_id)
+        return JsonResponse({"ok": True, "message": "Staging instance deletion queued."}, status=202)
 
 
 class ServerSSHKeyListCreateAPIView(LoginRequiredMixin, View):
