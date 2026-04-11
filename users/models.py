@@ -59,6 +59,16 @@ class User(AbstractUser):
         except self.memberships.model.DoesNotExist:
             return None
 
+    def has_perm(self, perm, obj=None):
+        if self.is_active and self.is_platform_admin:
+            return True
+        return super().has_perm(perm, obj=obj)
+
+    def has_module_perms(self, app_label):
+        if self.is_active and self.is_platform_admin:
+            return True
+        return super().has_module_perms(app_label)
+
 
 class VCSAccount(models.Model):
     """

@@ -45,7 +45,7 @@ INSTALLED_APPS = [
     # Daphne must be first so runserver uses ASGI (enables WebSockets in dev)
     "daphne",
     # Django built-ins
-    "django.contrib.admin",
+    "core.admin_config.PlatformAdminConfig",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",

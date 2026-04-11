@@ -1,0 +1,28 @@
+
+How /admin Works Now
+
+/admin/ is wired straight to Django’s default admin site at dafeapp/urls.py (line 13). I did not find a custom AdminSite or any templates/admin/* overrides.
+Your user model already has a platform role flag, is_platform_admin, at users/models.py (line 17), and create_superuser() sets is_staff, is_superuser, and is_platform_admin together at users/managers.py (line 24).
+Important detail: Django admin access is still based on Django’s default rule, request.user.is_active and request.user.is_staff. So is_platform_admin=True alone does not grant /admin access.
+Another important detail: default ModelAdmin.get_queryset() is not org-scoped, and your admin classes do not override it. So if someone gets into /admin, they can already see cross-org data.
+The project already has good admin coverage for the main back-office models: orgs, users, subscriptions, cloud, DNS, deployments, audit logs, for example organizations/admin.py (line 13), cloud/admin.py (line 28), deployments/admin.py (line 16), subscriptions/admin.py (line 29).
+One gap: the user admin add form lets you set is_platform_admin, but not is_staff/is_superuser, at users/admin.py (line 34). That can create a “platform admin” who still cannot use /admin.
+Also, your normal product dashboard is org-scoped in core/views.py (line 30) and your org middleware only resolves orgs from memberships in organizations/middleware.py (line 23). So /dashboard/ is not the right place for true cross-org admin.
+Funny enough, templates/dashboard/home.html (line 11) already looks like a platform dashboard, but the current view feeding it is org-scoped.
+Recommendation
+
+Extend /admin, don’t replace it.
+
+The cleanest approach is a custom PlatformAdminSite that keeps Django admin’s CRUD, filters, search, and permissions UI, but adds a custom admin index/dashboard for platform-wide stats and quick actions. Keep /dashboard/ for org users, and keep /admin/ as the platform back office.
+
+Plan
+
+Create a custom PlatformAdminSite and mount it at /admin/.
+Make platform access consistent: if is_platform_admin=True, also require or auto-set is_staff=True. For phase 1, I’d keep platform admins as superusers unless you want a more granular internal permission model.
+Add a custom admin index page with global metrics: organizations, users, subscriptions, verified cloud accounts, running instances, failed jobs, recent audit events.
+Re-register the current model admins on the custom site and add a few missing ops models like DeploymentJob and history models.
+Add quick links and filters by organization/status so the platform team can jump straight into an org, subscription, instance, or failed workflow.
+Optionally add a “view as org” switch later if you want platform admins to inspect the normal org UI too. Right now the middleware won’t let them do that unless they are actual members.
+I couldn’t fully boot Django in this environment because the local install is missing celery, but the code inspection was enough to confirm the admin wiring and permission behavior.
+
+If you want, I can implement phase 1 next: custom admin site skeleton, permission cleanup, and a first platform dashboard on /admin/.

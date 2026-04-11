@@ -1,6 +1,7 @@
 from django.contrib import admin
 
 from deployments.models import (
+    DeploymentJob,
     GitHubWebhookEvent,
     GitRepositoryCredential,
     Infrastructure,
@@ -129,6 +130,24 @@ class GitHubWebhookEventAdmin(admin.ModelAdmin):
         "pusher_name", "status", "ignore_reason", "matched_repo_ids",
         "queued_repo_ids", "received_at",
     ]
+
+
+@admin.register(DeploymentJob)
+class DeploymentJobAdmin(admin.ModelAdmin):
+    list_display = [
+        "id",
+        "organization",
+        "job_type",
+        "status",
+        "odoo_server",
+        "odoo_instance",
+        "created_by",
+        "created_at",
+        "finished_at",
+    ]
+    list_filter = ["status", "job_type", "organization"]
+    search_fields = ["organization__name", "odoo_server__name", "odoo_instance__name", "created_by__email"]
+    readonly_fields = ["created_at", "updated_at", "started_at", "finished_at"]
 
 
 @admin.register(Infrastructure)
