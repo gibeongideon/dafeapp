@@ -4,32 +4,36 @@
 {% block extrastyle %}
 {{ block.super }}
 <style>
-  .platform-grid {
+  .platform-stack { display: grid; gap: 1.25rem; }
+  .platform-grid,
+  .platform-link-grid,
+  .platform-role-grid,
+  .platform-alert-grid,
+  .platform-org-grid {
     display: grid;
     gap: 1rem;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    margin-bottom: 1.5rem;
   }
-
+  .platform-panels {
+    display: grid;
+    gap: 1.25rem;
+    grid-template-columns: 1fr 1fr;
+  }
   .platform-card,
   .platform-panel,
-  .platform-link {
+  .platform-link,
+  .platform-mini {
     border: 1px solid #d8dee9;
     border-radius: 14px;
     background: #fff;
     box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
   }
-
   .platform-card,
-  .platform-link {
-    padding: 1rem 1.1rem;
-  }
-
+  .platform-link,
+  .platform-mini { padding: 1rem 1.1rem; }
   .platform-card a,
-  .platform-link a {
-    text-decoration: none;
-  }
-
+  .platform-link a,
+  .platform-mini a { text-decoration: none; }
   .platform-kicker {
     margin: 0;
     color: #52606d;
@@ -38,7 +42,6 @@
     letter-spacing: 0.06em;
     text-transform: uppercase;
   }
-
   .platform-value {
     margin: 0.35rem 0 0;
     color: #111827;
@@ -46,60 +49,34 @@
     font-weight: 700;
     line-height: 1.1;
   }
-
   .platform-meta {
     margin: 0.45rem 0 0;
     color: #52606d;
     font-size: 0.92rem;
   }
-
-  .platform-panels {
-    display: grid;
-    gap: 1.25rem;
-    grid-template-columns: 1.1fr 0.9fr;
-    margin-bottom: 1.5rem;
-  }
-
-  .platform-panel {
-    overflow: hidden;
-  }
-
-  .platform-panel h2 {
-    margin: 0;
-    font-size: 1rem;
-  }
-
+  .platform-panel { overflow: hidden; }
   .platform-panel-header {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: start;
     gap: 1rem;
     padding: 1rem 1.1rem;
     border-bottom: 1px solid #e5e7eb;
   }
-
-  .platform-panel-header p {
-    margin: 0.25rem 0 0;
-    color: #6b7280;
-  }
-
-  .platform-panel-body {
-    padding: 0;
-  }
-
+  .platform-panel-header h2 { margin: 0; font-size: 1rem; }
+  .platform-panel-header p { margin: 0.25rem 0 0; color: #6b7280; }
+  .platform-panel-body { padding: 1rem 1.1rem; }
   .platform-table {
     width: 100%;
     border-collapse: collapse;
   }
-
   .platform-table th,
   .platform-table td {
-    padding: 0.85rem 1.1rem;
+    padding: 0.85rem 0.75rem;
     border-bottom: 1px solid #edf2f7;
     text-align: left;
     vertical-align: top;
   }
-
   .platform-table th {
     color: #52606d;
     font-size: 0.78rem;
@@ -107,11 +84,6 @@
     letter-spacing: 0.05em;
     text-transform: uppercase;
   }
-
-  .platform-table td strong {
-    color: #111827;
-  }
-
   .platform-badge {
     display: inline-block;
     padding: 0.2rem 0.55rem;
@@ -121,47 +93,94 @@
     font-size: 0.78rem;
     font-weight: 700;
   }
-
-  .platform-link-grid {
-    display: grid;
+  .platform-banner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     gap: 1rem;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    margin-bottom: 1.75rem;
+    padding: 1rem 1.1rem;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #d97706, #92400e);
+    color: #fff;
   }
-
+  .platform-banner p,
+  .platform-banner h2 { margin: 0; }
+  .platform-banner-actions {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+  .platform-banner-actions a,
+  .platform-banner-actions button {
+    border: 0;
+    border-radius: 999px;
+    padding: 0.55rem 0.9rem;
+    background: rgba(255, 255, 255, 0.15);
+    color: #fff;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .platform-inline-form { display: inline; }
+  .platform-actions {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+  .platform-actions form { margin: 0; }
+  .platform-actions button,
+  .platform-org-actions a {
+    border: 1px solid #cbd5e1;
+    border-radius: 999px;
+    background: #fff;
+    color: #0f172a;
+    padding: 0.45rem 0.85rem;
+    text-decoration: none;
+    cursor: pointer;
+  }
   .platform-link-label {
     margin: 0;
     color: #111827;
     font-size: 1rem;
     font-weight: 700;
   }
-
   .platform-link-count {
     margin: 0.35rem 0 0;
     color: #1d4ed8;
     font-size: 1.7rem;
     font-weight: 700;
   }
-
-  .platform-link-meta {
-    margin: 0.35rem 0 0;
-    color: #6b7280;
+  .platform-org-actions {
+    margin-top: 0.85rem;
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
   }
-
-  .platform-app-list {
-    margin-top: 1.5rem;
-  }
-
   @media (max-width: 980px) {
-    .platform-panels {
-      grid-template-columns: 1fr;
-    }
+    .platform-panels { grid-template-columns: 1fr; }
+    .platform-banner { flex-direction: column; align-items: start; }
   }
 </style>
 {% endblock %}
 
 {% block content %}
-<div id="content-main">
+<div id="content-main" class="platform-stack">
+  {% if current_view_org %}
+    <section class="platform-banner">
+      <div>
+        <p class="platform-kicker" style="color: rgba(255,255,255,0.8);">View As Organization</p>
+        <h2>{{ current_view_org.name }}</h2>
+        <p>You are inspecting the customer-facing dashboard with platform-level temporary org context.</p>
+      </div>
+      <div class="platform-banner-actions">
+        <a href="{{ dashboard_url }}">Open customer dashboard</a>
+        <form method="post" action="{{ stop_view_as_url }}" class="platform-inline-form">
+          {% csrf_token %}
+          <button type="submit">Stop view-as</button>
+        </form>
+      </div>
+    </section>
+  {% endif %}
+
   <div class="platform-grid">
     {% for stat in platform_stats %}
       <div class="platform-card">
@@ -174,48 +193,215 @@
     {% endfor %}
   </div>
 
+  {% if role_sections %}
+    <section class="platform-panel">
+      <div class="platform-panel-header">
+        <div>
+          <h2>Role Workspace</h2>
+          <p>Visible admin areas for your platform role: <strong>{{ effective_platform_role }}</strong>.</p>
+        </div>
+      </div>
+      <div class="platform-panel-body">
+        <div class="platform-role-grid">
+          {% for section in role_sections %}
+            <div class="platform-link">
+              <p class="platform-link-label">{{ section.title }}</p>
+              <p class="platform-meta">{{ section.description }}</p>
+              <div class="platform-org-actions">
+                {% for item in section.items %}
+                  <a href="{{ item.url }}">{{ item.label }}</a>
+                {% endfor %}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+  {% endif %}
+
+  <section class="platform-panel">
+    <div class="platform-panel-header">
+      <div>
+        <h2>Operations Console</h2>
+        <p>Platform-wide health scans and fast recovery entry points.</p>
+      </div>
+      <div class="platform-actions">
+        <form method="post" action="{{ run_connectivity_sweep_url }}">
+          {% csrf_token %}
+          <button type="submit">Run connectivity sweep</button>
+        </form>
+        <form method="post" action="{{ run_instance_health_check_url }}">
+          {% csrf_token %}
+          <button type="submit">Run instance health check</button>
+        </form>
+      </div>
+    </div>
+    <div class="platform-panel-body">
+      <div class="platform-alert-grid">
+        <div class="platform-mini">
+          <p class="platform-kicker">Failed Jobs</p>
+          <p class="platform-value">{{ failed_jobs|length }}</p>
+          <p class="platform-meta">Latest deployment failures across organizations.</p>
+        </div>
+        <div class="platform-mini">
+          <p class="platform-kicker">Unhealthy Instances</p>
+          <p class="platform-value">{{ unhealthy_instances|length }}</p>
+          <p class="platform-meta">Failed, unreachable, or DNS/SSL-problem instances.</p>
+        </div>
+        <div class="platform-mini">
+          <p class="platform-kicker">Stale Verifications</p>
+          <p class="platform-value">{{ stale_verifications|length }}</p>
+          <p class="platform-meta">Cloud accounts needing verification attention.</p>
+        </div>
+        <div class="platform-mini">
+          <p class="platform-kicker">Subscription Risk</p>
+          <p class="platform-value">{{ subscription_risks|length }}</p>
+          <p class="platform-meta">Past-due, suspended, cancelled, or ending-trial orgs.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <div class="platform-panels">
     <section class="platform-panel">
       <div class="platform-panel-header">
         <div>
-          <h2>Recent Organizations</h2>
-          <p>Latest orgs created across the platform.</p>
+          <h2>Organization Drilldown</h2>
+          <p>Recent organizations with one-click cross-org shortcuts.</p>
         </div>
         <a href="{% url 'admin:organizations_organization_changelist' %}">Open organizations</a>
+      </div>
+      <div class="platform-panel-body">
+        <div class="platform-org-grid">
+          {% for org in org_shortcuts %}
+            <div class="platform-link">
+              <p class="platform-link-label">{{ org.name }}</p>
+              <p class="platform-meta">{{ org.slug }} · {{ org.owner_email }}</p>
+              <p class="platform-meta">{{ org.members|intcomma }} members · {{ org.running_instances|intcomma }} running instances</p>
+              <div class="platform-org-actions">
+                <a href="{{ org.org_url }}">Org</a>
+                <a href="{{ org.members_url }}">Members</a>
+                <a href="{{ org.subscription_url }}">Subscription</a>
+                <a href="{{ org.instances_url }}">Instances</a>
+                <a href="{{ org.view_as_url }}">View as org</a>
+              </div>
+            </div>
+          {% empty %}
+            <p>No organizations yet.</p>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+
+    <section class="platform-panel">
+      <div class="platform-panel-header">
+        <div>
+          <h2>Saved Presets</h2>
+          <p>Fast filters for the most common platform workflows.</p>
+        </div>
+      </div>
+      <div class="platform-panel-body">
+        <div class="platform-link-grid">
+          {% for item in platform_saved_presets %}
+            <div class="platform-link">
+              <a href="{{ item.url }}">
+                <p class="platform-link-label">{{ item.label }}</p>
+                <p class="platform-meta">{{ item.meta }}</p>
+              </a>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="platform-panels">
+    <section class="platform-panel">
+      <div class="platform-panel-header">
+        <div>
+          <h2>Operations Alerts</h2>
+          <p>Latest recovery queue and infrastructure attention items.</p>
+        </div>
       </div>
       <div class="platform-panel-body">
         <table class="platform-table">
           <thead>
             <tr>
+              <th>Area</th>
               <th>Organization</th>
-              <th>Owner</th>
-              <th>Members</th>
-              <th>Running</th>
-              <th>Created</th>
+              <th>Target</th>
+              <th>Status</th>
             </tr>
           </thead>
           <tbody>
-            {% for org in recent_organizations %}
+            {% for job in failed_jobs %}
               <tr>
-                <td>
-                  <strong>{{ org.name }}</strong><br>
-                  <span class="platform-meta">{{ org.slug }}</span>
-                </td>
-                <td>{{ org.owner.email }}</td>
-                <td>{{ org.active_members|intcomma }}</td>
-                <td>{{ org.running_instances|intcomma }}</td>
-                <td>{{ org.created_at|date:"M j, Y H:i" }}</td>
-              </tr>
-            {% empty %}
-              <tr>
-                <td colspan="5">No organizations yet.</td>
+                <td><span class="platform-badge">Job</span></td>
+                <td>{{ job.organization.name }}</td>
+                <td>{{ job.odoo_instance|default:job.odoo_server|default:job.job_type }}</td>
+                <td>{{ job.get_status_display }}</td>
               </tr>
             {% endfor %}
+            {% for instance in unhealthy_instances %}
+              <tr>
+                <td><span class="platform-badge">Instance</span></td>
+                <td>{{ instance.organization.name }}</td>
+                <td>{{ instance.name }}</td>
+                <td>{{ instance.status }}</td>
+              </tr>
+            {% endfor %}
+            {% if not failed_jobs and not unhealthy_instances %}
+              <tr><td colspan="4">No active operations alerts.</td></tr>
+            {% endif %}
           </tbody>
         </table>
       </div>
     </section>
 
+    <section class="platform-panel">
+      <div class="platform-panel-header">
+        <div>
+          <h2>Billing And Verification Risk</h2>
+          <p>Accounts and subscriptions that need platform follow-up.</p>
+        </div>
+      </div>
+      <div class="platform-panel-body">
+        <table class="platform-table">
+          <thead>
+            <tr>
+              <th>Area</th>
+              <th>Organization</th>
+              <th>Target</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for account in stale_verifications %}
+              <tr>
+                <td><span class="platform-badge">Cloud</span></td>
+                <td>{{ account.organization.name }}</td>
+                <td>{{ account.name }}</td>
+                <td>{% if account.is_verified %}Stale{% else %}Unverified{% endif %}</td>
+              </tr>
+            {% endfor %}
+            {% for sub in subscription_risks %}
+              <tr>
+                <td><span class="platform-badge">Billing</span></td>
+                <td>{{ sub.organization.name }}</td>
+                <td>{{ sub.plan.name }}</td>
+                <td>{{ sub.get_status_display }}</td>
+              </tr>
+            {% endfor %}
+            {% if not stale_verifications and not subscription_risks %}
+              <tr><td colspan="4">No billing or verification risks right now.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <div class="platform-panels">
     <section class="platform-panel">
       <div class="platform-panel-header">
         <div>
@@ -243,42 +429,48 @@
                 <td>{{ log.timestamp|date:"M j, Y H:i" }}</td>
               </tr>
             {% empty %}
-              <tr>
-                <td colspan="4">No audit activity yet.</td>
-              </tr>
+              <tr><td colspan="4">No audit activity yet.</td></tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
     </section>
+
+    <section class="platform-panel">
+      <div class="platform-panel-header">
+        <div>
+          <h2>Quick Access</h2>
+          <p>Direct entry points into the cross-org back office.</p>
+        </div>
+        <span class="platform-meta">Phases 1 to 5</span>
+      </div>
+      <div class="platform-panel-body">
+        <div class="platform-link-grid">
+          {% for item in platform_quick_links %}
+            <div class="platform-link">
+              <a href="{{ item.url }}">
+                <p class="platform-link-label">{{ item.label }}</p>
+                <p class="platform-link-count">{{ item.count|intcomma }}</p>
+                <p class="platform-meta">{{ item.meta }}</p>
+              </a>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
   </div>
 
-  <section class="platform-panel">
-    <div class="platform-panel-header">
-      <div>
-        <h2>Quick Access</h2>
-        <p>Direct entry points into the cross-org back office.</p>
-      </div>
-      <span class="platform-meta">Phase 1 foundation</span>
-    </div>
-    <div class="platform-panel-body" style="padding: 1rem 1.1rem;">
-      <div class="platform-link-grid">
-        {% for item in platform_quick_links %}
-          <div class="platform-link">
-            <a href="{{ item.url }}">
-              <p class="platform-link-label">{{ item.label }}</p>
-              <p class="platform-link-count">{{ item.count|intcomma }}</p>
-              <p class="platform-link-meta">{{ item.meta }}</p>
-            </a>
-          </div>
-        {% endfor %}
-      </div>
-    </div>
-  </section>
-
   {% if app_list %}
-    <div class="platform-app-list">
-      {% include "admin/app_list.html" with app_list=app_list show_changelinks=True %}
+    <div class="platform-panel">
+      <div class="platform-panel-header">
+        <div>
+          <h2>Application Modules</h2>
+          <p>Registered admin modules that your current role can access.</p>
+        </div>
+      </div>
+      <div class="platform-panel-body">
+        {% include "admin/app_list.html" with app_list=app_list show_changelinks=True %}
+      </div>
     </div>
   {% endif %}
 </div>

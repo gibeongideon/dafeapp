@@ -1,4 +1,4 @@
-from .models import OrganizationMembership
+from .models import Organization, OrganizationMembership
 
 
 class OrganizationMiddleware:
@@ -14,6 +14,7 @@ class OrganizationMiddleware:
     def __call__(self, request):
         request.organization = None
         request.org_role = None
+        request.platform_view_as_org = False
 
         if request.user.is_authenticated:
             self._resolve_org(request)
@@ -22,6 +23,18 @@ class OrganizationMiddleware:
 
     def _resolve_org(self, request):
         org_id = request.session.get("current_org_id")
+        if request.user.is_platform_admin:
+            view_as_org_id = request.session.get("platform_view_as_org_id")
+            if view_as_org_id:
+                org = Organization.objects.filter(pk=view_as_org_id).first()
+                if org:
+                    request.organization = org
+                    request.org_role = "SUPER_ADMIN"
+                    request.platform_view_as_org = True
+                    request.session["current_org_id"] = org.pk
+                    return
+                request.session.pop("platform_view_as_org_id", None)
+
         membership = None
 
         if org_id:

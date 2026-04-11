@@ -1,11 +1,25 @@
 from django.contrib import admin
 from django.utils.html import format_html
 
+from core.admin_filters import SubscriptionRiskFilter
+from core.admin_mixins import (
+    PLATFORM_FINANCE_ROLE,
+    PLATFORM_OWNER_ROLE,
+    PLATFORM_SUPPORT_ROLE,
+    ReadOnlyAdminMixin,
+    RoleControlledAdminMixin,
+)
 from .models import Plan, Subscription, UsageRecord
 
 
 @admin.register(Plan)
-class PlanAdmin(admin.ModelAdmin):
+class PlanAdmin(RoleControlledAdminMixin, admin.ModelAdmin):
+    view_roles = {PLATFORM_OWNER_ROLE, PLATFORM_FINANCE_ROLE, PLATFORM_SUPPORT_ROLE}
+    change_roles = {PLATFORM_OWNER_ROLE, PLATFORM_FINANCE_ROLE}
+    add_roles = {PLATFORM_OWNER_ROLE, PLATFORM_FINANCE_ROLE}
+    delete_roles = {PLATFORM_OWNER_ROLE}
+    readonly_roles = {PLATFORM_SUPPORT_ROLE}
+
     list_display = (
         "name", "plan_type", "price_monthly",
         "max_instances", "max_backups_per_month",
@@ -27,13 +41,19 @@ class PlanAdmin(admin.ModelAdmin):
 
 
 @admin.register(Subscription)
-class SubscriptionAdmin(admin.ModelAdmin):
+class SubscriptionAdmin(RoleControlledAdminMixin, admin.ModelAdmin):
+    view_roles = {PLATFORM_OWNER_ROLE, PLATFORM_FINANCE_ROLE, PLATFORM_SUPPORT_ROLE}
+    change_roles = {PLATFORM_OWNER_ROLE, PLATFORM_FINANCE_ROLE}
+    add_roles = {PLATFORM_OWNER_ROLE, PLATFORM_FINANCE_ROLE}
+    delete_roles = {PLATFORM_OWNER_ROLE}
+    readonly_roles = {PLATFORM_SUPPORT_ROLE}
+
     list_display = (
         "organization", "plan", "status_badge",
         "current_period_start", "current_period_end",
         "auto_renew", "created_at",
     )
-    list_filter = ("status", "plan", "auto_renew")
+    list_filter = (SubscriptionRiskFilter, "status", "plan", "auto_renew")
     search_fields = ("organization__name",)
     readonly_fields = ("created_at",)
     raw_id_fields = ("organization",)
@@ -57,7 +77,8 @@ class SubscriptionAdmin(admin.ModelAdmin):
 
 
 @admin.register(UsageRecord)
-class UsageRecordAdmin(admin.ModelAdmin):
+class UsageRecordAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
+    view_roles = {PLATFORM_OWNER_ROLE, PLATFORM_FINANCE_ROLE, PLATFORM_SUPPORT_ROLE}
     list_display = ("organization", "usage_type", "timestamp", "notes")
     list_filter = ("usage_type",)
     search_fields = ("organization__name", "notes")

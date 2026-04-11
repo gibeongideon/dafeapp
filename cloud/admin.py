@@ -1,16 +1,38 @@
 from django.contrib import admin
 from django.utils.html import format_html
 
-from cloud.models import CloudAccount, CloudServer, ExternalServer, Infrastructure
+from cloud.models import (
+    CloudAccount,
+    CloudServer,
+    ExternalServer,
+    Infrastructure,
+    PyOSSSHSettings,
+    SystemSSHKey,
+)
+from core.admin_filters import VerificationStatusFilter
+from core.admin_mixins import (
+    PLATFORM_FINANCE_ROLE,
+    PLATFORM_OPERATIONS_ROLE,
+    PLATFORM_OWNER_ROLE,
+    PLATFORM_SUPPORT_ROLE,
+    ReadOnlyAdminMixin,
+    RoleControlledAdminMixin,
+)
 
 
 @admin.register(ExternalServer)
-class ExternalServerAdmin(admin.ModelAdmin):
+class ExternalServerAdmin(RoleControlledAdminMixin, admin.ModelAdmin):
+    view_roles = {PLATFORM_OWNER_ROLE, PLATFORM_OPERATIONS_ROLE, PLATFORM_SUPPORT_ROLE}
+    change_roles = {PLATFORM_OWNER_ROLE, PLATFORM_OPERATIONS_ROLE}
+    add_roles = {PLATFORM_OWNER_ROLE, PLATFORM_OPERATIONS_ROLE}
+    delete_roles = {PLATFORM_OWNER_ROLE}
+    readonly_roles = {PLATFORM_SUPPORT_ROLE}
+
     list_display = [
-        "name", "host", "port", "username", "auth_type",
+        "name", "organization", "host", "port", "username", "auth_type",
         "is_verified", "is_prepared", "preparation_status", "created_at",
     ]
-    list_filter = ["is_verified", "is_prepared", "preparation_status", "auth_type"]
+    list_filter = [VerificationStatusFilter, "is_prepared", "preparation_status", "auth_type", "organization"]
     search_fields = ["name", "host", "organization__name"]
     readonly_fields = [
         "encrypted_password_display",
@@ -19,18 +41,41 @@ class ExternalServerAdmin(admin.ModelAdmin):
         "created_at", "updated_at",
     ]
     exclude = ["encrypted_password"]
+    actions = ["reverify_servers", "prepare_servers"]
 
     def encrypted_password_display(self, obj):
         return "[encrypted]" if obj.encrypted_password else "—"
     encrypted_password_display.short_description = "Password"
 
+    @admin.action(description="Re-verify selected external servers")
+    def reverify_servers(self, request, queryset):
+        from cloud.tasks import validate_external_server
+
+        for server in queryset:
+            validate_external_server.delay(server.pk)
+        self.message_user(request, f"Queued verification for {queryset.count()} external server(s).")
+
+    @admin.action(description="Prepare selected external servers")
+    def prepare_servers(self, request, queryset):
+        from cloud.tasks import prepare_external_server
+
+        for server in queryset:
+            prepare_external_server.delay(server.pk)
+        self.message_user(request, f"Queued preparation for {queryset.count()} external server(s).")
+
 
 @admin.register(CloudAccount)
-class CloudAccountAdmin(admin.ModelAdmin):
+class CloudAccountAdmin(RoleControlledAdminMixin, admin.ModelAdmin):
+    view_roles = {PLATFORM_OWNER_ROLE, PLATFORM_OPERATIONS_ROLE, PLATFORM_SUPPORT_ROLE, PLATFORM_FINANCE_ROLE}
+    change_roles = {PLATFORM_OWNER_ROLE, PLATFORM_OPERATIONS_ROLE}
+    add_roles = {PLATFORM_OWNER_ROLE, PLATFORM_OPERATIONS_ROLE}
+    delete_roles = {PLATFORM_OWNER_ROLE}
+    readonly_roles = {PLATFORM_SUPPORT_ROLE, PLATFORM_FINANCE_ROLE}
+
     list_display = [
         "name", "provider", "organization", "verified_badge", "last_verified_at", "created_at",
     ]
-    list_filter = ["provider", "is_verified"]
+    list_filter = ["provider", VerificationStatusFilter, "organization"]
     search_fields = ["name", "organization__name"]
     readonly_fields = [
         "encrypted_api_token_display",
@@ -39,6 +84,7 @@ class CloudAccountAdmin(admin.ModelAdmin):
         "is_verified", "verification_error", "last_verified_at", "created_at",
     ]
     exclude = ["encrypted_api_token", "encrypted_aws_access_key_id", "encrypted_aws_secret_access_key"]
+    actions = ["reverify_accounts"]
 
     def encrypted_api_token_display(self, obj):
         return "[encrypted]" if obj.encrypted_api_token else "—"
@@ -58,9 +104,23 @@ class CloudAccountAdmin(admin.ModelAdmin):
         return format_html('<span style="color:gray;">✗ Unverified</span>')
     verified_badge.short_description = "Status"
 
+    @admin.action(description="Re-verify selected cloud accounts")
+    def reverify_accounts(self, request, queryset):
+        from cloud.tasks import validate_cloud_account
+
+        for account in queryset:
+            validate_cloud_account.delay(account.pk)
+        self.message_user(request, f"Queued verification for {queryset.count()} cloud account(s).")
+
 
 @admin.register(CloudServer)
-class CloudServerAdmin(admin.ModelAdmin):
+class CloudServerAdmin(RoleControlledAdminMixin, admin.ModelAdmin):
+    view_roles = {PLATFORM_OWNER_ROLE, PLATFORM_OPERATIONS_ROLE, PLATFORM_SUPPORT_ROLE}
+    change_roles = {PLATFORM_OWNER_ROLE, PLATFORM_OPERATIONS_ROLE}
+    add_roles = {PLATFORM_OWNER_ROLE, PLATFORM_OPERATIONS_ROLE}
+    delete_roles = {PLATFORM_OWNER_ROLE}
+    readonly_roles = {PLATFORM_SUPPORT_ROLE}
+
     list_display = [
         "name", "organization", "cloud_account", "region", "size",
         "ip_address", "status_badge", "created_at",
@@ -86,7 +146,13 @@ class CloudServerAdmin(admin.ModelAdmin):
 
 
 @admin.register(Infrastructure)
-class InfrastructureAdmin(admin.ModelAdmin):
+class InfrastructureAdmin(RoleControlledAdminMixin, admin.ModelAdmin):
+    view_roles = {PLATFORM_OWNER_ROLE, PLATFORM_OPERATIONS_ROLE, PLATFORM_SUPPORT_ROLE}
+    change_roles = {PLATFORM_OWNER_ROLE, PLATFORM_OPERATIONS_ROLE}
+    add_roles = {PLATFORM_OWNER_ROLE, PLATFORM_OPERATIONS_ROLE}
+    delete_roles = {PLATFORM_OWNER_ROLE}
+    readonly_roles = {PLATFORM_SUPPORT_ROLE}
+
     list_display = ["name", "organization", "infra_type_badge", "is_ready", "created_at"]
     list_filter = ["infra_type", "is_ready"]
     search_fields = ["name", "organization__name"]
@@ -97,3 +163,20 @@ class InfrastructureAdmin(admin.ModelAdmin):
             return format_html('<span style="color:#555;">{}</span>', label)
         return format_html('<span style="color:#0070f3;">{}</span>', label)
     infra_type_badge.short_description = "Type"
+
+
+@admin.register(PyOSSSHSettings)
+class PyOSSSHSettingsAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
+    view_roles = {PLATFORM_OWNER_ROLE, PLATFORM_OPERATIONS_ROLE}
+    list_display = ["default_ssh_key_path", "updated_at"]
+
+
+@admin.register(SystemSSHKey)
+class SystemSSHKeyAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
+    view_roles = {PLATFORM_OWNER_ROLE, PLATFORM_OPERATIONS_ROLE}
+    list_display = ["public_key_preview", "created_at"]
+    readonly_fields = ["public_key", "encrypted_private_key", "created_at"]
+
+    @admin.display(description="Public Key")
+    def public_key_preview(self, obj):
+        return (obj.public_key or "")[:50] + "..."

@@ -75,3 +75,21 @@ class OrgScopeTests(TestCase):
         self.assertIn(self.org_a.id, org_ids)
         self.assertIn(self.org_b.id, org_ids)
         self.assertEqual(my_orgs.count(), 2)
+
+    def test_platform_admin_can_view_as_org_without_membership(self):
+        platform_user = User.objects.create_user(
+            email="platform@test.com",
+            password="pass",
+            is_platform_admin=True,
+        )
+        factory = RequestFactory()
+        request = factory.get("/dashboard/")
+        request.user = platform_user
+        request.session = {"platform_view_as_org_id": self.org_b.id}
+
+        middleware = OrganizationMiddleware(get_response=lambda r: r)
+        middleware(request)
+
+        self.assertEqual(request.organization, self.org_b)
+        self.assertEqual(request.org_role, "SUPER_ADMIN")
+        self.assertTrue(request.platform_view_as_org)

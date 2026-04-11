@@ -8,6 +8,11 @@ from .managers import UserManager
 
 
 class User(AbstractUser):
+    class PlatformRole(models.TextChoices):
+        SUPPORT = "SUPPORT", "Support"
+        FINANCE = "FINANCE", "Finance"
+        OPERATIONS = "OPERATIONS", "Operations"
+
     # Override username: optional, auto-generated, not unique
     username = models.CharField(max_length=150, blank=True)
     # Make email the login field + unique
@@ -15,6 +20,13 @@ class User(AbstractUser):
 
     # Platform-level admin (LaunchPad staff — can see ALL orgs)
     is_platform_admin = models.BooleanField(default=False)
+    platform_role = models.CharField(
+        max_length=20,
+        choices=PlatformRole.choices,
+        blank=True,
+        default="",
+        help_text="Internal platform team role for limited staff access.",
+    )
 
     # Email verification
     is_email_verified = models.BooleanField(default=False)
@@ -59,13 +71,23 @@ class User(AbstractUser):
         except self.memberships.model.DoesNotExist:
             return None
 
+    @property
+    def effective_platform_role(self):
+        if self.is_superuser or self.is_platform_admin:
+            return "OWNER"
+        return self.platform_role or ""
+
+    @property
+    def is_platform_staff(self):
+        return bool(self.effective_platform_role)
+
     def has_perm(self, perm, obj=None):
-        if self.is_active and self.is_platform_admin:
+        if self.is_active and self.effective_platform_role:
             return True
         return super().has_perm(perm, obj=obj)
 
     def has_module_perms(self, app_label):
-        if self.is_active and self.is_platform_admin:
+        if self.is_active and self.effective_platform_role:
             return True
         return super().has_module_perms(app_label)
 
