@@ -1309,11 +1309,11 @@
               <p class="text-xs font-medium {% if accounts %}text-emerald-800{% else %}text-amber-900{% endif %}">Select a verified cloud account (DigitalOcean recommended).</p>
               <p id="cloud-account-empty-note" class="mt-1 text-[11px] {% if accounts %}hidden{% endif %} text-amber-800">No cloud account connected yet. Connect one first to continue.</p>
             </div>
-            <a id="connect-cloud-account-cta"
-               href="{% url 'cloud:add-account' %}"
+            <button id="connect-cloud-account-cta"
+               type="button"
                class="inline-flex items-center justify-center rounded-lg border px-3 py-2 text-sm font-semibold transition {% if accounts %}border-emerald-200 bg-white text-emerald-800 hover:bg-emerald-100{% else %}animate-pulse border-amber-300 bg-amber-100 text-amber-900 shadow-sm hover:bg-amber-200{% endif %}">
               Connect new account
-            </a>
+            </button>
           </div>
           <div id="cloud-account-warning" class="{% if accounts %}hidden {% endif %}rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
             No account connected. Use <span class="font-semibold">Connect new account</span> before continuing.
@@ -1464,6 +1464,275 @@ chmod 600 ~/.ssh/authorized_keys</pre>
         </div>
 
         <p id="source-modal-msg" class="text-xs text-red-600"></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     MODAL: Add Cloud Account chooser
+     ═══════════════════════════════════════════════════════ -->
+<div id="cloud-account-provider-modal" class="fixed inset-0 hidden z-[60] bg-slate-950/55 backdrop-blur-[2px]">
+  <div class="flex min-h-full items-center justify-center p-4">
+    <div class="relative max-h-[92vh] w-full max-w-2xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
+      <div class="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-4">
+        <div>
+          <p class="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Add Cloud Account</p>
+          <h3 class="mt-0.5 text-sm font-semibold text-slate-900">Select a provider to connect</h3>
+        </div>
+        <button id="close-cloud-provider-modal"
+                type="button"
+                class="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:text-slate-700">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="max-h-[calc(92vh-5rem)] overflow-y-auto px-5 py-4">
+        <div class="space-y-5">
+
+          <!-- ── OAuth / One-Click (direct link cards, 2 per row) ── -->
+          <section class="space-y-2">
+            <div class="flex items-center justify-between">
+              <p class="text-xs font-semibold text-slate-700">One-Click Connect <span class="font-normal text-slate-400">— OAuth, no API key needed</span></p>
+              <span class="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-700">Recommended</span>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+
+              <!-- DigitalOcean OAuth — compact -->
+              <a href="{% url 'cloud:digitalocean-oauth-start' %}"
+                 class="group flex items-center gap-3 rounded-xl border border-[#0080FF] bg-[#f0f8ff] px-3 py-2.5 transition hover:bg-[#e6f3ff]">
+                <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#0080FF] text-white shadow-sm">
+                  <svg viewBox="0 0 120 120" class="h-4 w-4" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="60" cy="60" r="60" fill="currentColor"/>
+                    <path d="M60 17C36.8 17 18 35.8 18 59s18.8 42 42 42V82.5c-12.9 0-23.5-10.5-23.5-23.5S47.1 35.5 60 35.5 83.5 46 83.5 59c0 12.9-10.5 23.5-23.5 23.5V101c23.2 0 42-18.8 42-42S83.2 17 60 17z" fill="white"/>
+                    <rect x="18" y="82.5" width="17.5" height="9" rx="2" fill="white"/>
+                    <rect x="18" y="94" width="11" height="9" rx="2" fill="white"/>
+                  </svg>
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <p class="text-xs font-semibold text-slate-800">DigitalOcean</p>
+                    <span class="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700">Live</span>
+                  </div>
+                  <div class="mt-1 flex flex-wrap gap-1">
+                    <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                      <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg>
+                      Compute
+                    </span>
+                    <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                      <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3"/></svg>
+                      DNS
+                    </span>
+                  </div>
+                </div>
+                <svg class="h-3.5 w-3.5 shrink-0 text-[#0080FF] group-hover:text-[#0070EE]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                </svg>
+              </a>
+
+              <!-- Azure — Soon (not a link) -->
+              <div class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 opacity-55">
+                <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#0078D4] text-white shadow-sm">
+                  <svg viewBox="0 0 48 48" class="h-4 w-4" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M14 36L24 12l6 12-8 4 6 8z" fill="currentColor" opacity=".95"/>
+                    <path d="M26 24l8-12 4 24H22z" fill="currentColor" opacity=".65"/>
+                  </svg>
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <p class="text-xs font-semibold text-slate-800">Microsoft Azure</p>
+                    <span class="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">Soon</span>
+                  </div>
+                  <div class="mt-1 flex flex-wrap gap-1">
+                    <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                      <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg>
+                      Compute
+                    </span>
+                    <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                      <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3"/></svg>
+                      DNS
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Google Cloud — Soon -->
+              <div class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 opacity-55">
+                <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-slate-200">
+                  <svg viewBox="0 0 48 48" class="h-4 w-4" xmlns="http://www.w3.org/2000/svg">
+                    <path fill="#EA4335" d="M24 9.5c3.5 0 6.7 1.2 9.2 3.3l6.9-6.9C35.8 2.1 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.3l8.1 6.3C12.7 13.6 17.9 9.5 24 9.5z"/>
+                    <path fill="#4285F4" d="M46.5 24.5c0-1.7-.1-2.9-.4-4.2H24v8h12.9c-.3 2-1.8 5-5.1 7l7.9 6.1c4.7-4.3 6.8-10.6 6.8-16.9z"/>
+                    <path fill="#34A853" d="M10.7 28.4c-.5-1.4-.7-2.8-.7-4.4s.3-3 .7-4.4l-8.1-6.3C.9 16.4 0 20 0 24s.9 7.6 2.6 10.7l8.1-6.3z"/>
+                    <path fill="#FBBC05" d="M24 48c6.3 0 11.7-2.1 15.6-5.7l-7.9-6.1c-2.1 1.5-4.9 2.3-7.7 2.3-6.1 0-11.3-4.1-13.2-9.7l-8.1 6.3C6.5 42.6 14.6 48 24 48z"/>
+                  </svg>
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <p class="text-xs font-semibold text-slate-800">Google Cloud</p>
+                    <span class="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">Soon</span>
+                  </div>
+                  <div class="mt-1 flex flex-wrap gap-1">
+                    <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                      <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg>
+                      Compute
+                    </span>
+                    <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                      <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3"/></svg>
+                      DNS
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+            </div><!-- /inner 2-col grid -->
+          </section>
+
+          <!-- ── API Key / Token (2 per row) ── -->
+          <section class="space-y-2">
+            <p class="text-xs font-semibold text-slate-700">API Key Authentication <span class="font-normal text-slate-400">— enter credentials manually</span></p>
+            <div class="grid grid-cols-2 gap-2">
+
+              <!-- DigitalOcean — API Token (full-card link) -->
+              <a href="{% url 'cloud:add-account' %}?provider=DIGITALOCEAN"
+                 class="group flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 transition hover:border-slate-300 hover:bg-slate-50">
+                <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#0080FF] text-white shadow-sm">
+                  <svg viewBox="0 0 120 120" class="h-4 w-4" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="60" cy="60" r="60" fill="currentColor"/>
+                    <path d="M60 17C36.8 17 18 35.8 18 59s18.8 42 42 42V82.5c-12.9 0-23.5-10.5-23.5-23.5S47.1 35.5 60 35.5 83.5 46 83.5 59c0 12.9-10.5 23.5-23.5 23.5V101c23.2 0 42-18.8 42-42S83.2 17 60 17z" fill="white"/>
+                    <rect x="18" y="82.5" width="17.5" height="9" rx="2" fill="white"/>
+                    <rect x="18" y="94" width="11" height="9" rx="2" fill="white"/>
+                  </svg>
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <p class="text-xs font-semibold text-slate-800">DigitalOcean</p>
+                    <span class="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700">Live</span>
+                  </div>
+                  <div class="mt-1 flex flex-wrap gap-1">
+                    <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                      <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg>
+                      Compute
+                    </span>
+                    <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                      <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3"/></svg>
+                      DNS
+                    </span>
+                  </div>
+                </div>
+                <svg class="h-3.5 w-3.5 shrink-0 text-slate-400 group-hover:text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                </svg>
+              </a>
+
+              <!-- AWS — Live (full-card link) -->
+              <a href="{% url 'cloud:add-account' %}?provider=AWS"
+                 class="group flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 transition hover:border-slate-300 hover:bg-slate-50">
+                <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#FF9900] text-white shadow-sm">
+                  <span class="text-[9px] font-black leading-none">AWS</span>
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <p class="text-xs font-semibold text-slate-800">AWS</p>
+                    <span class="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700">Live</span>
+                  </div>
+                  <div class="mt-1 flex flex-wrap gap-1">
+                    <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                      <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg>
+                      Compute
+                    </span>
+                    <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                      <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3"/></svg>
+                      DNS
+                    </span>
+                  </div>
+                </div>
+                <svg class="h-3.5 w-3.5 shrink-0 text-slate-400 group-hover:text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                </svg>
+              </a>
+
+              <!-- Vultr — Soon -->
+              <div class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 opacity-55">
+                <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#007BFC] text-white shadow-sm">
+                  <span class="text-sm font-black">V</span>
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <p class="text-xs font-semibold text-slate-800">Vultr</p>
+                    <span class="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">Soon</span>
+                  </div>
+                  <div class="mt-1 flex flex-wrap gap-1">
+                    <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                      <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg>
+                      Compute
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Linode — Soon -->
+              <div class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 opacity-55">
+                <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#02B159] text-white shadow-sm">
+                  <span class="text-xs font-black">Li</span>
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <p class="text-xs font-semibold text-slate-800">Linode</p>
+                    <span class="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">Soon</span>
+                  </div>
+                  <div class="mt-1 flex flex-wrap gap-1">
+                    <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                      <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg>
+                      Compute
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- OVHcloud — Soon -->
+              <div class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 opacity-55">
+                <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#123F6D] text-white shadow-sm">
+                  <span class="text-[9px] font-black">OVH</span>
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <p class="text-xs font-semibold text-slate-800">OVHcloud</p>
+                    <span class="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">Soon</span>
+                  </div>
+                  <div class="mt-1 flex flex-wrap gap-1">
+                    <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                      <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg>
+                      Compute
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Hetzner — Soon -->
+              <div class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 opacity-55">
+                <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#D50C2D] text-white shadow-sm">
+                  <span class="text-sm font-black">H</span>
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <p class="text-xs font-semibold text-slate-800">Hetzner</p>
+                    <span class="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">Soon</span>
+                  </div>
+                  <div class="mt-1 flex flex-wrap gap-1">
+                    <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                      <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg>
+                      Compute
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </section>
+
+        </div>
       </div>
     </div>
   </div>
@@ -3745,6 +4014,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
   const cloudAccountWarningEl = $("cloud-account-warning");
   const cloudAccountEmptyNoteEl = $("cloud-account-empty-note");
   const connectCloudAccountCtaEl = $("connect-cloud-account-cta");
+  const cloudProviderModalEl = $("cloud-account-provider-modal");
   const regionEl   = $("server-region");
   const sizeEl     = $("server-size");
   const versionEl  = $("server-version");
@@ -3783,6 +4053,16 @@ chmod 600 ~/.ssh/authorized_keys</pre>
     }
   }
 
+  function openCloudProviderModal() {
+    show(cloudProviderModalEl);
+    document.body.classList.add("overflow-hidden");
+  }
+
+  function closeCloudProviderModal() {
+    hide(cloudProviderModalEl);
+    document.body.classList.remove("overflow-hidden");
+  }
+
   function showCloud() {
     mode = "cloud";
     show(cloudPanel); hide(pyosPanel);
@@ -3809,6 +4089,18 @@ chmod 600 ~/.ssh/authorized_keys</pre>
 
   pickCloud?.addEventListener("click", showCloud);
   pickPyos?.addEventListener("click", showPyos);
+  connectCloudAccountCtaEl?.addEventListener("click", openCloudProviderModal);
+  $("close-cloud-provider-modal")?.addEventListener("click", closeCloudProviderModal);
+  cloudProviderModalEl?.addEventListener("click", (event) => {
+    if (event.target === cloudProviderModalEl) {
+      closeCloudProviderModal();
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && cloudProviderModalEl && !cloudProviderModalEl.classList.contains("hidden")) {
+      closeCloudProviderModal();
+    }
+  });
 
   document.querySelectorAll(".provider-card").forEach(card => {
     card.addEventListener("click", () => {

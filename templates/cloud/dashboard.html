@@ -1,650 +1,464 @@
 {% extends "dashboard/layout.html" %}
 {% load humanize %}
 
-{% block page_title %}Connections{% endblock %}
+{% block page_title %}Add Cloud Account{% endblock %}
 
 {% block content %}
-{# Full-bleed dot-grid background that overrides the layout padding #}
-<div class="-m-6 min-h-full"
-     style="background-color:#f8fafc;background-image:radial-gradient(circle,#cbd5e1 1.2px,transparent 1.2px);background-size:22px 22px;"
-     x-data="{ view: 'list', cloudModalOpen: false }">
+<div class="max-w-2xl mx-auto space-y-6">
 
-  <div class="max-w-6xl mx-auto px-8 py-8 space-y-14">
+  {# Breadcrumb #}
+  <div class="flex items-center gap-2 text-sm text-gray-400">
+    <span class="text-gray-700 font-medium">Cloud Accounts</span>
+  </div>
 
-    {# HEADER #}
-    <header class="flex items-start justify-between">
-      <div>
-        <p class="text-[10px] font-bold tracking-[0.2em] uppercase text-gray-400 mb-2">DafeApp · Phase 3</p>
-        <h1 class="text-[28px] font-bold text-gray-950 tracking-tight leading-none">Connections</h1>
-        <p class="text-sm text-gray-500 mt-2 max-w-sm leading-relaxed">
-          Connect and review cloud providers used by the Servers page.
-        </p>
-      </div>
-      <div class="flex items-center gap-2 mt-1">
-        <button type="button"
-           @click="cloudModalOpen = true"
-           class="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-xl hover:border-gray-300 shadow-sm transition-all">
-          <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"/>
-          </svg>
-          Connect Provider
-        </button>
-      </div>
-    </header>
+  <div>
+    <h2 class="text-xl font-semibold text-gray-900">Add Cloud Account</h2>
+    <p class="text-sm text-gray-500 mt-1">Select a cloud provider to add credentials</p>
+  </div>
 
-    {# CLOUD PROVIDERS MARKETPLACE #}
-    <section>
-      <div class="flex items-center gap-4 mb-6">
+  {# Connected accounts (if any) #}
+  {% if cloud_accounts %}
+  <div class="bg-white border border-gray-200 rounded-xl p-4 space-y-2">
+    <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Connected Accounts</p>
+    <div class="space-y-2">
+      {% for account in cloud_accounts %}
+      <div class="flex items-center justify-between">
         <div class="flex items-center gap-2.5">
-          <div class="w-5 h-5 bg-gray-950 rounded-md flex items-center justify-center shrink-0">
-            <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"/>
-            </svg>
-          </div>
-          <h2 class="text-xs font-bold text-gray-900 tracking-widest uppercase">Cloud Providers</h2>
-        </div>
-        <div class="flex-1 h-px bg-gradient-to-r from-gray-200 to-transparent"></div>
-      </div>
-
-      <div class="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-7 gap-3">
-
-        {# ── DigitalOcean — LIVE ─────────────────────────── #}
-        <a href="{% url 'cloud:add-account' %}"
-           class="group relative bg-white rounded-2xl p-4 flex flex-col items-center gap-3 shadow-sm
-                  border-2 border-gray-900 hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 cursor-pointer">
-          <span class="absolute -top-2.5 left-1/2 -translate-x-1/2
-                       bg-gray-950 text-white text-[8px] font-black px-2.5 py-0.5 rounded-full
-                       tracking-[0.15em] uppercase whitespace-nowrap">
-            ● LIVE
-          </span>
-          {# DigitalOcean SVG logo #}
-          <div class="w-12 h-12 mt-0.5 flex items-center justify-center">
-            <svg viewBox="0 0 120 120" class="w-12 h-12" xmlns="http://www.w3.org/2000/svg">
-              <circle cx="60" cy="60" r="60" fill="#0080FF"/>
+          <div class="h-7 w-7 rounded-md bg-[#0080FF] flex items-center justify-center shrink-0">
+            <svg viewBox="0 0 120 120" class="h-4 w-4" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="60" cy="60" r="60" fill="currentColor"/>
               <path d="M60 17C36.8 17 18 35.8 18 59s18.8 42 42 42V82.5c-12.9 0-23.5-10.5-23.5-23.5S47.1 35.5 60 35.5 83.5 46 83.5 59c0 12.9-10.5 23.5-23.5 23.5V101c23.2 0 42-18.8 42-42S83.2 17 60 17z" fill="white"/>
               <rect x="18" y="82.5" width="17.5" height="9" rx="2" fill="white"/>
               <rect x="18" y="94" width="11" height="9" rx="2" fill="white"/>
             </svg>
           </div>
-          <div class="text-center">
-            <p class="text-[11px] font-bold text-gray-900 leading-tight">DigitalOcean</p>
-            <p class="text-[9px] text-gray-400 mt-0.5 font-medium">Droplets · Volumes</p>
+          <div>
+            <p class="text-sm font-medium text-gray-900">{{ account.name }}</p>
+            <p class="text-xs text-gray-400">{{ account.get_provider_display }}{% if account.last_verified_at %} · {{ account.last_verified_at|timesince }} ago{% endif %}</p>
           </div>
-          {% if cloud_accounts %}
-          <div class="flex items-center gap-1 px-2 py-0.5 bg-gray-100 rounded-full">
-            <span class="w-1 h-1 rounded-full bg-gray-950 inline-block"></span>
-            <span class="text-[9px] text-gray-600 font-semibold">
-              {{ cloud_accounts|length }} account{{ cloud_accounts|length|pluralize }}
-            </span>
-          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          {% if account.is_verified %}
+          <span class="flex items-center gap-1 text-[10px] font-semibold text-green-700">
+            <span class="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"></span>Verified
+          </span>
+          {% else %}
+          <span class="flex items-center gap-1 text-[10px] font-medium text-red-500">
+            <span class="w-1.5 h-1.5 rounded-full bg-red-400 inline-block"></span>Unverified
+          </span>
           {% endif %}
-        </a>
-
-        {# ── AWS — LIVE ──────────────────────────────────── #}
-        <a href="{% url 'cloud:add-account' %}"
-           class="group relative bg-white rounded-2xl p-4 flex flex-col items-center gap-3 shadow-sm
-                  border-2 border-gray-900 hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 cursor-pointer">
-          <span class="absolute -top-2.5 left-1/2 -translate-x-1/2
-                       bg-gray-950 text-white text-[8px] font-black px-2.5 py-0.5 rounded-full
-                       tracking-[0.15em] uppercase whitespace-nowrap">
-            ● LIVE
-          </span>
-          <div class="w-12 h-12 rounded-xl flex items-center justify-center bg-[#FF9900] shrink-0 mt-0.5">
-            <svg viewBox="0 0 80 50" class="w-10 h-7" xmlns="http://www.w3.org/2000/svg">
-              <text x="40" y="32" text-anchor="middle" font-family="Arial Black,sans-serif"
-                    font-size="26" font-weight="900" fill="white">AWS</text>
-            </svg>
-          </div>
-          <div class="text-center">
-            <p class="text-[11px] font-bold text-gray-900 leading-tight">Amazon AWS</p>
-            <p class="text-[9px] text-gray-400 mt-0.5 font-medium">EC2 · S3 · RDS</p>
-          </div>
-        </a>
-
-        {# ── Google Cloud — COMING SOON ──────────────────── #}
-        <div class="relative bg-white rounded-2xl p-4 flex flex-col items-center gap-3
-                    border border-gray-100 cursor-not-allowed select-none"
-             style="filter:grayscale(1);opacity:0.55;">
-          <span class="absolute -top-2.5 left-1/2 -translate-x-1/2
-                       bg-gray-200 text-gray-500 text-[8px] font-bold px-2.5 py-0.5 rounded-full
-                       tracking-[0.15em] uppercase whitespace-nowrap">
-            SOON
-          </span>
-          <div class="w-12 h-12 rounded-xl flex items-center justify-center mt-0.5 overflow-hidden bg-white border border-gray-100">
-            {# GCP 4-color logo blocks #}
-            <svg viewBox="0 0 48 48" class="w-9 h-9" xmlns="http://www.w3.org/2000/svg">
-              <path d="M30 13H18l-6 10.4L18 34h12l6-10.6z" fill="#4285F4"/>
-              <path d="M18 13l-6 10.4L6 13z" fill="#EA4335"/>
-              <path d="M30 13l6 10.4 6-10.4z" fill="#FBBC04"/>
-              <path d="M6 23.4L12 34l6-10.6z" fill="#34A853"/>
-              <path d="M36 23.4L30 34l6 10.6 6-10.6z" fill="#EA4335" opacity=".4"/>
-              <circle cx="24" cy="23.5" r="6" fill="white"/>
-              <circle cx="24" cy="23.5" r="4" fill="#4285F4"/>
-            </svg>
-          </div>
-          <div class="text-center">
-            <p class="text-[11px] font-bold text-gray-900 leading-tight">Google Cloud</p>
-            <p class="text-[9px] text-gray-400 mt-0.5 font-medium">Compute · GKE</p>
-          </div>
+          <form method="post" action="{% url 'cloud:verify-account' account.pk %}">
+            {% csrf_token %}
+            <button type="submit" class="text-[10px] text-gray-400 border border-gray-200 px-2 py-1 rounded-lg hover:bg-gray-50 transition-colors">↻ Verify</button>
+          </form>
         </div>
-
-        {# ── Hetzner — COMING SOON ───────────────────────── #}
-        <div class="relative bg-white rounded-2xl p-4 flex flex-col items-center gap-3
-                    border border-gray-100 cursor-not-allowed select-none"
-             style="filter:grayscale(1);opacity:0.55;">
-          <span class="absolute -top-2.5 left-1/2 -translate-x-1/2
-                       bg-gray-200 text-gray-500 text-[8px] font-bold px-2.5 py-0.5 rounded-full
-                       tracking-[0.15em] uppercase whitespace-nowrap">
-            SOON
-          </span>
-          <div class="w-12 h-12 rounded-xl bg-[#D50C2D] flex items-center justify-center mt-0.5 shrink-0">
-            <svg viewBox="0 0 48 48" class="w-8 h-8" xmlns="http://www.w3.org/2000/svg">
-              <text x="24" y="34" text-anchor="middle" font-family="Arial Black,sans-serif"
-                    font-size="30" font-weight="900" fill="white">H</text>
-            </svg>
-          </div>
-          <div class="text-center">
-            <p class="text-[11px] font-bold text-gray-900 leading-tight">Hetzner</p>
-            <p class="text-[9px] text-gray-400 mt-0.5 font-medium">Cloud · Dedicated</p>
-          </div>
-        </div>
-
-        {# ── Vultr — COMING SOON ─────────────────────────── #}
-        <div class="relative bg-white rounded-2xl p-4 flex flex-col items-center gap-3
-                    border border-gray-100 cursor-not-allowed select-none"
-             style="filter:grayscale(1);opacity:0.55;">
-          <span class="absolute -top-2.5 left-1/2 -translate-x-1/2
-                       bg-gray-200 text-gray-500 text-[8px] font-bold px-2.5 py-0.5 rounded-full
-                       tracking-[0.15em] uppercase whitespace-nowrap">
-            SOON
-          </span>
-          <div class="w-12 h-12 rounded-xl bg-[#2B87F9] flex items-center justify-center mt-0.5 shrink-0">
-            {# Vultr lightning-V mark #}
-            <svg viewBox="0 0 48 48" class="w-8 h-8" xmlns="http://www.w3.org/2000/svg">
-              <polygon points="28,8 16,28 22,28 20,40 32,20 26,20" fill="white"/>
-            </svg>
-          </div>
-          <div class="text-center">
-            <p class="text-[11px] font-bold text-gray-900 leading-tight">Vultr</p>
-            <p class="text-[9px] text-gray-400 mt-0.5 font-medium">Cloud Compute</p>
-          </div>
-        </div>
-
-        {# ── Azure — COMING SOON ─────────────────────────── #}
-        <div class="relative bg-white rounded-2xl p-4 flex flex-col items-center gap-3
-                    border border-gray-100 cursor-not-allowed select-none"
-             style="filter:grayscale(1);opacity:0.55;">
-          <span class="absolute -top-2.5 left-1/2 -translate-x-1/2
-                       bg-gray-200 text-gray-500 text-[8px] font-bold px-2.5 py-0.5 rounded-full
-                       tracking-[0.15em] uppercase whitespace-nowrap">
-            SOON
-          </span>
-          <div class="w-12 h-12 rounded-xl bg-[#0078D4] flex items-center justify-center mt-0.5 shrink-0">
-            {# Azure A-blocks logo #}
-            <svg viewBox="0 0 48 48" class="w-8 h-8" xmlns="http://www.w3.org/2000/svg">
-              <path d="M14 36L24 12l6 12-8 4 6 8z" fill="white" opacity=".9"/>
-              <path d="M26 24l8-12 4 24H22z" fill="white" opacity=".6"/>
-            </svg>
-          </div>
-          <div class="text-center">
-            <p class="text-[11px] font-bold text-gray-900 leading-tight">Microsoft Azure</p>
-            <p class="text-[9px] text-gray-400 mt-0.5 font-medium">VMs · AKS</p>
-          </div>
-        </div>
-
-        {# ── Linode/Akamai — COMING SOON ─────────────────── #}
-        <div class="relative bg-white rounded-2xl p-4 flex flex-col items-center gap-3
-                    border border-gray-100 cursor-not-allowed select-none"
-             style="filter:grayscale(1);opacity:0.55;">
-          <span class="absolute -top-2.5 left-1/2 -translate-x-1/2
-                       bg-gray-200 text-gray-500 text-[8px] font-bold px-2.5 py-0.5 rounded-full
-                       tracking-[0.15em] uppercase whitespace-nowrap">
-            SOON
-          </span>
-          <div class="w-12 h-12 rounded-xl bg-[#02B159] flex items-center justify-center mt-0.5 shrink-0">
-            <svg viewBox="0 0 48 48" class="w-8 h-8" xmlns="http://www.w3.org/2000/svg">
-              <text x="24" y="34" text-anchor="middle" font-family="Arial Black,sans-serif"
-                    font-size="26" font-weight="900" fill="white">Ak</text>
-            </svg>
-          </div>
-          <div class="text-center">
-            <p class="text-[11px] font-bold text-gray-900 leading-tight">Linode/Akamai</p>
-            <p class="text-[9px] text-gray-400 mt-0.5 font-medium">Linodes · LKE</p>
-          </div>
-        </div>
-
       </div>
-    </section>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
 
-    {# CLOUD ACCOUNTS #}
-    {% if cloud_accounts or cloud_servers %}
-    <section>
-      <div class="flex items-center gap-4 mb-6">
-        <div class="flex items-center gap-2.5">
-          <div class="w-5 h-5 bg-gray-950 rounded-md flex items-center justify-center shrink-0">
-            <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"/>
-            </svg>
+  <div class="bg-white border border-gray-200 rounded-xl overflow-hidden">
+    <div class="px-5 py-4 space-y-5">
+
+      <!-- ── One-Click Connect (OAuth) ── -->
+      <section class="space-y-2">
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="text-sm font-semibold text-slate-900">One-Click Connect <span class="font-normal text-slate-400 text-xs">(OAuth)</span></p>
+            <p class="text-xs text-slate-500">Connect securely without sharing API keys</p>
           </div>
-          <h2 class="text-xs font-bold text-gray-900 tracking-widest uppercase">Cloud Accounts</h2>
+          <span class="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-700">Recommended</span>
         </div>
-        <div class="flex-1 h-px bg-gradient-to-r from-gray-200 to-transparent"></div>
-      </div>
 
-      {# Accounts row #}
-      {% if cloud_accounts %}
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
-        {% for account in cloud_accounts %}
-        <div class="bg-white border border-gray-100 rounded-2xl px-4 py-3.5 flex items-center justify-between shadow-sm">
-          <div class="flex items-center gap-3">
-            <div class="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
-              <svg viewBox="0 0 24 24" class="w-4 h-4" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="12" cy="12" r="12" fill="#0080FF"/>
-                <path d="M12 3.5C7.3 3.5 3.5 7.3 3.5 12s3.8 8.5 8.5 8.5V17c-2.8 0-5-2.2-5-5s2.2-5 5-5 5 2.2 5 5-2.2 5-5 5v3.5c4.7 0 8.5-3.8 8.5-8.5S16.7 3.5 12 3.5z" fill="white"/>
-                <rect x="3.5" y="17" width="3.5" height="2" rx=".5" fill="white"/>
-                <rect x="3.5" y="19.3" width="2.2" height="1.8" rx=".5" fill="white"/>
+        <div class="grid grid-cols-2 gap-2">
+
+          <!-- Microsoft Azure — Soon -->
+          <div class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 opacity-55">
+            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#0078D4] text-white shadow-sm">
+              <svg viewBox="0 0 48 48" class="h-4 w-4" xmlns="http://www.w3.org/2000/svg">
+                <path d="M14 36L24 12l6 12-8 4 6 8z" fill="currentColor" opacity=".95"/>
+                <path d="M26 24l8-12 4 24H22z" fill="currentColor" opacity=".65"/>
               </svg>
             </div>
-            <div>
-              <p class="text-sm font-semibold text-gray-900">{{ account.name }}</p>
-              <p class="text-[10px] text-gray-400">
-                {{ account.get_provider_display }}
-                {% if account.last_verified_at %}· {{ account.last_verified_at|timesince }} ago{% endif %}
-              </p>
-            </div>
-          </div>
-          <div class="flex items-center gap-2">
-            {% if account.is_verified %}
-            <span class="flex items-center gap-1 text-[10px] font-semibold text-gray-700">
-              <span class="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"></span>
-              Verified
-            </span>
-            {% else %}
-            <span class="flex items-center gap-1 text-[10px] font-medium text-red-500" title="{{ account.verification_error }}">
-              <span class="w-1.5 h-1.5 rounded-full bg-red-400 inline-block"></span>
-              {% if account.verification_error %}Failed{% else %}Unverified{% endif %}
-            </span>
-            {% endif %}
-            <form method="post" action="{% url 'cloud:verify-account' account.pk %}">
-              {% csrf_token %}
-              <button type="submit"
-                      class="text-[10px] text-gray-400 border border-gray-200 px-2 py-1 rounded-lg hover:bg-gray-50 transition-colors">
-                ↻ Verify
-              </button>
-            </form>
-          </div>
-          {% if account.verification_error and not account.is_verified %}
-          <p class="text-[10px] text-red-400 mt-1 w-full truncate" title="{{ account.verification_error }}">
-            {{ account.verification_error|truncatechars:60 }}
-          </p>
-          {% endif %}
-        </div>
-        {% endfor %}
-      </div>
-      {% endif %}
-
-      {% if cloud_servers %}
-      <p class="text-xs text-gray-500 mt-1">
-        Existing provider machines are managed from <a href="{% url 'deployments_ui:create-instance' %}" class="underline">Servers</a>.
-      </p>
-      {% endif %}
-    </section>
-    {% endif %}
-
-    <section class="bg-white border border-gray-200 rounded-3xl shadow-sm p-6">
-      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p class="text-[10px] font-bold tracking-[0.18em] uppercase text-gray-400">Provider Scope</p>
-          <h2 class="mt-1 text-lg font-semibold text-gray-950">Cloud providers only</h2>
-          <p class="mt-1 text-sm text-gray-500 max-w-2xl">
-            PYOS and direct server connections are managed from the Servers and Enterprise platform settings pages.
-          </p>
-        </div>
-        <a href="{% url 'deployments:create-instance' %}"
-           class="inline-flex items-center justify-center px-4 py-2.5 rounded-xl bg-gray-950 text-white text-sm font-medium hover:bg-gray-800">
-          Open Servers
-        </a>
-      </div>
-    </section>
-
-    {# ── Footer note ─────────────────────────────────────────────────────── #}
-    <footer class="flex items-center justify-center pb-4">
-      <p class="text-[10px] font-medium text-gray-300 tracking-widest uppercase">
-        DafeApp Connections — Phase 3 · More providers coming soon
-      </p>
-    </footer>
-
-    <div x-show="cloudModalOpen"
-         x-cloak
-         class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"
-         @keydown.escape.window="cloudModalOpen = false">
-      <div x-show="cloudModalOpen"
-           x-transition:enter="transition ease-out duration-200"
-           x-transition:enter-start="opacity-0 translate-y-2 scale-[0.98]"
-           x-transition:enter-end="opacity-100 translate-y-0 scale-100"
-           class="relative max-h-[92vh] w-full max-w-7xl overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-[0_30px_120px_rgba(15,23,42,0.28)]"
-           @click.outside="cloudModalOpen = false">
-        <div class="flex items-start justify-between gap-6 border-b border-slate-200 bg-[linear-gradient(135deg,#f8fafc_0%,#eef2ff_45%,#eff6ff_100%)] px-6 py-6 sm:px-8">
-          <div class="space-y-2">
-            <p class="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Add Cloud Account</p>
-            <h2 class="text-3xl font-semibold tracking-tight text-slate-950">Select a cloud provider to add credentials</h2>
-          </div>
-          <button type="button"
-                  @click="cloudModalOpen = false"
-                  class="inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:text-slate-700">
-            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-            </svg>
-          </button>
-        </div>
-
-        <div class="max-h-[calc(92vh-7rem)] overflow-y-auto px-6 py-6 sm:px-8">
-          <div class="space-y-8">
-            <section class="space-y-4">
-              <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                  <p class="text-sm font-semibold text-slate-950">One-Click Connect (OAuth)</p>
-                  <p class="text-sm text-slate-500">Connect securely without sharing API keys</p>
-                </div>
-                <span class="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
-                  Recommended
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <p class="text-xs font-semibold text-slate-800">Microsoft Azure</p>
+                <span class="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">Soon</span>
+              </div>
+              <div class="mt-1 flex flex-wrap gap-1">
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg>
+                  Compute
+                </span>
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 1.1.9 2 2 2h12a2 2 0 002-2V7M4 7l8-4 8 4M4 7h16"/></svg>
+                  Storage
+                </span>
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3"/></svg>
+                  DNS
                 </span>
               </div>
-              <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                <article class="group rounded-[1.5rem] border border-slate-200 bg-[linear-gradient(180deg,#f9fafb_0%,#ffffff_100%)] p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-lg">
-                  <div class="flex items-start justify-between gap-4">
-                    <div class="flex items-center gap-3">
-                      <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#0078D4] text-white shadow-sm">
-                        <svg viewBox="0 0 48 48" class="h-7 w-7" xmlns="http://www.w3.org/2000/svg">
-                          <path d="M14 36L24 12l6 12-8 4 6 8z" fill="currentColor" opacity=".95"/>
-                          <path d="M26 24l8-12 4 24H22z" fill="currentColor" opacity=".65"/>
-                        </svg>
-                      </div>
-                      <div>
-                        <h3 class="text-base font-semibold text-slate-950">Microsoft Azure</h3>
-                        <p class="text-sm text-slate-500">Microsoft Azure</p>
-                      </div>
-                    </div>
-                    <span class="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-800">Soon</span>
-                  </div>
-                  <div class="mt-5 flex flex-wrap gap-2">
-                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Compute</span>
-                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Storage</span>
-                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">DNS</span>
-                  </div>
-                </article>
-
-                <article class="group rounded-[1.5rem] border border-slate-200 bg-[linear-gradient(180deg,#f9fafb_0%,#ffffff_100%)] p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-lg">
-                  <div class="flex items-start justify-between gap-4">
-                    <div class="flex items-center gap-3">
-                      <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
-                        <svg viewBox="0 0 48 48" class="h-8 w-8" xmlns="http://www.w3.org/2000/svg">
-                          <path fill="#EA4335" d="M24 9.5c3.5 0 6.7 1.2 9.2 3.3l6.9-6.9C35.8 2.1 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.3l8.1 6.3C12.7 13.6 17.9 9.5 24 9.5z"/>
-                          <path fill="#4285F4" d="M46.5 24.5c0-1.7-.1-2.9-.4-4.2H24v8h12.9c-.3 2-1.8 5-5.1 7l7.9 6.1c4.7-4.3 6.8-10.6 6.8-16.9z"/>
-                          <path fill="#34A853" d="M10.7 28.4c-.5-1.4-.7-2.8-.7-4.4s.3-3 .7-4.4l-8.1-6.3C.9 16.4 0 20 0 24s.9 7.6 2.6 10.7l8.1-6.3z"/>
-                          <path fill="#FBBC05" d="M24 48c6.3 0 11.7-2.1 15.6-5.7l-7.9-6.1c-2.1 1.5-4.9 2.3-7.7 2.3-6.1 0-11.3-4.1-13.2-9.7l-8.1 6.3C6.5 42.6 14.6 48 24 48z"/>
-                        </svg>
-                      </div>
-                      <div>
-                        <h3 class="text-base font-semibold text-slate-950">Google Cloud Platform</h3>
-                        <p class="text-sm text-slate-500">Google Cloud Platform</p>
-                      </div>
-                    </div>
-                    <span class="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-800">Soon</span>
-                  </div>
-                  <div class="mt-5 flex flex-wrap gap-2">
-                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Compute</span>
-                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Storage</span>
-                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">DNS</span>
-                  </div>
-                </article>
-
-                <article class="group rounded-[1.5rem] border-2 border-slate-900 bg-[linear-gradient(180deg,#eff6ff_0%,#ffffff_100%)] p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
-                  <div class="flex items-start justify-between gap-4">
-                    <div class="flex items-center gap-3">
-                      <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#0080FF] text-white shadow-sm">
-                        <svg viewBox="0 0 120 120" class="h-8 w-8" xmlns="http://www.w3.org/2000/svg">
-                          <circle cx="60" cy="60" r="60" fill="currentColor"/>
-                          <path d="M60 17C36.8 17 18 35.8 18 59s18.8 42 42 42V82.5c-12.9 0-23.5-10.5-23.5-23.5S47.1 35.5 60 35.5 83.5 46 83.5 59c0 12.9-10.5 23.5-23.5 23.5V101c23.2 0 42-18.8 42-42S83.2 17 60 17z" fill="white"/>
-                          <rect x="18" y="82.5" width="17.5" height="9" rx="2" fill="white"/>
-                          <rect x="18" y="94" width="11" height="9" rx="2" fill="white"/>
-                        </svg>
-                      </div>
-                      <div>
-                        <h3 class="text-base font-semibold text-slate-950">DigitalOcean</h3>
-                        <p class="text-sm text-slate-500">DigitalOcean</p>
-                      </div>
-                    </div>
-                    <span class="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-800">Live</span>
-                  </div>
-                  <div class="mt-5 flex flex-wrap gap-2">
-                    <span class="rounded-full bg-sky-100 px-3 py-1 text-xs font-medium text-sky-800">Compute</span>
-                    <span class="rounded-full bg-sky-100 px-3 py-1 text-xs font-medium text-sky-800">Storage</span>
-                    <span class="rounded-full bg-sky-100 px-3 py-1 text-xs font-medium text-sky-800">DNS</span>
-                  </div>
-                  <div class="mt-5 flex flex-wrap gap-3">
-                    {% if digitalocean_oauth_enabled %}
-                    <a href="{% url 'cloud:digitalocean-oauth-start' %}"
-                       class="inline-flex items-center justify-center rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800">
-                      Connect with DigitalOcean
-                    </a>
-                    {% else %}
-                    <span class="inline-flex items-center justify-center rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-900">
-                      OAuth not configured
-                    </span>
-                    {% endif %}
-                  </div>
-                </article>
-              </div>
-            </section>
-
-            <section class="space-y-4">
-              <div>
-                <p class="text-sm font-semibold text-slate-950">API Key Authentication</p>
-                <p class="text-sm text-slate-500">Enter your API credentials manually</p>
-              </div>
-              <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                <article class="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
-                  <div class="flex items-start justify-between gap-4">
-                    <div class="flex items-center gap-3">
-                      <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#FF9900] text-white shadow-sm">
-                        <span class="text-sm font-black">AWS</span>
-                      </div>
-                      <div>
-                        <h3 class="text-base font-semibold text-slate-950">Amazon Web Services</h3>
-                        <p class="text-sm text-slate-500">Amazon Web Services</p>
-                      </div>
-                    </div>
-                  </div>
-                  <div class="mt-5 flex flex-wrap gap-2">
-                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Compute</span>
-                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Storage</span>
-                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">DNS</span>
-                  </div>
-                  <a href="{% url 'cloud:add-account' %}"
-                     class="mt-5 inline-flex items-center justify-center rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50">
-                    Configure credentials
-                  </a>
-                </article>
-
-                <article class="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
-                  <div class="flex items-center gap-3">
-                    <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#007BFC] text-white shadow-sm">
-                      <span class="text-base font-black">V</span>
-                    </div>
-                    <div>
-                      <h3 class="text-base font-semibold text-slate-950">Vultr</h3>
-                      <p class="text-sm text-slate-500">Vultr</p>
-                    </div>
-                  </div>
-                  <div class="mt-5 flex flex-wrap gap-2">
-                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Compute</span>
-                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Storage</span>
-                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">DNS</span>
-                  </div>
-                </article>
-
-                <article class="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
-                  <div class="flex items-center gap-3">
-                    <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#02B159] text-white shadow-sm">
-                      <span class="text-sm font-black">Li</span>
-                    </div>
-                    <div>
-                      <h3 class="text-base font-semibold text-slate-950">Linode (Akamai)</h3>
-                      <p class="text-sm text-slate-500">Linode (Akamai)</p>
-                    </div>
-                  </div>
-                  <div class="mt-5 flex flex-wrap gap-2">
-                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Compute</span>
-                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Storage</span>
-                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">DNS</span>
-                  </div>
-                </article>
-
-                <article class="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
-                  <div class="flex items-center gap-3">
-                    <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#123F6D] text-white shadow-sm">
-                      <span class="text-sm font-black">OVH</span>
-                    </div>
-                    <div>
-                      <h3 class="text-base font-semibold text-slate-950">OVHcloud</h3>
-                      <p class="text-sm text-slate-500">OVHcloud</p>
-                    </div>
-                  </div>
-                  <div class="mt-5 flex flex-wrap gap-2">
-                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Compute</span>
-                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Storage</span>
-                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">DNS</span>
-                  </div>
-                </article>
-
-                <article class="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
-                  <div class="flex items-center gap-3">
-                    <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#D50C2D] text-white shadow-sm">
-                      <span class="text-sm font-black">H</span>
-                    </div>
-                    <div>
-                      <h3 class="text-base font-semibold text-slate-950">Hetzner Cloud</h3>
-                      <p class="text-sm text-slate-500">Hetzner Cloud</p>
-                    </div>
-                  </div>
-                  <div class="mt-5 flex flex-wrap gap-2">
-                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Compute</span>
-                  </div>
-                </article>
-
-                <article class="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
-                  <div class="flex items-center gap-3">
-                    <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#F38020] text-white shadow-sm">
-                      <span class="text-sm font-black">CF</span>
-                    </div>
-                    <div>
-                      <h3 class="text-base font-semibold text-slate-950">Cloudflare</h3>
-                      <p class="text-sm text-slate-500">Cloudflare</p>
-                    </div>
-                  </div>
-                  <div class="mt-5 flex flex-wrap gap-2">
-                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Storage</span>
-                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">DNS</span>
-                  </div>
-                </article>
-
-                <article class="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
-                  <div class="flex items-center gap-3">
-                    <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#E21E2B] text-white shadow-sm">
-                      <span class="text-sm font-black">B2</span>
-                    </div>
-                    <div>
-                      <h3 class="text-base font-semibold text-slate-950">Backblaze B2</h3>
-                      <p class="text-sm text-slate-500">Backblaze B2</p>
-                    </div>
-                  </div>
-                  <div class="mt-5 flex flex-wrap gap-2">
-                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Storage</span>
-                  </div>
-                </article>
-
-                <article class="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
-                  <div class="flex items-start justify-between gap-4">
-                    <div class="flex items-center gap-3">
-                      <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#C72C48] text-white shadow-sm">
-                        <span class="text-sm font-black">M</span>
-                      </div>
-                      <div>
-                        <h3 class="text-base font-semibold text-slate-950">MinIO</h3>
-                        <p class="text-sm text-slate-500">MinIO</p>
-                      </div>
-                    </div>
-                    <span class="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-800">Soon</span>
-                  </div>
-                  <div class="mt-5 flex flex-wrap gap-2">
-                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Storage</span>
-                  </div>
-                </article>
-
-                <article class="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
-                  <div class="flex items-center gap-3">
-                    <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#5BC0EB] text-white shadow-sm">
-                      <span class="text-sm font-black">W</span>
-                    </div>
-                    <div>
-                      <h3 class="text-base font-semibold text-slate-950">Wasabi</h3>
-                      <p class="text-sm text-slate-500">Wasabi</p>
-                    </div>
-                  </div>
-                  <div class="mt-5 flex flex-wrap gap-2">
-                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Storage</span>
-                  </div>
-                </article>
-
-                <article class="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
-                  <div class="flex items-center gap-3">
-                    <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#F38020] text-white shadow-sm">
-                      <span class="text-sm font-black">CT</span>
-                    </div>
-                    <div>
-                      <h3 class="text-base font-semibold text-slate-950">Cloudflare Tunnel</h3>
-                      <p class="text-sm text-slate-500">Cloudflare Tunnel</p>
-                    </div>
-                  </div>
-                </article>
-
-                <article class="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
-                  <div class="flex items-center gap-3">
-                    <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#334155] text-white shadow-sm">
-                      <span class="text-sm font-black">FT</span>
-                    </div>
-                    <div>
-                      <h3 class="text-base font-semibold text-slate-950">FTP Server</h3>
-                      <p class="text-sm text-slate-500">FTP Server</p>
-                    </div>
-                  </div>
-                  <div class="mt-5 flex flex-wrap gap-2">
-                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Storage</span>
-                  </div>
-                </article>
-
-                <article class="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
-                  <div class="flex items-center gap-3">
-                    <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#0F766E] text-white shadow-sm">
-                      <span class="text-sm font-black">SF</span>
-                    </div>
-                    <div>
-                      <h3 class="text-base font-semibold text-slate-950">SFTP Server</h3>
-                      <p class="text-sm text-slate-500">SFTP Server</p>
-                    </div>
-                  </div>
-                  <div class="mt-5 flex flex-wrap gap-2">
-                    <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">Storage</span>
-                  </div>
-                </article>
-              </div>
-            </section>
+            </div>
           </div>
-        </div>
-      </div>
-    </div>
 
+          <!-- Google Cloud Platform — Soon -->
+          <div class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 opacity-55">
+            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white shadow-sm ring-1 ring-slate-200">
+              <svg viewBox="0 0 48 48" class="h-4 w-4" xmlns="http://www.w3.org/2000/svg">
+                <path fill="#EA4335" d="M24 9.5c3.5 0 6.7 1.2 9.2 3.3l6.9-6.9C35.8 2.1 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.3l8.1 6.3C12.7 13.6 17.9 9.5 24 9.5z"/>
+                <path fill="#4285F4" d="M46.5 24.5c0-1.7-.1-2.9-.4-4.2H24v8h12.9c-.3 2-1.8 5-5.1 7l7.9 6.1c4.7-4.3 6.8-10.6 6.8-16.9z"/>
+                <path fill="#34A853" d="M10.7 28.4c-.5-1.4-.7-2.8-.7-4.4s.3-3 .7-4.4l-8.1-6.3C.9 16.4 0 20 0 24s.9 7.6 2.6 10.7l8.1-6.3z"/>
+                <path fill="#FBBC05" d="M24 48c6.3 0 11.7-2.1 15.6-5.7l-7.9-6.1c-2.1 1.5-4.9 2.3-7.7 2.3-6.1 0-11.3-4.1-13.2-9.7l-8.1 6.3C6.5 42.6 14.6 48 24 48z"/>
+              </svg>
+            </div>
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <p class="text-xs font-semibold text-slate-800">Google Cloud Platform</p>
+                <span class="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">Soon</span>
+              </div>
+              <div class="mt-1 flex flex-wrap gap-1">
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg>
+                  Compute
+                </span>
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 1.1.9 2 2 2h12a2 2 0 002-2V7M4 7l8-4 8 4M4 7h16"/></svg>
+                  Storage
+                </span>
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3"/></svg>
+                  DNS
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- DigitalOcean OAuth — Live (full-width) -->
+          <a href="{% url 'cloud:digitalocean-oauth-start' %}"
+             class="group col-span-2 flex items-center gap-3 rounded-xl border border-[#0080FF] bg-[#f0f8ff] px-3 py-2.5 transition hover:bg-[#e6f3ff]">
+            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#0080FF] text-white shadow-sm">
+              <svg viewBox="0 0 120 120" class="h-4 w-4" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="60" cy="60" r="60" fill="currentColor"/>
+                <path d="M60 17C36.8 17 18 35.8 18 59s18.8 42 42 42V82.5c-12.9 0-23.5-10.5-23.5-23.5S47.1 35.5 60 35.5 83.5 46 83.5 59c0 12.9-10.5 23.5-23.5 23.5V101c23.2 0 42-18.8 42-42S83.2 17 60 17z" fill="white"/>
+                <rect x="18" y="82.5" width="17.5" height="9" rx="2" fill="white"/>
+                <rect x="18" y="94" width="11" height="9" rx="2" fill="white"/>
+              </svg>
+            </div>
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <p class="text-xs font-semibold text-slate-800">DigitalOcean</p>
+                <span class="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700">Live</span>
+              </div>
+              <div class="mt-1 flex flex-wrap gap-1">
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg>
+                  Compute
+                </span>
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 1.1.9 2 2 2h12a2 2 0 002-2V7M4 7l8-4 8 4M4 7h16"/></svg>
+                  Storage
+                </span>
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3"/></svg>
+                  DNS
+                </span>
+              </div>
+            </div>
+            <span class="text-xs font-medium text-[#0080FF] whitespace-nowrap group-hover:underline">Connect with DigitalOcean</span>
+            <svg class="h-3.5 w-3.5 shrink-0 text-[#0080FF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+            </svg>
+          </a>
+
+        </div>
+      </section>
+
+      <div class="border-t border-slate-100"></div>
+
+      <!-- ── API Key Authentication ── -->
+      <section class="space-y-2">
+        <div>
+          <p class="text-sm font-semibold text-slate-900">API Key Authentication</p>
+          <p class="text-xs text-slate-500">Enter your API credentials manually</p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+
+          <!-- AWS — Live -->
+          <a href="{% url 'cloud:add-account' %}?provider=AWS"
+             class="group flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 transition hover:border-slate-300 hover:bg-slate-50">
+            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#FF9900] text-white shadow-sm">
+              <span class="text-[9px] font-black leading-none">AWS</span>
+            </div>
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <p class="text-xs font-semibold text-slate-800">Amazon Web Services</p>
+                <span class="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700">Live</span>
+              </div>
+              <div class="mt-1 flex flex-wrap gap-1">
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg>
+                  Compute
+                </span>
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 1.1.9 2 2 2h12a2 2 0 002-2V7M4 7l8-4 8 4M4 7h16"/></svg>
+                  Storage
+                </span>
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3"/></svg>
+                  DNS
+                </span>
+              </div>
+            </div>
+            <svg class="h-3.5 w-3.5 shrink-0 text-slate-400 group-hover:text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+            </svg>
+          </a>
+
+          <!-- DigitalOcean — API Token -->
+          <a href="{% url 'cloud:add-account' %}?provider=DIGITALOCEAN"
+             class="group flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 transition hover:border-slate-300 hover:bg-slate-50">
+            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#0080FF] text-white shadow-sm">
+              <svg viewBox="0 0 120 120" class="h-4 w-4" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="60" cy="60" r="60" fill="currentColor"/>
+                <path d="M60 17C36.8 17 18 35.8 18 59s18.8 42 42 42V82.5c-12.9 0-23.5-10.5-23.5-23.5S47.1 35.5 60 35.5 83.5 46 83.5 59c0 12.9-10.5 23.5-23.5 23.5V101c23.2 0 42-18.8 42-42S83.2 17 60 17z" fill="white"/>
+                <rect x="18" y="82.5" width="17.5" height="9" rx="2" fill="white"/>
+                <rect x="18" y="94" width="11" height="9" rx="2" fill="white"/>
+              </svg>
+            </div>
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <p class="text-xs font-semibold text-slate-800">DigitalOcean</p>
+                <span class="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700">Live</span>
+              </div>
+              <div class="mt-1 flex flex-wrap gap-1">
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg>
+                  Compute
+                </span>
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 1.1.9 2 2 2h12a2 2 0 002-2V7M4 7l8-4 8 4M4 7h16"/></svg>
+                  Storage
+                </span>
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3"/></svg>
+                  DNS
+                </span>
+              </div>
+            </div>
+            <svg class="h-3.5 w-3.5 shrink-0 text-slate-400 group-hover:text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+            </svg>
+          </a>
+
+          <!-- Vultr -->
+          <div class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 opacity-55">
+            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#007BFC] text-white shadow-sm">
+              <span class="text-sm font-black leading-none">V</span>
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="text-xs font-semibold text-slate-800">Vultr</p>
+              <div class="mt-1 flex flex-wrap gap-1">
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg>
+                  Compute
+                </span>
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 1.1.9 2 2 2h12a2 2 0 002-2V7M4 7l8-4 8 4M4 7h16"/></svg>
+                  Storage
+                </span>
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3"/></svg>
+                  DNS
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Linode (Akamai) -->
+          <div class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 opacity-55">
+            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#02B159] text-white shadow-sm">
+              <span class="text-[9px] font-black leading-none">Li</span>
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="text-xs font-semibold text-slate-800">Linode (Akamai)</p>
+              <div class="mt-1 flex flex-wrap gap-1">
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg>
+                  Compute
+                </span>
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 1.1.9 2 2 2h12a2 2 0 002-2V7M4 7l8-4 8 4M4 7h16"/></svg>
+                  Storage
+                </span>
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3"/></svg>
+                  DNS
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- OVHcloud -->
+          <div class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 opacity-55">
+            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#123F6D] text-white shadow-sm">
+              <span class="text-[8px] font-black leading-none">OVH</span>
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="text-xs font-semibold text-slate-800">OVHcloud</p>
+              <div class="mt-1 flex flex-wrap gap-1">
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg>
+                  Compute
+                </span>
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 1.1.9 2 2 2h12a2 2 0 002-2V7M4 7l8-4 8 4M4 7h16"/></svg>
+                  Storage
+                </span>
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3"/></svg>
+                  DNS
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Hetzner Cloud -->
+          <div class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 opacity-55">
+            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#D50C2D] text-white shadow-sm">
+              <span class="text-sm font-black leading-none">H</span>
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="text-xs font-semibold text-slate-800">Hetzner Cloud</p>
+              <div class="mt-1 flex flex-wrap gap-1">
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg>
+                  Compute
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Cloudflare -->
+          <div class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 opacity-55">
+            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#F38020] text-white shadow-sm">
+              <span class="text-[8px] font-black leading-none">CF</span>
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="text-xs font-semibold text-slate-800">Cloudflare</p>
+              <div class="mt-1 flex flex-wrap gap-1">
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 1.1.9 2 2 2h12a2 2 0 002-2V7M4 7l8-4 8 4M4 7h16"/></svg>
+                  Storage
+                </span>
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3"/></svg>
+                  DNS
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Backblaze B2 -->
+          <div class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 opacity-55">
+            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#E3151A] text-white shadow-sm">
+              <span class="text-[8px] font-black leading-none">B2</span>
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="text-xs font-semibold text-slate-800">Backblaze B2</p>
+              <div class="mt-1 flex flex-wrap gap-1">
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 1.1.9 2 2 2h12a2 2 0 002-2V7M4 7l8-4 8 4M4 7h16"/></svg>
+                  Storage
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- MinIO — Soon -->
+          <div class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 opacity-55">
+            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#C72E49] text-white shadow-sm">
+              <span class="text-[9px] font-black leading-none">M</span>
+            </div>
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <p class="text-xs font-semibold text-slate-800">MinIO</p>
+                <span class="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">Soon</span>
+              </div>
+              <div class="mt-1 flex flex-wrap gap-1">
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 1.1.9 2 2 2h12a2 2 0 002-2V7M4 7l8-4 8 4M4 7h16"/></svg>
+                  Storage
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Wasabi -->
+          <div class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 opacity-55">
+            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#3DAE2B] text-white shadow-sm">
+              <span class="text-[9px] font-black leading-none">W</span>
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="text-xs font-semibold text-slate-800">Wasabi</p>
+              <div class="mt-1 flex flex-wrap gap-1">
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 1.1.9 2 2 2h12a2 2 0 002-2V7M4 7l8-4 8 4M4 7h16"/></svg>
+                  Storage
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Cloudflare Tunnel -->
+          <div class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 opacity-55">
+            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#F38020] text-white shadow-sm">
+              <span class="text-[8px] font-black leading-none">CT</span>
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="text-xs font-semibold text-slate-800">Cloudflare Tunnel</p>
+            </div>
+          </div>
+
+          <!-- FTP Server -->
+          <div class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 opacity-55">
+            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-500 text-white shadow-sm">
+              <span class="text-[8px] font-black leading-none">FT</span>
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="text-xs font-semibold text-slate-800">FTP Server</p>
+              <div class="mt-1 flex flex-wrap gap-1">
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 1.1.9 2 2 2h12a2 2 0 002-2V7M4 7l8-4 8 4M4 7h16"/></svg>
+                  Storage
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- SFTP Server -->
+          <div class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 opacity-55">
+            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-600 text-white shadow-sm">
+              <span class="text-[8px] font-black leading-none">SF</span>
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="text-xs font-semibold text-slate-800">SFTP Server</p>
+              <div class="mt-1 flex flex-wrap gap-1">
+                <span class="inline-flex items-center gap-0.5 rounded bg-white border border-slate-200 px-1 py-0.5 text-[9px] font-medium text-slate-500">
+                  <svg class="h-2.5 w-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 1.1.9 2 2 2h12a2 2 0 002-2V7M4 7l8-4 8 4M4 7h16"/></svg>
+                  Storage
+                </span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+    </div>
   </div>
+
 </div>
 {% endblock %}

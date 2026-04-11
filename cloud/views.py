@@ -199,10 +199,20 @@ class AddCloudAccountView(CloudSuperAdminMixin, View):
     template_name = "cloud/add_account.html"
 
     def get(self, request):
+        provider = request.GET.get("provider")
+        initial = {}
+        if provider in {
+            CloudAccount.Provider.DIGITALOCEAN,
+            CloudAccount.Provider.AWS,
+        }:
+            initial["provider"] = provider
         return render(
             request,
             self.template_name,
-            {"form": CloudAccountForm(), "digitalocean_oauth_enabled": _digitalocean_oauth_enabled()},
+            {
+                "form": CloudAccountForm(initial=initial),
+                "digitalocean_oauth_enabled": _digitalocean_oauth_enabled(),
+            },
         )
 
     def post(self, request):

@@ -9,221 +9,266 @@
 <div class="mx-auto max-w-[96rem]" x-data="instanceConsole({{ odoo_instance.id }})">
   <div class="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
     <div class="grid min-h-[calc(100vh-14rem)] lg:grid-cols-[18rem_minmax(0,1fr)]">
-      <aside class="border-b border-slate-200 bg-slate-950 text-slate-100 lg:border-b-0 lg:border-r">
-        <div class="space-y-8 p-5 sm:p-6">
+      <!-- ── Staging Create Modal ── -->
+      <div x-show="showStagingModal"
+           class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 px-4"
+           x-cloak>
+        <div class="w-full max-w-md rounded-2xl bg-white shadow-2xl p-6 space-y-5">
+          <div class="flex items-center justify-between">
+            <h3 class="text-base font-semibold text-gray-900">Create Staging Environment</h3>
+            <button type="button" @click="showStagingModal = false" class="text-gray-400 hover:text-gray-600">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+              </svg>
+            </button>
+          </div>
           <div class="space-y-4">
-            <div class="inline-flex items-center rounded-full border border-white/10 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-200">
-              Odoo Instance
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">Git Repo</label>
+              <select x-model="stagingForm.repoId"
+                      @change="loadStagingBranches()"
+                      class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none">
+                <option value="">— Select a repo —</option>
+                <template x-for="repo in repos" :key="repo.id">
+                  <option :value="repo.id" x-text="repo.repo_name"></option>
+                </template>
+              </select>
             </div>
             <div>
-              <h2 class="text-2xl font-semibold tracking-tight text-white">{{ odoo_instance.name }}</h2>
-              <p class="mt-1 text-sm text-slate-300">{{ odoo_instance.db_name }} · Odoo {{ odoo_server.odoo_version }}</p>
+              <label class="block text-xs font-medium text-gray-700 mb-1">Branch</label>
+              <div x-show="stagingBranchesLoading" class="text-xs text-amber-600">Loading branches…</div>
+              <select x-show="!stagingBranchesLoading && stagingBranchList.length"
+                      x-model="stagingForm.branch"
+                      class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none">
+                <option value="">— Select a branch —</option>
+                <template x-for="b in stagingBranchList" :key="b">
+                  <option :value="b" x-text="b"></option>
+                </template>
+              </select>
+              <input x-show="!stagingBranchesLoading && !stagingBranchList.length"
+                     type="text"
+                     x-model="stagingForm.branch"
+                     placeholder="e.g. feature/my-branch"
+                     class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none">
             </div>
-            <div class="flex flex-wrap items-center gap-2">
-              <span :class="instanceStatusBadgeClass()"
-                    class="inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em]">
-                <span x-text="instanceStatus"></span>
-              </span>
-              <span x-show="healthStatus !== null"
-                    :class="healthStatus ? 'bg-emerald-500/15 text-emerald-200 border border-emerald-400/30' : 'bg-rose-500/15 text-rose-200 border border-rose-400/30'"
-                    class="inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em]">
-                <span x-text="healthStatus ? 'Healthy' : 'Needs attention'"></span>
-              </span>
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">TTL (days)</label>
+              <input type="number" x-model.number="stagingForm.ttlDays" min="1" max="30"
+                     class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none">
+              <p class="mt-1 text-[11px] text-gray-400">Auto-deleted after this many days of inactivity.</p>
             </div>
-            <div class="grid grid-cols-2 gap-3 text-sm">
-              <div class="rounded-2xl border border-white/10 bg-white/5 px-3 py-3">
-                <p class="text-[10px] uppercase tracking-[0.18em] text-slate-400">Server</p>
-                <p class="mt-2 text-sm font-medium text-white">{{ odoo_server.name }}</p>
-              </div>
-              <div class="rounded-2xl border border-white/10 bg-white/5 px-3 py-3">
-                <p class="text-[10px] uppercase tracking-[0.18em] text-slate-400">Access</p>
-                <p class="mt-2 truncate text-sm font-medium text-white">{% if odoo_instance.domain %}{{ odoo_instance.domain }}{% else %}{{ odoo_server.ip_address }}:{{ odoo_instance.http_port }}{% endif %}</p>
-              </div>
+            <div x-show="stagingModalMsg"
+                 :class="stagingModalOk ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'"
+                 class="rounded-lg border px-3 py-2 text-xs"
+                 x-text="stagingModalMsg"></div>
+          </div>
+          <div class="flex justify-end gap-3 pt-1">
+            <button type="button" @click="showStagingModal = false"
+                    class="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+              Cancel
+            </button>
+            <button type="button"
+                    @click="submitCreateStaging()"
+                    :disabled="stagingCreating || !stagingForm.repoId || !stagingForm.branch"
+                    class="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed">
+              <span x-text="stagingCreating ? 'Creating…' : 'Create Staging'"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <aside class="border-b border-slate-200 bg-white lg:border-b-0 lg:border-r flex flex-col">
+
+        <!-- ── Instance header ── -->
+        <div class="border-b border-slate-100 px-4 pt-4 pb-3">
+          {% if is_staging %}
+          <div class="mb-2 inline-flex items-center rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-700">
+            Staging{% if staging_source %} · {{ staging_source.name }}{% endif %}
+          </div>
+          {% endif %}
+          <h2 class="text-sm font-semibold leading-snug text-slate-900">{{ odoo_instance.name }}</h2>
+          <p class="mt-0.5 text-[11px] text-slate-400">{{ odoo_instance.db_name }} · Odoo {{ odoo_server.odoo_version }}</p>
+          <div class="mt-2 flex flex-wrap items-center gap-1.5">
+            <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em]"
+                  :class="{
+                    'bg-emerald-100 text-emerald-700 border border-emerald-200': (instanceStatus||'').toUpperCase() === 'RUNNING',
+                    'bg-amber-100 text-amber-700 border border-amber-200': ['PENDING','PROVISIONING','CONFIGURING'].includes((instanceStatus||'').toUpperCase()),
+                    'bg-red-100 text-red-700 border border-red-200': (instanceStatus||'').toUpperCase() === 'FAILED',
+                    'bg-slate-100 text-slate-600 border border-slate-200': !['RUNNING','PENDING','PROVISIONING','CONFIGURING','FAILED'].includes((instanceStatus||'').toUpperCase())
+                  }">
+              <span x-text="instanceStatus"></span>
+            </span>
+            <span x-show="healthStatus !== null"
+                  :class="healthStatus ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 'bg-red-100 text-red-700 border border-red-200'"
+                  class="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em]">
+              <span x-text="healthStatus ? 'Healthy' : 'Attention'"></span>
+            </span>
+          </div>
+          <div class="mt-2 grid grid-cols-2 gap-1.5 text-[11px]">
+            <div class="rounded-md border border-slate-100 bg-slate-50 px-2.5 py-1.5">
+              <p class="text-[9px] uppercase tracking-[0.16em] text-slate-400">Server</p>
+              <p class="mt-0.5 font-medium text-slate-700 truncate">{{ odoo_server.name }}</p>
+            </div>
+            <div class="rounded-md border border-slate-100 bg-slate-50 px-2.5 py-1.5">
+              <p class="text-[9px] uppercase tracking-[0.16em] text-slate-400">Access</p>
+              <p class="mt-0.5 font-medium text-slate-700 truncate">{% if odoo_instance.domain %}{{ odoo_instance.domain }}{% else %}:{{ odoo_instance.http_port }}{% endif %}</p>
             </div>
           </div>
+          <a href="{{ odoo_instance.preferred_access_url|default:'#' }}"
+             {% if odoo_instance.preferred_access_url %}target="_blank" rel="noopener noreferrer"{% endif %}
+             class="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100">
+            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+            </svg>
+            Open Live App
+          </a>
+        </div>
 
-          <div class="space-y-6">
-            <div class="space-y-3">
-              <div class="flex items-center justify-between">
-                <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Production</p>
-                <span class="rounded-full bg-emerald-500/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-200">Live</span>
-              </div>
-              <a :href="environmentHref(productionEnvironment())"
-                 class="block rounded-3xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-4 transition hover:border-emerald-300/40 hover:bg-emerald-500/15">
-                <p class="text-sm font-semibold text-white" x-text="productionEnvironment().name"></p>
-                <p class="mt-1 text-xs uppercase tracking-[0.18em] text-emerald-200">Actual git branch</p>
-                <p class="mt-2 text-sm text-slate-200" x-text="productionEnvironment().branch"></p>
-              </a>
+        <!-- ── Environment navigation ── -->
+        <div class="flex-1 space-y-4 overflow-y-auto px-3 py-4">
+
+          <!-- PRODUCTION -->
+          <div>
+            <div class="mb-1.5 flex items-center justify-between px-1">
+              <span class="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Production</span>
+              <button type="button"
+                      @click="openSyncRepoModal(linkedRepo)"
+                      x-show="linkedRepo"
+                      :disabled="!linkedRepo || instanceActionsLocked() || repoIsWorking(linkedRepo)"
+                      title="Change production branch"
+                      class="flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 text-[13px] leading-none text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30">
+                +
+              </button>
             </div>
-
-            <div class="space-y-3">
-              <div class="flex items-center justify-between">
-                <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Staging</p>
-                {% if is_docker_server and not is_staging %}
-                <button type="button"
-                        @click="openStagingModal()"
-                        class="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/10 text-lg leading-none text-white transition hover:bg-white/20"
-                        title="Create a staging copy">
-                  +
-                </button>
-                {% endif %}
+            <a :href="environmentHref(productionEnvironment())"
+               class="flex items-center gap-2.5 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2.5 transition hover:border-emerald-200 hover:bg-emerald-100/70">
+              <span class="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500"></span>
+              <div class="min-w-0">
+                <p class="truncate text-xs font-semibold text-slate-800" x-text="productionEnvironment().branch || 'main'"></p>
+                <p class="mt-0.5 text-[10px] text-emerald-600">Live branch</p>
               </div>
+            </a>
+          </div>
 
-              {% if is_staging %}
-              <!-- This instance IS a staging instance -->
-              <div class="rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-4">
-                <span class="inline-flex items-center rounded-full bg-amber-400/20 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-200">Staging</span>
-                {% if staging_source %}
-                <p class="mt-2 text-xs text-slate-300">Source: <span class="text-white font-medium">{{ staging_source.name }}</span></p>
-                {% endif %}
-              </div>
-              {% else %}
-              <!-- Staging instances spawned from this production instance -->
-              <div x-show="stagingLoading" class="text-xs text-slate-400 py-2">Loading…</div>
-              <div x-show="stagingMsg"
-                   :class="stagingOk ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200' : 'border-rose-400/30 bg-rose-500/10 text-rose-200'"
-                   class="rounded-xl border px-3 py-2 text-xs"
-                   x-text="stagingMsg"></div>
-              <template x-if="!stagingLoading && stagingEnvironments.length === 0">
-                <p class="text-xs text-slate-500 py-2">No staging environments yet. Press + to create one from a branch.</p>
-              </template>
-              <template x-for="env in stagingEnvironments" :key="env.id">
-                <div class="rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-4">
-                  <div class="flex items-start justify-between gap-2">
-                    <div class="min-w-0">
-                      <p class="text-sm font-semibold text-white truncate" x-text="env.staging_instance?.name || env.branch"></p>
-                      <p class="mt-1 text-xs text-amber-200 truncate" x-text="env.branch"></p>
-                      <span class="mt-2 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase"
-                            :class="{
-                              'bg-emerald-500/20 text-emerald-200': env.staging_instance?.status === 'RUNNING',
-                              'bg-amber-500/20 text-amber-200': ['PROVISIONING','CONFIGURING','PENDING'].includes(env.staging_instance?.status),
-                              'bg-rose-500/20 text-rose-200': env.staging_instance?.status === 'FAILED',
-                              'bg-white/10 text-slate-300': !['RUNNING','PROVISIONING','CONFIGURING','PENDING','FAILED'].includes(env.staging_instance?.status)
-                            }"
-                            x-text="env.staging_instance?.status || 'Unknown'"></span>
-                      <p x-show="env.is_expired"
-                         class="mt-1 text-[10px] text-rose-300">TTL expired</p>
-                    </div>
-                    <div class="flex flex-col gap-1.5 shrink-0">
-                      <a x-show="env.staging_instance?.id"
-                         :href="`/deployments/odoo/instances/${env.staging_instance?.id}/`"
-                         class="inline-flex items-center rounded-lg border border-white/10 bg-white/10 px-2.5 py-1 text-[10px] font-medium text-white hover:bg-white/20">
-                        Open
-                      </a>
-                      <button type="button"
-                              @click="deleteStagingEnv(env.id)"
-                              class="inline-flex items-center rounded-lg border border-rose-400/30 bg-rose-500/10 px-2.5 py-1 text-[10px] font-medium text-rose-200 hover:bg-rose-500/20">
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </template>
+          <!-- STAGING -->
+          <div>
+            <div class="mb-1.5 flex items-center justify-between px-1">
+              <span class="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Staging</span>
+              {% if is_docker_server and not is_staging %}
+              <button type="button"
+                      @click="openStagingModal()"
+                      title="Create staging environment"
+                      class="flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 text-[13px] leading-none text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">
+                +
+              </button>
               {% endif %}
             </div>
 
-            <!-- ── Staging Create Modal ── -->
-            <div x-show="showStagingModal"
-                 class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 px-4"
-                 x-cloak>
-              <div class="w-full max-w-md rounded-2xl bg-white shadow-2xl p-6 space-y-5">
-                <div class="flex items-center justify-between">
-                  <h3 class="text-base font-semibold text-gray-900">Create Staging Environment</h3>
-                  <button type="button" @click="showStagingModal = false" class="text-gray-400 hover:text-gray-600">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                    </svg>
-                  </button>
-                </div>
-                <div class="space-y-4">
-                  <div>
-                    <label class="block text-xs font-medium text-gray-700 mb-1">Git Repo</label>
-                    <select x-model="stagingForm.repoId"
-                            @change="loadStagingBranches()"
-                            class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none">
-                      <option value="">— Select a repo —</option>
-                      <template x-for="repo in repos" :key="repo.id">
-                        <option :value="repo.id" x-text="repo.repo_name"></option>
-                      </template>
-                    </select>
-                  </div>
-                  <div>
-                    <label class="block text-xs font-medium text-gray-700 mb-1">Branch</label>
-                    <div x-show="stagingBranchesLoading" class="text-xs text-amber-600">Loading branches…</div>
-                    <select x-show="!stagingBranchesLoading && stagingBranchList.length"
-                            x-model="stagingForm.branch"
-                            class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none">
-                      <option value="">— Select a branch —</option>
-                      <template x-for="b in stagingBranchList" :key="b">
-                        <option :value="b" x-text="b"></option>
-                      </template>
-                    </select>
-                    <input x-show="!stagingBranchesLoading && !stagingBranchList.length"
-                           type="text"
-                           x-model="stagingForm.branch"
-                           placeholder="e.g. feature/my-branch"
-                           class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none">
-                  </div>
-                  <div>
-                    <label class="block text-xs font-medium text-gray-700 mb-1">TTL (days)</label>
-                    <input type="number" x-model.number="stagingForm.ttlDays" min="1" max="30"
-                           class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none">
-                    <p class="mt-1 text-[11px] text-gray-400">Auto-deleted after this many days of inactivity.</p>
-                  </div>
-                  <div x-show="stagingModalMsg"
-                       :class="stagingModalOk ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'"
-                       class="rounded-lg border px-3 py-2 text-xs"
-                       x-text="stagingModalMsg"></div>
-                </div>
-                <div class="flex justify-end gap-3 pt-1">
-                  <button type="button" @click="showStagingModal = false"
-                          class="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
-                    Cancel
-                  </button>
-                  <button type="button"
-                          @click="submitCreateStaging()"
-                          :disabled="stagingCreating || !stagingForm.repoId || !stagingForm.branch"
-                          class="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed">
-                    <span x-text="stagingCreating ? 'Creating…' : 'Create Staging'"></span>
-                  </button>
-                </div>
-              </div>
+            {% if is_staging %}
+            <div class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2.5">
+              <p class="text-xs font-medium text-amber-800">This is a staging instance</p>
+              {% if staging_source %}
+              <p class="mt-0.5 text-[10px] text-amber-600">Source: {{ staging_source.name }}</p>
+              {% endif %}
             </div>
-
-            <div class="space-y-3">
-              <div class="flex items-center justify-between">
-                <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Development</p>
-                <span class="rounded-full bg-sky-500/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-sky-200"
-                      x-text="`${developmentEnvironments().length} branch${developmentEnvironments().length === 1 ? '' : 'es'}`"></span>
-              </div>
-              <div x-show="linkedRepoBranchesLoading" class="text-[11px] text-slate-400">Loading branches…</div>
-              <div x-show="!linkedRepoBranchesLoading && developmentEnvironments().length === 0 && linkedRepo"
-                   class="text-[11px] text-slate-500 py-1">No other branches yet.</div>
-              <div class="space-y-2">
-                <template x-for="env in developmentEnvironments()" :key="env.slug">
-                  <div class="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 transition hover:border-sky-300/30 hover:bg-white/10">
-                    <p class="text-sm font-medium text-white truncate" x-text="env.branch"></p>
-                    <p class="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">Dev branch</p>
-                    <div class="mt-2 flex gap-2">
-                      <button type="button"
-                              @click="switchProductionBranch(env.branch)"
-                              :disabled="instanceActionsLocked()"
-                              class="rounded-lg border border-white/10 bg-white/10 px-2.5 py-1 text-[10px] font-medium text-white hover:bg-white/20 disabled:opacity-40">
-                        Set Production
-                      </button>
-                      <button type="button"
-                              @click="openStagingModalForBranch(env.branch)"
-                              :disabled="instanceActionsLocked() || !linkedRepo"
-                              class="rounded-lg border border-amber-400/30 bg-amber-500/10 px-2.5 py-1 text-[10px] font-medium text-amber-200 hover:bg-amber-500/20 disabled:opacity-40">
-                        Staging
-                      </button>
-                    </div>
+            {% else %}
+            <div x-show="stagingLoading" class="px-1 py-1 text-[11px] text-slate-400">Loading…</div>
+            <div x-show="stagingMsg"
+                 :class="stagingOk ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-700'"
+                 class="mb-1.5 rounded-lg border px-3 py-1.5 text-[11px]"
+                 x-text="stagingMsg"></div>
+            <template x-if="!stagingLoading && stagingEnvironments.length === 0">
+              <p class="px-1 py-1 text-[11px] text-slate-400">No staging yet. Press + to create one.</p>
+            </template>
+            <div class="space-y-1.5">
+              <template x-for="env in stagingEnvironments" :key="env.id">
+                <div class="flex items-center justify-between gap-2 rounded-lg border border-slate-100 bg-white px-3 py-2 transition hover:border-amber-200 hover:bg-amber-50/40">
+                  <div class="min-w-0">
+                    <p class="truncate text-xs font-medium text-slate-700" x-text="env.branch"></p>
+                    <span class="text-[10px]"
+                          :class="{
+                            'text-emerald-600': env.staging_instance?.status === 'RUNNING',
+                            'text-amber-600': ['PROVISIONING','CONFIGURING','PENDING'].includes(env.staging_instance?.status),
+                            'text-red-500': env.staging_instance?.status === 'FAILED',
+                            'text-slate-400': !['RUNNING','PROVISIONING','CONFIGURING','PENDING','FAILED'].includes(env.staging_instance?.status)
+                          }"
+                          x-text="env.staging_instance?.status || 'Unknown'"></span>
                   </div>
-                </template>
-              </div>
+                  <div class="flex shrink-0 items-center gap-1">
+                    <a x-show="env.staging_instance?.id"
+                       :href="`/deployments/odoo/instances/${env.staging_instance?.id}/`"
+                       class="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-medium text-slate-600 hover:bg-slate-50">
+                      Open
+                    </a>
+                    <button type="button"
+                            @click="deleteStagingEnv(env.id)"
+                            class="rounded-md border border-red-100 bg-white px-2 py-0.5 text-[10px] font-medium text-red-500 hover:bg-red-50">
+                      ×
+                    </button>
+                  </div>
+                </div>
+              </template>
+            </div>
+            {% endif %}
+          </div>
+
+          <!-- DEVELOPMENT -->
+          <div>
+            <div class="mb-1.5 flex items-center justify-between px-1">
+              <span class="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Development</span>
+              <button type="button"
+                      @click="loadLinkedRepoBranches()"
+                      :disabled="!linkedRepo"
+                      title="Refresh branches"
+                      class="flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 text-[11px] leading-none text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30">
+                ↻
+              </button>
+            </div>
+            <div x-show="linkedRepoBranchesLoading" class="px-1 py-1 text-[11px] text-slate-400">Loading…</div>
+            <div x-show="!linkedRepoBranchesLoading && !linkedRepo" class="px-1 py-1 text-[11px] text-slate-400">Link a repo to see branches.</div>
+            <div x-show="!linkedRepoBranchesLoading && linkedRepo && developmentEnvironments().length === 0" class="px-1 py-1 text-[11px] text-slate-400">No other branches yet.</div>
+            <div class="space-y-1">
+              <template x-for="env in developmentEnvironments()" :key="env.slug">
+                <div class="group flex items-center gap-2 rounded-lg border border-slate-100 bg-white px-3 py-2 transition hover:border-slate-200">
+                  <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-sky-400"></span>
+                  <p class="min-w-0 flex-1 truncate text-xs font-medium text-slate-700" x-text="env.branch"></p>
+                  <div class="flex shrink-0 items-center gap-1 opacity-0 transition group-hover:opacity-100">
+                    <button type="button"
+                            @click="switchProductionBranch(env.branch)"
+                            :disabled="instanceActionsLocked() || repoIsWorking(linkedRepo)"
+                            title="Set as production"
+                            class="rounded-md border border-emerald-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-40">
+                      Prod
+                    </button>
+                    <button type="button"
+                            @click="openStagingModalForBranch(env.branch)"
+                            :disabled="instanceActionsLocked()"
+                            title="Create staging"
+                            class="rounded-md border border-amber-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-amber-700 hover:bg-amber-50 disabled:opacity-40">
+                      Stage
+                    </button>
+                  </div>
+                </div>
+              </template>
             </div>
           </div>
+
         </div>
+
+        <!-- ── Settings footer ── -->
+        <div class="border-t border-slate-100 px-3 py-3">
+          <button type="button"
+                  @click="setToolbarTab('settings')"
+                  class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition"
+                  :class="toolbarTab === 'settings' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'">
+            <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+            </svg>
+            Settings
+          </button>
+        </div>
+
       </aside>
 
       <section class="min-w-0 bg-slate-50">
@@ -1502,6 +1547,142 @@
       </div>
 
     </div><!-- /operations tab -->
+
+    <!-- ── Tab: Settings ── -->
+    <div x-show="activeTab === 'settings'" class="p-5 space-y-6">
+
+      <!-- Codebase / Git update -->
+      <div class="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
+        <div>
+          <h3 class="text-sm font-semibold text-slate-900">Codebase</h3>
+          <p class="mt-0.5 text-xs text-slate-500">Git repository linked to this instance and auto-update behaviour.</p>
+        </div>
+
+        <div x-show="!linkedRepo" class="rounded-lg border border-dashed border-slate-200 bg-slate-50 py-6 text-center text-xs text-slate-400">
+          No repository linked. Go to the <button @click="setToolbarTab('settings'); setActiveTab('addons')" class="underline font-medium">Addons tab</button> to link one.
+        </div>
+
+        <template x-if="linkedRepo">
+          <div class="space-y-3">
+            <!-- Current version + commit widget -->
+            <div class="flex items-center justify-between gap-3 rounded-lg border border-slate-100 bg-slate-50 px-4 py-3">
+              <div class="min-w-0">
+                <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400 mb-1">Current</p>
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="text-xs font-bold text-slate-800">{{ odoo_server.odoo_version }}</span>
+                  <span class="font-mono text-xs text-slate-500" x-text="(linkedRepo?.last_pulled_commit || '').slice(0,9) || '—'"></span>
+                  <span x-show="linkedRepo?.last_remote_commit && linkedRepo?.last_pulled_commit && linkedRepo?.last_remote_commit !== linkedRepo?.last_pulled_commit"
+                        class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                    Updates available
+                  </span>
+                </div>
+                <p class="mt-0.5 text-[11px] text-slate-400" x-text="linkedRepo?.branch ? `Branch: ${linkedRepo.branch}` : ''"></p>
+              </div>
+              <button type="button"
+                      @click="openSyncRepoModal(linkedRepo)"
+                      :disabled="instanceActionsLocked() || repoIsWorking(linkedRepo)"
+                      class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
+                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+                Update now
+              </button>
+            </div>
+
+            <!-- Auto update toggle -->
+            <div class="flex items-center justify-between rounded-lg border border-slate-200 px-4 py-3">
+              <div class="min-w-0 pr-4">
+                <p class="text-sm font-medium text-slate-800">Auto update Odoo</p>
+                <p class="mt-0.5 text-xs text-slate-400">Sync code automatically on every push to the production branch.</p>
+              </div>
+              <button type="button"
+                      role="switch"
+                      @click="toggleAutoUpdate()"
+                      :aria-checked="linkedRepo?.auto_update ? 'true' : 'false'"
+                      class="relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors duration-200 ease-out focus:outline-none"
+                      :class="linkedRepo?.auto_update ? 'bg-emerald-500' : 'bg-slate-200'">
+                <span class="absolute top-0.5 left-0.5 inline-block h-5 w-5 rounded-full bg-white shadow transition-transform duration-200 ease-out"
+                      :class="linkedRepo?.auto_update ? 'translate-x-5' : 'translate-x-0'"></span>
+              </button>
+            </div>
+
+          </div>
+        </template>
+      </div>
+
+      <!-- Enterprise Edition -->
+      <div class="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
+        <div>
+          <h3 class="text-sm font-semibold text-slate-900">Enterprise Edition</h3>
+          <p class="mt-0.5 text-xs text-slate-500">Activate Odoo Enterprise for this instance. Requires a platform package or uploaded source.</p>
+        </div>
+
+        <button type="button"
+                role="switch"
+                @click="activateEnterprise()"
+                :aria-checked="enterpriseToggleOn ? 'true' : 'false'"
+                :disabled="enterpriseToggleDisabled() || instanceActionsLocked()"
+                :title="instanceActionLockReason()"
+                class="flex w-full items-center justify-between gap-4 rounded-xl border px-4 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-70"
+                :class="enterpriseToggleCardClass()">
+          <div class="min-w-0">
+            <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">Enterprise</p>
+            <p class="mt-1 text-sm font-medium text-gray-900" x-text="enterpriseToggleLabel()"></p>
+          </div>
+          <span class="relative inline-flex h-7 w-12 shrink-0 rounded-full transition-colors duration-200 ease-out"
+                :class="enterpriseToggleTrackClass()">
+            <span class="absolute top-1 left-1 inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform duration-200 ease-out"
+                  :class="enterpriseToggleOn ? 'translate-x-5' : 'translate-x-0'"></span>
+          </span>
+        </button>
+
+        <div x-show="enterpriseError"
+             class="rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700"
+             x-text="enterpriseError"></div>
+        <div x-show="enterpriseMessage"
+             :class="enterpriseMessageOk ? 'border-green-200 bg-green-50 text-green-700' : 'border-red-200 bg-red-50 text-red-700'"
+             class="rounded-lg border px-3 py-2.5 text-sm"
+             x-text="enterpriseMessage"></div>
+
+        <div>
+          <button type="button"
+                  @click="showEnterpriseDetails = !showEnterpriseDetails"
+                  class="text-xs text-slate-500 underline hover:text-slate-700"
+                  x-text="showEnterpriseDetails ? 'Hide details' : 'Show details'"></button>
+
+          <div x-show="showEnterpriseDetails" class="mt-3 space-y-3">
+            <div class="grid gap-3 md:grid-cols-2">
+              <div class="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5">
+                <p class="text-[10px] uppercase tracking-wide text-slate-400">Platform Source</p>
+                <p class="mt-1 text-sm font-medium text-slate-800 break-all" x-text="enterpriseActiveSourceName || 'No active platform package'"></p>
+              </div>
+              <div class="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5">
+                <p class="text-[10px] uppercase tracking-wide text-slate-400">Uploaded Source</p>
+                <p class="mt-1 text-sm font-medium text-slate-800 break-all" x-text="enterpriseUserSourceName || 'None uploaded'"></p>
+              </div>
+            </div>
+            <div class="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5">
+              <p class="text-[10px] uppercase tracking-wide text-slate-400">Instance Path on Server</p>
+              <p class="mt-1 text-sm font-mono text-slate-700 break-all" x-text="enterpriseRemotePath || 'Will be created during activation'"></p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <button type="button"
+                      x-show="(enterpriseEnabled || enterpriseStatusCode === 'ERROR') && enterpriseSourceAvailable && enterpriseStatusCode !== 'PENDING'"
+                      @click="activateEnterprise()"
+                      :disabled="enterpriseBusy || instanceActionsLocked()"
+                      class="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                      x-text="enterpriseStatusCode === 'ERROR' ? 'Retry Activation' : 'Re-sync Enterprise'">
+              </button>
+              <a href="/deployments/create/?section=enterprise"
+                 class="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+                Manage Sources
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /settings tab -->
         </div>
       </section>
     </div>
@@ -1521,7 +1702,7 @@ function instanceConsole(instanceId) {
       { id: 'logs', label: 'Logs', target: 'logs' },
       { id: 'backups', label: 'Backups', target: 'backups' },
       { id: 'upgrade-tools', label: 'Upgrade Tools', target: 'jobs' },
-      { id: 'settings', label: 'Settings', target: 'addons' },
+      { id: 'settings', label: 'Settings', target: 'settings' },
     ],
     tabs: [
       { id: 'overview',    label: 'Overview' },
@@ -1689,6 +1870,7 @@ function instanceConsole(instanceId) {
       if (tabId === 'history') this.loadHistory();
       if (tabId === 'addons') this.loadRepos();
       if (tabId === 'operations') this.loadCommands();
+      if (tabId === 'settings') this.loadRepos();
       if (tabId === 'logs') {
         this.startRuntimeLogPolling();
       } else {
@@ -1847,6 +2029,28 @@ function instanceConsole(instanceId) {
     createStagingClone() {
       // Legacy placeholder — replaced by openStagingModal
       this.openStagingModal();
+    },
+
+    async toggleAutoUpdate() {
+      if (!this.linkedRepo) return;
+      const repoId = this.linkedRepo.id;
+      const newValue = !this.linkedRepo.auto_update;
+      // Optimistic update
+      const idx = this.repos.findIndex(r => r.id === repoId);
+      if (idx !== -1) this.repos[idx] = { ...this.repos[idx], auto_update: newValue };
+      try {
+        const res = await fetch(`/deployments/odoo/instances/${this.instanceId}/repos/${repoId}/`, {
+          method: 'PATCH',
+          headers: { 'X-CSRFToken': this.getCsrf(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ auto_update: newValue }),
+        });
+        if (!res.ok) {
+          // Revert on error
+          if (idx !== -1) this.repos[idx] = { ...this.repos[idx], auto_update: !newValue };
+        }
+      } catch (_) {
+        if (idx !== -1) this.repos[idx] = { ...this.repos[idx], auto_update: !newValue };
+      }
     },
 
     get repoHealth() {
