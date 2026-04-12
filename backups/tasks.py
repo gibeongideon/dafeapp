@@ -90,10 +90,7 @@ def backup_odoo_instance(self, instance_id: int, job_id: int | None = None):
     # Resolve created_by from the DeploymentJob
     created_by = None
     if job_id:
-        try:
-            created_by = DeploymentJob.objects.get(pk=job_id).created_by
-        except DeploymentJob.DoesNotExist:
-            pass
+        created_by = DeploymentJob.objects.filter(pk=job_id).values_list("created_by", flat=True).first()
 
     backup = OdooInstanceBackup.objects.create(
         organization=instance.organization,

@@ -230,10 +230,8 @@ class AddCloudAccountView(CloudSuperAdminMixin, View):
             )
             messages.success(request, f"Account '{account.name}' added. Verifying token…")
 
-            # Dispatch after DB commit so the task always finds the row.
             from cloud.tasks import validate_cloud_account
-            from django.db import transaction
-            transaction.on_commit(lambda: _dispatch(validate_cloud_account, account.pk))
+            _dispatch(validate_cloud_account, account.pk)
 
             return redirect("cloud:dashboard")
 
@@ -356,9 +354,7 @@ class DigitalOceanOAuthCallbackView(CloudSuperAdminMixin, View):
         messages.success(request, f"Account '{account.name}' connected. Verifying access…")
 
         from cloud.tasks import validate_cloud_account
-        from django.db import transaction
-
-        transaction.on_commit(lambda: _dispatch(validate_cloud_account, account.pk))
+        _dispatch(validate_cloud_account, account.pk)
         return redirect("cloud:dashboard")
 
 

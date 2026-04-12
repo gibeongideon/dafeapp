@@ -27,9 +27,9 @@
         <span class="text-gray-500">{{ selected_server.active_instance_count }}/{{ selected_server.max_instances }} instances</span>
       </div>
       {% elif show_instances_view %}
-      <h2 class="text-2xl font-semibold text-gray-900">Instances</h2>
+      <h2 class="text-2xl font-semibold text-gray-900">All instances</h2>
       <p class="text-sm text-gray-500">
-        Browse every instance in the organization, then switch servers from the sidebar to narrow the view.
+        Browse every instance in the organization from one shared board.
       </p>
       {% else %}
       <h2 class="text-2xl font-semibold text-gray-900">Servers</h2>
@@ -433,14 +433,12 @@
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0">
                 <p class="truncate text-sm font-medium {% if not selected_server %}text-gray-900{% else %}text-gray-800{% endif %}">All servers</p>
-                <p class="mt-0.5 text-[11px] text-gray-500">
-                  Organization-wide instances
-                </p>
+                <p class="mt-0.5 text-[11px] text-gray-500">Cross-server view</p>
               </div>
               <span class="mt-1 inline-flex h-2 w-2 shrink-0 rounded-full {% if not selected_server %}bg-gray-500{% else %}bg-gray-300{% endif %}"></span>
             </div>
             <div class="mt-3 flex items-center justify-between gap-3 text-[11px]">
-              <span class="text-gray-500">{{ instance_total_count }} instances</span>
+              <span class="text-gray-500">{{ instance_total_count }} total</span>
               <span class="text-gray-500">Browse all</span>
             </div>
           </a>
@@ -506,8 +504,8 @@
       <section class="bg-white border border-gray-200 rounded-3xl p-5 shadow-sm">
         <div class="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-6 py-10 text-center">
           <p class="text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-400">Instances</p>
-          <h3 class="mt-3 text-xl font-semibold text-gray-900">Organization-wide board</h3>
-          <p class="mt-2 text-sm text-gray-500">Showing {{ instance_page_start }}-{{ instance_page_end }} of {{ instance_filter_total }} instances. Pick a server from the left any time to narrow the board.</p>
+          <h3 class="mt-3 text-xl font-semibold text-gray-900">All instances</h3>
+          <p class="mt-2 text-sm text-gray-500">Showing {{ instance_page_start }}-{{ instance_page_end }} of {{ instance_filter_total }} instances.</p>
         </div>
       </section>
       {% endif %}
