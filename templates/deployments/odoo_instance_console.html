@@ -1286,35 +1286,114 @@
            x-text="rollbackMsg"></div>
     </div>
 
-    <div x-show="activeTab === 'backups'" class="space-y-5 p-5">
+    <!-- ── Tab: Backups ── -->
+    <div x-show="activeTab === 'backups'" x-init="$watch('activeTab', v => { if (v === 'backups') loadBackups() })" class="space-y-5 p-5">
+
+      <!-- Header -->
       <div class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p class="text-sm font-semibold text-slate-900">Backups</p>
-            <p class="mt-1 text-sm text-slate-500">Placeholder backup dashboard for now. We can wire real restore points and schedules next.</p>
+            <p class="mt-1 text-sm text-slate-500">
+              Full snapshots — PostgreSQL dump + filestore archive — stored on the server at
+              <span class="font-mono">/backups/dafeapp/{{ odoo_instance.db_name }}/</span>
+            </p>
           </div>
-          <span class="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">
-            Dummy links for now
-          </span>
+          <button type="button"
+                  @click="createBackup()"
+                  :disabled="backupBusy || instanceActionsLocked()"
+                  :title="instanceActionLockReason() || ''"
+                  class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50 transition-colors">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+            </svg>
+            <span x-text="backupBusy ? 'Working…' : 'Create Backup'"></span>
+          </button>
         </div>
+
+        <!-- Status message -->
+        <div x-show="backupMsg"
+             :class="backupMsgOk ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700'"
+             class="mt-3 rounded-xl border px-4 py-2.5 text-sm"
+             x-text="backupMsg"></div>
       </div>
-      <div class="grid gap-4 lg:grid-cols-3">
-        <a href="#backup-production" class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
-          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Production</p>
-          <p class="mt-3 text-lg font-semibold text-slate-950">Nightly backup</p>
-          <p class="mt-2 text-sm text-slate-500">Open the production recovery snapshot view.</p>
-        </a>
-        <a href="#backup-stagging" class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
-          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Stagging</p>
-          <p class="mt-3 text-lg font-semibold text-slate-950">Pre-release copy</p>
-          <p class="mt-2 text-sm text-slate-500">Use this area to restore a staging refresh from production.</p>
-        </a>
-        <a href="#backup-development" class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
-          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Development</p>
-          <p class="mt-3 text-lg font-semibold text-slate-950">Branch snapshots</p>
-          <p class="mt-2 text-sm text-slate-500">Reserved for quick branch clone backups and throwaway test restores.</p>
-        </a>
+
+      <!-- Backup list -->
+      <div class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+
+        <!-- Loading state -->
+        <div x-show="backupsLoading" class="flex items-center gap-3 p-6 text-sm text-slate-500">
+          <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+          </svg>
+          Loading backups…
+        </div>
+
+        <!-- Empty state -->
+        <div x-show="!backupsLoading && backups.length === 0"
+             class="px-6 py-10 text-center text-sm text-slate-400">
+          No backups yet. Click <span class="font-semibold">Create Backup</span> to take the first snapshot.
+        </div>
+
+        <!-- Backup rows -->
+        <template x-if="!backupsLoading && backups.length > 0">
+          <div>
+            <div class="px-5 py-3 border-b border-slate-100 grid grid-cols-12 gap-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              <span class="col-span-4">Created</span>
+              <span class="col-span-2">Type</span>
+              <span class="col-span-2">Size</span>
+              <span class="col-span-2">Status</span>
+              <span class="col-span-2 text-right">Actions</span>
+            </div>
+            <template x-for="bk in backups" :key="bk.id">
+              <div class="px-5 py-4 border-b border-slate-50 last:border-0 grid grid-cols-12 gap-3 items-center text-sm">
+                <!-- Created -->
+                <div class="col-span-4">
+                  <p class="font-medium text-slate-800" x-text="formatBackupDate(bk.created_at)"></p>
+                  <p class="text-xs text-slate-400 mt-0.5" x-text="bk.note || ''"></p>
+                </div>
+                <!-- Type -->
+                <div class="col-span-2">
+                  <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600"
+                        x-text="bk.backup_type === 'FULL' ? 'Full' : 'DB only'"></span>
+                </div>
+                <!-- Size -->
+                <div class="col-span-2 text-slate-600"
+                     x-text="bk.size_bytes > 0 ? bk.size_display : '—'"></div>
+                <!-- Status badge -->
+                <div class="col-span-2">
+                  <span :class="{
+                    'bg-emerald-100 text-emerald-700': bk.status === 'DONE',
+                    'bg-amber-100  text-amber-700':   bk.status === 'RUNNING' || bk.status === 'PENDING',
+                    'bg-red-100    text-red-700':     bk.status === 'FAILED',
+                  }"
+                  class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                  x-text="bk.status"></span>
+                </div>
+                <!-- Actions -->
+                <div class="col-span-2 flex justify-end gap-2">
+                  <button type="button"
+                          x-show="bk.status === 'DONE'"
+                          @click="restoreBackup(bk.id, bk.created_at)"
+                          :disabled="backupBusy || instanceActionsLocked()"
+                          class="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                    Restore
+                  </button>
+                  <button type="button"
+                          x-show="bk.status === 'DONE'"
+                          @click="openRestoreToNewModal(bk)"
+                          :disabled="backupBusy"
+                          class="inline-flex items-center rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50">
+                    New Instance
+                  </button>
+                </div>
+              </div>
+            </template>
+          </div>
+        </template>
       </div>
+
     </div>
 
     <!-- ── Tab: Operations ── -->
@@ -1689,6 +1768,106 @@
   </div>
 </div>
 
+<!-- ── Restore-to-New-Instance Modal ─────────────────────────────────────── -->
+<div x-data x-show="$store.restoreToNew.open"
+     class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+     style="display:none">
+  <div class="w-full max-w-lg rounded-2xl bg-white shadow-2xl overflow-hidden"
+       @click.stop>
+
+    <!-- Header -->
+    <div class="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+      <div>
+        <p class="text-sm font-semibold text-slate-900">Restore to New Instance</p>
+        <p class="mt-0.5 text-xs text-slate-500">
+          Provision a new Odoo instance on a different server and restore this backup into it.
+        </p>
+      </div>
+      <button type="button"
+              @click="$store.restoreToNew.close()"
+              class="text-slate-400 hover:text-slate-700 text-lg leading-none">✕</button>
+    </div>
+
+    <!-- Body -->
+    <div class="px-6 py-5 space-y-4">
+
+      <!-- Backup info -->
+      <div class="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-800">
+        Restoring backup from
+        <span class="font-semibold" x-text="$store.restoreToNew.backupDate"></span>
+        (<span x-text="$store.restoreToNew.backupSize || '—'"></span>)
+      </div>
+
+      <!-- Target server -->
+      <div>
+        <label class="block text-xs font-medium text-slate-600 mb-1">Target Server</label>
+        <select x-model="$store.restoreToNew.serverId"
+                @change="$store.restoreToNew.onServerChange()"
+                class="block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+          <option value="">— select a server —</option>
+          <template x-for="srv in $store.restoreToNew.servers" :key="srv.id">
+            <option :value="srv.id"
+                    x-text="`${srv.name} (Odoo ${srv.odoo_version}) [${srv.status}] — ${srv.ip_address || 'no IP'}`">
+            </option>
+          </template>
+        </select>
+        <p x-show="$store.restoreToNew.serversLoading"
+           class="mt-1 text-xs text-slate-400">Loading servers…</p>
+      </div>
+
+      <!-- New instance name -->
+      <div>
+        <label class="block text-xs font-medium text-slate-600 mb-1">Instance Name</label>
+        <input type="text"
+               x-model="$store.restoreToNew.name"
+               placeholder="e.g. Restored Production"
+               class="block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+      </div>
+
+      <!-- DB name -->
+      <div>
+        <label class="block text-xs font-medium text-slate-600 mb-1">Database Name</label>
+        <input type="text"
+               x-model="$store.restoreToNew.dbName"
+               placeholder="e.g. mydb_restored"
+               class="block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 font-mono">
+        <p class="mt-1 text-xs text-slate-400">Must be unique on the target server.</p>
+      </div>
+
+      <!-- HTTP port -->
+      <div>
+        <label class="block text-xs font-medium text-slate-600 mb-1">HTTP Port</label>
+        <input type="number"
+               x-model="$store.restoreToNew.httpPort"
+               placeholder="e.g. 8075"
+               class="block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+      </div>
+
+      <!-- Error / message -->
+      <div x-show="$store.restoreToNew.msg"
+           :class="$store.restoreToNew.msgOk ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700'"
+           class="rounded-xl border px-4 py-2.5 text-sm"
+           x-text="$store.restoreToNew.msg"></div>
+    </div>
+
+    <!-- Footer -->
+    <div class="flex justify-end gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50">
+      <button type="button"
+              @click="$store.restoreToNew.close()"
+              class="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+        Cancel
+      </button>
+      <button type="button"
+              @click="$store.restoreToNew.submit()"
+              :disabled="$store.restoreToNew.busy"
+              class="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">
+        <span x-text="$store.restoreToNew.busy ? 'Starting…' : 'Restore to New Instance'"></span>
+      </button>
+    </div>
+
+  </div>
+</div>
+
 <script>
 function instanceConsole(instanceId) {
   return {
@@ -1809,6 +1988,13 @@ function instanceConsole(instanceId) {
     enterpriseBusy: false,
     enterpriseToggleOn: false,
     showEnterpriseDetails: false,
+
+    // Backups
+    backups: [],
+    backupsLoading: false,
+    backupBusy: false,
+    backupMsg: '',
+    backupMsgOk: true,
 
     // Operations
     commands: null,
@@ -3669,6 +3855,104 @@ function instanceConsole(instanceId) {
       }
     },
 
+    // ── Backups ──
+    async loadBackups() {
+      this.backupsLoading = true;
+      try {
+        const res  = await fetch(`/api/backups/instances/${this.instanceId}/`);
+        const data = await res.json();
+        this.backups = data.results ?? [];
+      } catch (_) {
+        this.backups = [];
+      } finally {
+        this.backupsLoading = false;
+      }
+    },
+
+    async createBackup() {
+      if (this.instanceActionsLocked()) {
+        this.backupMsgOk = false;
+        this.backupMsg = this.instanceActionLockReason();
+        return;
+      }
+      this.backupBusy = true;
+      this.backupMsg  = '';
+      try {
+        const res  = await fetch(`/api/backups/instances/${this.instanceId}/backup/`, {
+          method: 'POST',
+          headers: { 'X-CSRFToken': this.getCsrf() },
+        });
+        const data = await res.json();
+        this.backupMsgOk = res.ok;
+        this.backupMsg   = res.ok
+          ? 'Backup started. It will appear in the list below when complete.'
+          : (data.error || 'Backup request failed.');
+        if (res.ok) {
+          this.loadJobs();
+          // Poll until the new backup row appears as DONE or FAILED
+          setTimeout(() => this.loadBackups(), 3000);
+        }
+      } catch (err) {
+        this.backupMsgOk = false;
+        this.backupMsg   = 'Network error: ' + err.message;
+      } finally {
+        this.backupBusy = false;
+      }
+    },
+
+    async restoreBackup(backupId, createdAt) {
+      if (this.instanceActionsLocked()) {
+        this.backupMsgOk = false;
+        this.backupMsg = this.instanceActionLockReason();
+        return;
+      }
+      const label = createdAt ? this.formatBackupDate(createdAt) : `#${backupId}`;
+      if (!confirm(`Restore from backup ${label}?\n\nThis will stop Odoo, overwrite the current database and filestore, then restart. All changes since this backup was taken will be lost.`)) return;
+      this.backupBusy = true;
+      this.backupMsg  = '';
+      try {
+        const res  = await fetch(`/api/backups/instances/${this.instanceId}/restore/${backupId}/`, {
+          method: 'POST',
+          headers: { 'X-CSRFToken': this.getCsrf() },
+        });
+        const data = await res.json();
+        this.backupMsgOk = res.ok;
+        this.backupMsg   = res.ok
+          ? 'Restore started. Monitor progress in the Jobs tab.'
+          : (data.error || 'Restore request failed.');
+        if (res.ok) { this.loadJobs(); this.setToolbarTab('upgrade-tools'); }
+      } catch (err) {
+        this.backupMsgOk = false;
+        this.backupMsg   = 'Network error: ' + err.message;
+      } finally {
+        this.backupBusy = false;
+      }
+    },
+
+    formatBackupDate(iso) {
+      if (!iso) return '—';
+      const d = new Date(iso);
+      return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+    },
+
+    openRestoreToNewModal(bk) {
+      const store = Alpine.store('restoreToNew');
+      store.instanceId  = this.instanceId;
+      store.backupId    = bk.id;
+      store.backupDate  = this.formatBackupDate(bk.created_at);
+      store.backupSize  = bk.size_display || '—';
+      store.name        = '';
+      store.dbName      = '';
+      store.httpPort    = '';
+      store.serverId    = '';
+      store.servers     = [];
+      store.msg         = '';
+      store.msgOk       = true;
+      store.busy        = false;
+      store.open        = true;
+      store.loadServers();
+    },
+
     // ── Operations ──
     async loadCommands() {
       this.commandsLoading = true;
@@ -3816,5 +4100,86 @@ function instanceConsole(instanceId) {
     },
   };
 }
+
+document.addEventListener('alpine:init', () => {
+  Alpine.store('restoreToNew', {
+    open:          false,
+    busy:          false,
+    msg:           '',
+    msgOk:         true,
+    backupDate:    '',
+    backupSize:    '',
+    instanceId:    null,
+    backupId:      null,
+    servers:       [],
+    serversLoading: false,
+    serverId:      '',
+    name:          '',
+    dbName:        '',
+    httpPort:      '',
+
+    close() {
+      this.open = false;
+    },
+
+    onServerChange() { /* reserved for future port-conflict checks */ },
+
+    async loadServers() {
+      this.serversLoading = true;
+      this.servers        = [];
+      try {
+        const res  = await fetch('/deployments/api/odoo/servers/');
+        const data = await res.json();
+        // Accept both paginated {results:[...]} and plain array
+        const list = Array.isArray(data) ? data : (data.results ?? []);
+        // Only show PROVISIONED servers
+        this.servers = list.filter(s => s.status === 'PROVISIONED');
+      } catch (_) {
+        this.servers = [];
+      } finally {
+        this.serversLoading = false;
+      }
+    },
+
+    async submit() {
+      if (!this.serverId) { this.msg = 'Please select a target server.'; this.msgOk = false; return; }
+      if (!this.name.trim()) { this.msg = 'Instance name is required.'; this.msgOk = false; return; }
+      if (!this.dbName.trim()) { this.msg = 'Database name is required.'; this.msgOk = false; return; }
+      if (!this.httpPort) { this.msg = 'HTTP port is required.'; this.msgOk = false; return; }
+
+      this.busy = true;
+      this.msg  = '';
+      const csrf = document.cookie.match(/csrftoken=([^;]+)/)?.[1] ?? '';
+      try {
+        const res  = await fetch(`/api/backups/instances/${this.instanceId}/restore-to-new/${this.backupId}/`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+          body:    JSON.stringify({
+            server_id:  parseInt(this.serverId),
+            name:       this.name.trim(),
+            db_name:    this.dbName.trim(),
+            http_port:  parseInt(this.httpPort),
+          }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          this.msg    = `New instance #${data.new_instance_id} provisioning started (job #${data.job_id}). Track progress in the Jobs tab.`;
+          this.msgOk  = true;
+          this.busy   = false;
+          // Auto-close after 4 s
+          setTimeout(() => { this.open = false; }, 4000);
+        } else {
+          this.msg   = data.error ?? 'Failed to start restore.';
+          this.msgOk = false;
+          this.busy  = false;
+        }
+      } catch (err) {
+        this.msg   = 'Network error: ' + err.message;
+        this.msgOk = false;
+        this.busy  = false;
+      }
+    },
+  });
+});
 </script>
 {% endblock %}
