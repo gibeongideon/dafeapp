@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import posixpath
@@ -6,7 +7,6 @@ import tempfile
 import zipfile
 from contextlib import suppress
 from datetime import datetime, timezone as dt_timezone
-import json
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import JsonResponse, StreamingHttpResponse
@@ -37,18 +37,20 @@ def _timestamp() -> str:
     return datetime.now(dt_timezone.utc).strftime("%Y%m%d_%H%M%S")
 
 
-def _default_schedule_payload() -> dict:
-    return {
-        "enabled": False,
-        "frequency": OdooInstanceBackupSchedule.Frequency.DAILY,
-        "weekday": OdooInstanceBackupSchedule.Weekday.SUNDAY,
-        "hour_utc": 2,
-        "minute_utc": 0,
-    }
-
-
 def _analyze_uploaded_backup_zip(archive_path: str) -> dict:
-    """Validate an uploaded backup ZIP and locate db.sql.gz / filestore.tar.gz inside it."""
+    """
+    Validate an uploaded backup ZIP and identify its format.
+
+    Supports two formats:
+      - Odoo format:  dump.sql at root + filestore/ directory
+      - DafeApp format: db.sql.gz anywhere + optional filestore.tar.gz alongside it
+
+    Returns a dict with:
+      format          "odoo" | "dafeapp"
+      db_member       ZIP member name for the DB dump
+      filestore_member  ZIP member name for filestore archive (dafeapp only, may be "")
+      backup_root     folder prefix inside ZIP before db_member (dafeapp only, may be "")
+    """
     with zipfile.ZipFile(archive_path) as archive:
         members = [info.filename for info in archive.infolist() if not info.is_dir()]
 
@@ -62,20 +64,38 @@ def _analyze_uploaded_backup_zip(archive_path: str) -> dict:
             raise ValueError("The uploaded ZIP archive contains unsafe paths.")
         normalized.append(clean)
 
-    db_members = [member for member in normalized if posixpath.basename(member) == "db.sql.gz"]
+    # ── Detect Odoo format: dump.sql at root (no sub-folder) ─────────────────
+    dump_sql_members = [
+        m for m in normalized
+        if posixpath.basename(m) == "dump.sql" and posixpath.dirname(m) in ("", ".")
+    ]
+    if dump_sql_members:
+        return {
+            "format": "odoo",
+            "db_member": dump_sql_members[0],
+            "filestore_prefix": "filestore/",
+            "backup_root": "",
+        }
+
+    # ── Detect DafeApp format: db.sql.gz ─────────────────────────────────────
+    db_members = [m for m in normalized if posixpath.basename(m) == "db.sql.gz"]
     if len(db_members) != 1:
-        raise ValueError("The uploaded ZIP must contain exactly one db.sql.gz file.")
+        raise ValueError(
+            "The uploaded ZIP must contain either dump.sql (Odoo format) "
+            "or exactly one db.sql.gz file (DafeApp format)."
+        )
 
     db_member = db_members[0]
     backup_root = posixpath.dirname(db_member)
     fs_members = [
-        member for member in normalized
-        if posixpath.basename(member) == "filestore.tar.gz" and posixpath.dirname(member) == backup_root
+        m for m in normalized
+        if posixpath.basename(m) == "filestore.tar.gz" and posixpath.dirname(m) == backup_root
     ]
     if len(fs_members) > 1:
         raise ValueError("The uploaded ZIP contains multiple filestore.tar.gz files.")
 
     return {
+        "format": "dafeapp",
         "backup_root": backup_root,
         "db_member": db_member,
         "filestore_member": fs_members[0] if fs_members else "",
@@ -97,7 +117,10 @@ class InstanceBackupListAPIView(LoginRequiredMixin, View):
 
 
 class InstanceBackupScheduleAPIView(LoginRequiredMixin, View):
-    """GET/POST /api/backups/instances/{instance_id}/schedule/ — read or update per-instance backup schedule."""
+    """
+    GET  /api/backups/instances/{instance_id}/schedule/ — list all schedules.
+    POST /api/backups/instances/{instance_id}/schedule/ — create a new schedule.
+    """
 
     def get(self, request, instance_id):
         if not getattr(request, "organization", None):
@@ -108,10 +131,8 @@ class InstanceBackupScheduleAPIView(LoginRequiredMixin, View):
             pk=instance_id,
             organization=request.organization,
         )
-        schedule = getattr(instance, "backup_schedule", None)
-        if schedule is None:
-            return JsonResponse(_default_schedule_payload())
-        return JsonResponse(OdooInstanceBackupScheduleSerializer(schedule).data)
+        schedules = instance.backup_schedules.order_by("created_at")
+        return JsonResponse({"results": OdooInstanceBackupScheduleSerializer(schedules, many=True).data})
 
     def post(self, request, instance_id):
         if not getattr(request, "organization", None):
@@ -129,7 +150,7 @@ class InstanceBackupScheduleAPIView(LoginRequiredMixin, View):
         except (TypeError, ValueError):
             payload = {}
 
-        enabled = bool(payload.get("enabled"))
+        enabled = bool(payload.get("enabled", True))
         frequency = (payload.get("frequency") or OdooInstanceBackupSchedule.Frequency.DAILY).strip().upper()
         weekday = str(payload.get("weekday") or OdooInstanceBackupSchedule.Weekday.SUNDAY).strip()
 
@@ -148,25 +169,84 @@ class InstanceBackupScheduleAPIView(LoginRequiredMixin, View):
         if not 0 <= minute_utc <= 59:
             return JsonResponse({"error": "minute_utc must be between 0 and 59."}, status=400)
 
-        schedule, created = OdooInstanceBackupSchedule.objects.get_or_create(
+        schedule = OdooInstanceBackupSchedule.objects.create(
             instance=instance,
-            defaults={
-                "organization": request.organization,
-                "created_by": request.user,
-            },
+            organization=request.organization,
+            enabled=enabled,
+            frequency=frequency,
+            weekday=weekday,
+            hour_utc=hour_utc,
+            minute_utc=minute_utc,
+            created_by=request.user,
+            updated_by=request.user,
         )
-        schedule.organization = request.organization
-        schedule.enabled = enabled
-        schedule.frequency = frequency
-        schedule.weekday = weekday
-        schedule.hour_utc = hour_utc
-        schedule.minute_utc = minute_utc
-        if created and not schedule.created_by_id:
-            schedule.created_by = request.user
+        return JsonResponse(OdooInstanceBackupScheduleSerializer(schedule).data, status=201)
+
+
+class BackupScheduleDetailAPIView(LoginRequiredMixin, View):
+    """
+    PATCH  /api/backups/instances/{instance_id}/schedule/{schedule_id}/ — update a schedule.
+    DELETE /api/backups/instances/{instance_id}/schedule/{schedule_id}/ — delete a schedule.
+    """
+
+    def _get_schedule(self, request, instance_id, schedule_id):
+        if not getattr(request, "organization", None):
+            return None, JsonResponse({"error": "No active organization."}, status=400)
+        if request.org_role not in _ALLOWED_ROLES:
+            return None, JsonResponse({"error": "Permission denied."}, status=403)
+        instance = get_object_or_404(OdooInstance, pk=instance_id, organization=request.organization)
+        schedule = get_object_or_404(OdooInstanceBackupSchedule, pk=schedule_id, instance=instance)
+        return schedule, None
+
+    def patch(self, request, instance_id, schedule_id):
+        schedule, err = self._get_schedule(request, instance_id, schedule_id)
+        if err:
+            return err
+
+        try:
+            payload = json.loads(request.body or "{}")
+        except (TypeError, ValueError):
+            payload = {}
+
+        if "enabled" in payload:
+            schedule.enabled = bool(payload["enabled"])
+        if "frequency" in payload:
+            frequency = str(payload["frequency"]).strip().upper()
+            if frequency not in OdooInstanceBackupSchedule.Frequency.values:
+                return JsonResponse({"error": "Unsupported backup frequency."}, status=400)
+            schedule.frequency = frequency
+        if "weekday" in payload:
+            weekday = str(payload["weekday"]).strip()
+            if weekday not in OdooInstanceBackupSchedule.Weekday.values:
+                return JsonResponse({"error": "Unsupported backup weekday."}, status=400)
+            schedule.weekday = weekday
+        if "hour_utc" in payload:
+            try:
+                hour_utc = int(payload["hour_utc"])
+            except (TypeError, ValueError):
+                return JsonResponse({"error": "hour_utc must be an integer."}, status=400)
+            if not 0 <= hour_utc <= 23:
+                return JsonResponse({"error": "hour_utc must be between 0 and 23."}, status=400)
+            schedule.hour_utc = hour_utc
+        if "minute_utc" in payload:
+            try:
+                minute_utc = int(payload["minute_utc"])
+            except (TypeError, ValueError):
+                return JsonResponse({"error": "minute_utc must be an integer."}, status=400)
+            if not 0 <= minute_utc <= 59:
+                return JsonResponse({"error": "minute_utc must be between 0 and 59."}, status=400)
+            schedule.minute_utc = minute_utc
+
         schedule.updated_by = request.user
         schedule.save()
-
         return JsonResponse(OdooInstanceBackupScheduleSerializer(schedule).data)
+
+    def delete(self, request, instance_id, schedule_id):
+        schedule, err = self._get_schedule(request, instance_id, schedule_id)
+        if err:
+            return err
+        schedule.delete()
+        return JsonResponse({"ok": True})
 
 
 class CreateBackupAPIView(LoginRequiredMixin, View):
@@ -199,7 +279,15 @@ class CreateBackupAPIView(LoginRequiredMixin, View):
 
 
 class DownloadBackupAPIView(LoginRequiredMixin, View):
-    """GET /api/backups/instances/{instance_id}/download/{backup_id}/ — stream a backup archive."""
+    """
+    GET /api/backups/instances/{instance_id}/download/{backup_id}/
+
+    Streams a ZIP in Odoo-compatible format:
+      backup.zip
+      ├── dump.sql          (decompressed from db.sql.gz)
+      └── filestore/
+          └── {db_name}/    (extracted from filestore.tar.gz)
+    """
 
     def get(self, request, instance_id, backup_id):
         if not getattr(request, "organization", None):
@@ -234,31 +322,53 @@ class DownloadBackupAPIView(LoginRequiredMixin, View):
         if exists_code != 0:
             return JsonResponse({"error": "Backup directory was not found on the server."}, status=404)
 
-        backup_dir = backup.backup_dir.rstrip("/")
-        parent_dir = posixpath.dirname(backup_dir)
         timestamp = backup.created_at.strftime("%Y%m%d_%H%M%S")
         archive_name = f"{instance.db_name}_backup_{timestamp}.zip"
+
+        # Python script run on the remote server — produces an Odoo-compatible ZIP:
+        #   dump.sql        ← decompressed db.sql.gz
+        #   filestore/{db}/ ← extracted from filestore.tar.gz
+        script = r"""
+import gzip, json, os, sys, tarfile, zipfile
+
+backup_dir = sys.argv[1].rstrip("/")
+db_name    = sys.argv[2]
+
+db_gz = os.path.join(backup_dir, "db.sql.gz")
+fs_gz = os.path.join(backup_dir, "filestore.tar.gz")
+
+if not os.path.isfile(db_gz):
+    sys.exit(f"db.sql.gz not found in {backup_dir}")
+
+with zipfile.ZipFile(sys.stdout.buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+    # 1. dump.sql — decompress the gzipped SQL dump
+    with gzip.open(db_gz, "rb") as f:
+        zf.writestr("dump.sql", f.read())
+
+    # 2. filestore/{db_name}/... — extract from filestore.tar.gz
+    if os.path.isfile(fs_gz):
+        with tarfile.open(fs_gz, "r:gz") as tf:
+            for member in tf.getmembers():
+                if not member.isfile():
+                    continue
+                fobj = tf.extractfile(member)
+                if fobj:
+                    # member.name is "{db_name}/path" because the tar was created with
+                    # tar -czf ... -C {filestore_parent} {db_name}
+                    zf.writestr("filestore/" + member.name, fobj.read())
+"""
+        command = (
+            f"python3 -c {shlex.quote(script)} "
+            f"{shlex.quote(backup.backup_dir)} {shlex.quote(instance.db_name)}"
+        )
 
         client = None
         tmp_key = None
         try:
             client, tmp_key = _connect_ssh_client(instance.server)
-            script = """
-import os
-import sys
-import zipfile
-
-root = sys.argv[1].rstrip("/")
-base = os.path.dirname(root)
-
-with zipfile.ZipFile(sys.stdout.buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-    for dirpath, _, filenames in os.walk(root):
-        for name in filenames:
-            full = os.path.join(dirpath, name)
-            zf.write(full, os.path.relpath(full, base))
-"""
-            command = f"python3 -c {shlex.quote(script)} {shlex.quote(backup_dir)}"
-            stdin, stdout, stderr = client.exec_command(f"bash -lc {shlex.quote(command)}", timeout=3600)
+            stdin, stdout, stderr = client.exec_command(
+                f"bash -lc {shlex.quote(command)}", timeout=3600
+            )
             stdout.channel.settimeout(3600)
         except Exception as exc:
             if client is not None:
@@ -315,7 +425,11 @@ class UploadRestoreBackupAPIView(LoginRequiredMixin, View):
             pk=instance_id,
             organization=request.organization,
         )
-        uploaded_file = request.FILES.get("archive") or request.FILES.get("file") or request.FILES.get("backup_zip")
+        uploaded_file = (
+            request.FILES.get("archive")
+            or request.FILES.get("file")
+            or request.FILES.get("backup_zip")
+        )
         if not uploaded_file:
             return JsonResponse({"error": "Choose a ZIP backup file to restore."}, status=400)
 
@@ -338,15 +452,6 @@ class UploadRestoreBackupAPIView(LoginRequiredMixin, View):
             remote_root = f"/backups/dafeapp/.uploaded/{instance.db_name}/{backup_ts}"
             remote_archive_path = f"{remote_root}/upload.zip"
             remote_extract_dir = f"{remote_root}/contents"
-            remote_backup_dir = (
-                f"{remote_extract_dir}/{analyzed['backup_root']}"
-                if analyzed["backup_root"] else remote_extract_dir
-            )
-            remote_db_path = f"{remote_extract_dir}/{analyzed['db_member']}"
-            remote_fs_path = (
-                f"{remote_extract_dir}/{analyzed['filestore_member']}"
-                if analyzed["filestore_member"] else ""
-            )
 
             code, out = _ssh_run(instance.server, f"mkdir -p {shlex.quote(remote_extract_dir)}", timeout=60)
             if code != 0:
@@ -358,11 +463,9 @@ class UploadRestoreBackupAPIView(LoginRequiredMixin, View):
             sftp.close()
             sftp = None
 
-            extract_script = """
-import os
-import shutil
-import sys
-import zipfile
+            # Extract the ZIP on the remote server (safe extraction)
+            extract_script = r"""
+import os, shutil, sys, zipfile
 
 archive_path, dest = sys.argv[1], sys.argv[2]
 os.makedirs(dest, exist_ok=True)
@@ -388,6 +491,48 @@ with zipfile.ZipFile(archive_path) as zf:
                 raise RuntimeError(f"Could not extract uploaded backup ZIP: {out}")
 
             _ssh_run(instance.server, f"rm -f {shlex.quote(remote_archive_path)}", timeout=60)
+
+            # ── Resolve final db/filestore paths based on format ──────────────
+            if analyzed["format"] == "odoo":
+                # Odoo format: dump.sql at root + filestore/{db_name}/ directory
+                # Convert to our format: gzip dump.sql → db.sql.gz, tar filestore → filestore.tar.gz
+                raw_dump = f"{remote_extract_dir}/{analyzed['db_member']}"
+                remote_db_path = f"{remote_extract_dir}/db.sql.gz"
+                remote_fs_path = ""
+
+                step_code, step_out = _ssh_run(
+                    instance.server,
+                    f"gzip -c {shlex.quote(raw_dump)} > {shlex.quote(remote_db_path)}",
+                    timeout=3600,
+                )
+                if step_code != 0:
+                    raise RuntimeError(f"Could not compress dump.sql: {step_out}")
+
+                fs_dir = f"{remote_extract_dir}/filestore"
+                fs_check, _ = _ssh_run(instance.server, f"test -d {shlex.quote(fs_dir)}", timeout=30)
+                if fs_check == 0:
+                    remote_fs_path = f"{remote_extract_dir}/filestore.tar.gz"
+                    step_code, step_out = _ssh_run(
+                        instance.server,
+                        f"tar -czf {shlex.quote(remote_fs_path)} -C {shlex.quote(fs_dir)} .",
+                        timeout=3600,
+                    )
+                    if step_code != 0:
+                        raise RuntimeError(f"Could not archive filestore: {step_out}")
+
+                remote_backup_dir = remote_extract_dir
+
+            else:
+                # DafeApp format: db.sql.gz (+ optional filestore.tar.gz) inside a timestamped folder
+                remote_backup_dir = (
+                    f"{remote_extract_dir}/{analyzed['backup_root']}"
+                    if analyzed["backup_root"] else remote_extract_dir
+                )
+                remote_db_path = f"{remote_extract_dir}/{analyzed['db_member']}"
+                remote_fs_path = (
+                    f"{remote_extract_dir}/{analyzed['filestore_member']}"
+                    if analyzed.get("filestore_member") else ""
+                )
 
             backup = OdooInstanceBackup.objects.create(
                 organization=request.organization,
@@ -416,7 +561,7 @@ with zipfile.ZipFile(archive_path) as zf:
         except ValueError as exc:
             return JsonResponse({"error": str(exc)}, status=400)
         except Exception as exc:
-            logger.warning("backup upload restore failed for instance %s", instance.pk, exc_info=True)
+            logger.warning("backup upload restore failed for instance %s", instance_id, exc_info=True)
             return JsonResponse({"error": f"Could not upload and restore backup ZIP: {exc}"}, status=502)
         finally:
             if sftp is not None:
@@ -505,7 +650,6 @@ class RestoreToNewInstanceAPIView(LoginRequiredMixin, View):
             )
 
         # Parse and validate request body
-        import json
         try:
             body = json.loads(request.body or "{}")
         except (ValueError, TypeError):

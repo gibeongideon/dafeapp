@@ -33,6 +33,7 @@ class OdooInstanceBackupScheduleSerializer(serializers.ModelSerializer):
     class Meta:
         model = OdooInstanceBackupSchedule
         fields = [
+            "id",
             "enabled",
             "frequency",
             "weekday",

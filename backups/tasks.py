@@ -84,9 +84,8 @@ def run_scheduled_instance_backup(self, instance_id: int):
         logger.warning("Scheduled backup skipped; instance %s no longer exists.", instance_id)
         return
 
-    schedule = getattr(instance, "backup_schedule", None)
-    if not schedule or not schedule.enabled:
-        logger.info("Scheduled backup skipped for instance %s; schedule is disabled.", instance_id)
+    if not instance.backup_schedules.filter(enabled=True).exists():
+        logger.info("Scheduled backup skipped for instance %s; no enabled schedules.", instance_id)
         return
     if instance.status != OdooInstance.Status.RUNNING:
         logger.info("Scheduled backup skipped for instance %s; status is %s.", instance_id, instance.status)

@@ -96,10 +96,10 @@ class OdooInstanceBackupSchedule(models.Model):
         on_delete=models.CASCADE,
         related_name="instance_backup_schedules",
     )
-    instance = models.OneToOneField(
+    instance = models.ForeignKey(
         "deployments.OdooInstance",
         on_delete=models.CASCADE,
-        related_name="backup_schedule",
+        related_name="backup_schedules",
     )
     enabled = models.BooleanField(default=False)
     frequency = models.CharField(

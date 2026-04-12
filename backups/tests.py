@@ -228,22 +228,13 @@ class BackupScheduleTests(TestCase):
         session["current_org_id"] = self.org.id
         session.save()
 
-    def test_schedule_api_returns_defaults_when_missing(self):
+    def test_schedule_api_returns_empty_list_when_missing(self):
         response = self.client.get(
             reverse("backups:instance-backup-schedule", kwargs={"instance_id": self.instance.id})
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertJSONEqual(
-            response.content,
-            {
-                "enabled": False,
-                "frequency": "DAILY",
-                "weekday": "0",
-                "hour_utc": 2,
-                "minute_utc": 0,
-            },
-        )
+        self.assertJSONEqual(response.content, {"results": []})
 
     def test_schedule_api_saves_schedule(self):
         response = self.client.post(
@@ -252,7 +243,7 @@ class BackupScheduleTests(TestCase):
             content_type="application/json",
         )
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 201)
         schedule = OdooInstanceBackupSchedule.objects.get(instance=self.instance)
         self.assertTrue(schedule.enabled)
         self.assertEqual(schedule.frequency, OdooInstanceBackupSchedule.Frequency.WEEKLY)
@@ -276,7 +267,7 @@ class BackupScheduleTests(TestCase):
 
         sync_backup_schedule_periodic_task(schedule)
 
-        periodic_task = PeriodicTask.objects.get(name=backup_schedule_task_name(self.instance.id))
+        periodic_task = PeriodicTask.objects.get(name=backup_schedule_task_name(schedule.id))
         self.assertEqual(periodic_task.task, "backups.tasks.run_scheduled_instance_backup")
         self.assertTrue(periodic_task.enabled)
         self.assertEqual(periodic_task.args, f"[{self.instance.id}]")

@@ -8,8 +8,8 @@ from backups.models import OdooInstanceBackupSchedule
 logger = logging.getLogger(__name__)
 
 
-def backup_schedule_task_name(instance_id: int) -> str:
-    return f"backup-instance-{instance_id}"
+def backup_schedule_task_name(schedule_id: int) -> str:
+    return f"backup-schedule-{schedule_id}"
 
 
 def sync_backup_schedule_periodic_task(schedule: OdooInstanceBackupSchedule) -> None:
@@ -19,7 +19,7 @@ def sync_backup_schedule_periodic_task(schedule: OdooInstanceBackupSchedule) -> 
         logger.warning("django_celery_beat models unavailable; skipping backup schedule sync.", exc_info=True)
         return
 
-    task_name = backup_schedule_task_name(schedule.instance_id)
+    task_name = backup_schedule_task_name(schedule.pk)
     if not schedule.enabled:
         PeriodicTask.objects.filter(name=task_name).delete()
         return
@@ -43,15 +43,15 @@ def sync_backup_schedule_periodic_task(schedule: OdooInstanceBackupSchedule) -> 
             "crontab": crontab,
             "args": json.dumps([schedule.instance_id]),
             "enabled": True,
-            "description": f"Scheduled backup for instance {schedule.instance.db_name}",
+            "description": f"Scheduled backup for instance {schedule.instance.db_name} (schedule #{schedule.pk})",
         },
     )
 
 
-def delete_backup_schedule_periodic_task(instance_id: int) -> None:
+def delete_backup_schedule_periodic_task(schedule_id: int) -> None:
     try:
         from django_celery_beat.models import PeriodicTask
     except Exception:
         logger.warning("django_celery_beat models unavailable; skipping backup schedule deletion.", exc_info=True)
         return
-    PeriodicTask.objects.filter(name=backup_schedule_task_name(instance_id)).delete()
+    PeriodicTask.objects.filter(name=backup_schedule_task_name(schedule_id)).delete()

@@ -16,7 +16,7 @@ def sync_instance_backup_schedule(sender, instance: OdooInstanceBackupSchedule, 
 
 @receiver(post_delete, sender=OdooInstanceBackupSchedule)
 def delete_instance_backup_schedule(sender, instance: OdooInstanceBackupSchedule, **kwargs):
-    delete_backup_schedule_periodic_task(instance.instance_id)
+    delete_backup_schedule_periodic_task(instance.pk)
 
 
 @receiver(post_migrate)

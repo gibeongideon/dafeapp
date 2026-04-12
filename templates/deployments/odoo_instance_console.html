@@ -1287,7 +1287,7 @@
     </div>
 
     <!-- ── Tab: Backups ── -->
-    <div x-show="activeTab === 'backups'" x-init="$watch('activeTab', v => { if (v === 'backups') { loadBackups(); loadBackupSchedule(); } }); if (activeTab === 'backups') { loadBackups(); loadBackupSchedule(); }" class="space-y-5 p-5">
+    <div x-show="activeTab === 'backups'" x-init="$watch('activeTab', v => { if (v === 'backups') { loadBackups(); loadBackupSchedules(); } }); if (activeTab === 'backups') { loadBackups(); loadBackupSchedules(); }" class="space-y-5 p-5">
 
       <!-- Header -->
       <div class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -1311,74 +1311,131 @@
           </button>
         </div>
 
-        <div class="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-4">
-          <div class="flex flex-col gap-1">
-            <p class="text-sm font-medium text-slate-900">Scheduled Backups</p>
-            <p class="text-sm text-slate-500">Run automatic backups for this instance on a UTC schedule.</p>
-          </div>
-          <div class="grid gap-3 lg:grid-cols-5 lg:items-end">
-            <label class="inline-flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700">
-              <input type="checkbox"
-                     x-model="backupSchedule.enabled"
-                     :disabled="backupScheduleLoading || backupScheduleSaving || instanceActionsLocked()"
-                     class="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-400">
-              <span>Enable schedule</span>
-            </label>
+        <!-- Scheduled Backups -->
+        <div class="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+          <div class="flex items-center justify-between">
             <div>
-              <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Frequency</label>
-              <select x-model="backupSchedule.frequency"
-                      :disabled="backupScheduleLoading || backupScheduleSaving"
-                      class="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700">
-                <option value="DAILY">Daily</option>
-                <option value="WEEKLY">Weekly</option>
-              </select>
+              <p class="text-sm font-medium text-slate-900">Scheduled Backups</p>
+              <p class="text-xs text-slate-500 mt-0.5">Automatic backups run by Celery Beat on the UTC times below.</p>
             </div>
-            <div x-show="backupSchedule.frequency === 'WEEKLY'">
-              <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Weekday</label>
-              <select x-model="backupSchedule.weekday"
-                      :disabled="backupScheduleLoading || backupScheduleSaving"
-                      class="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700">
-                <option value="1">Monday</option>
-                <option value="2">Tuesday</option>
-                <option value="3">Wednesday</option>
-                <option value="4">Thursday</option>
-                <option value="5">Friday</option>
-                <option value="6">Saturday</option>
-                <option value="0">Sunday</option>
-              </select>
-            </div>
-            <div>
-              <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Hour (UTC)</label>
-              <input type="number"
-                     min="0"
-                     max="23"
-                     x-model.number="backupSchedule.hour_utc"
-                     :disabled="backupScheduleLoading || backupScheduleSaving"
-                     class="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700">
-            </div>
-            <div>
-              <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Minute (UTC)</label>
-              <input type="number"
-                     min="0"
-                     max="59"
-                     x-model.number="backupSchedule.minute_utc"
-                     :disabled="backupScheduleLoading || backupScheduleSaving"
-                     class="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700">
-            </div>
-          </div>
-          <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <p class="text-xs text-slate-500">
-              <span x-show="backupScheduleLoading">Loading schedule…</span>
-              <span x-show="!backupScheduleLoading">Celery Beat uses the saved UTC time for automatic runs.</span>
-            </p>
             <button type="button"
-                    @click="saveBackupSchedule()"
-                    :disabled="backupScheduleLoading || backupScheduleSaving || instanceActionsLocked()"
-                    :title="instanceActionLockReason() || ''"
-                    class="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50 transition-colors">
-              <span x-text="backupScheduleSaving ? 'Saving…' : 'Save Schedule'"></span>
+                    @click="showNewScheduleForm = !showNewScheduleForm"
+                    :disabled="backupSchedulesLoading"
+                    class="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50 transition-colors">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+              </svg>
+              Add Schedule
             </button>
           </div>
+
+          <!-- Loading -->
+          <div x-show="backupSchedulesLoading" class="text-xs text-slate-400 py-2">Loading schedules…</div>
+
+          <!-- Existing schedules list -->
+          <div x-show="!backupSchedulesLoading && backupSchedules.length > 0" class="space-y-2">
+            <template x-for="sched in backupSchedules" :key="sched.id">
+              <div class="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm">
+                <!-- Enabled badge -->
+                <span :class="sched.enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'"
+                      class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                      x-text="sched.enabled ? 'Active' : 'Disabled'"></span>
+                <!-- Description -->
+                <span class="flex-1 text-slate-700 text-xs"
+                      x-text="formatScheduleLabel(sched)"></span>
+                <!-- Toggle enable -->
+                <button type="button"
+                        @click="toggleBackupSchedule(sched)"
+                        :disabled="deletingScheduleId === sched.id"
+                        class="text-xs text-slate-500 hover:text-slate-800 underline underline-offset-2 disabled:opacity-40"
+                        x-text="sched.enabled ? 'Disable' : 'Enable'"></button>
+                <!-- Delete -->
+                <button type="button"
+                        @click="deleteBackupSchedule(sched.id)"
+                        :disabled="deletingScheduleId === sched.id"
+                        class="inline-flex items-center gap-1 rounded-lg border border-red-100 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-100 disabled:opacity-40">
+                  <svg x-show="deletingScheduleId === sched.id" class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                  </svg>
+                  <span x-text="deletingScheduleId === sched.id ? 'Deleting…' : 'Delete'"></span>
+                </button>
+              </div>
+            </template>
+          </div>
+
+          <!-- Empty state -->
+          <div x-show="!backupSchedulesLoading && backupSchedules.length === 0 && !showNewScheduleForm"
+               class="text-xs text-slate-400 py-1">No schedules configured. Click <span class="font-semibold">Add Schedule</span> to create one.</div>
+
+          <!-- New schedule form -->
+          <div x-show="showNewScheduleForm"
+               class="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+            <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">New Schedule</p>
+            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div>
+                <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Frequency</label>
+                <select x-model="newSchedule.frequency"
+                        class="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700">
+                  <option value="DAILY">Daily</option>
+                  <option value="WEEKLY">Weekly</option>
+                </select>
+              </div>
+              <div x-show="newSchedule.frequency === 'WEEKLY'">
+                <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Weekday</label>
+                <select x-model="newSchedule.weekday"
+                        class="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700">
+                  <option value="1">Monday</option>
+                  <option value="2">Tuesday</option>
+                  <option value="3">Wednesday</option>
+                  <option value="4">Thursday</option>
+                  <option value="5">Friday</option>
+                  <option value="6">Saturday</option>
+                  <option value="0">Sunday</option>
+                </select>
+              </div>
+              <div>
+                <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Hour (UTC 0–23)</label>
+                <input type="number" min="0" max="23"
+                       x-model.number="newSchedule.hour_utc"
+                       class="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700">
+              </div>
+              <div>
+                <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Minute (0–59)</label>
+                <input type="number" min="0" max="59"
+                       x-model.number="newSchedule.minute_utc"
+                       class="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700">
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <label class="inline-flex items-center gap-2 text-sm text-slate-700">
+                <input type="checkbox"
+                       x-model="newSchedule.enabled"
+                       class="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-400">
+                Enable immediately
+              </label>
+            </div>
+            <div class="flex gap-2">
+              <button type="button"
+                      @click="addBackupSchedule()"
+                      :disabled="savingNewSchedule"
+                      class="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50 transition-colors">
+                <span x-text="savingNewSchedule ? 'Saving…' : 'Save Schedule'"></span>
+              </button>
+              <button type="button"
+                      @click="showNewScheduleForm = false"
+                      :disabled="savingNewSchedule"
+                      class="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50 transition-colors">
+                Cancel
+              </button>
+            </div>
+          </div>
+
+          <!-- Schedule message -->
+          <div x-show="scheduleMsg"
+               :class="scheduleMsgOk ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700'"
+               class="rounded-xl border px-3 py-2 text-xs"
+               x-text="scheduleMsg"></div>
         </div>
 
         <div class="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -2099,10 +2156,16 @@ function instanceConsole(instanceId) {
     backupBusy: false,
     backupMsg: '',
     backupMsgOk: true,
-    backupScheduleLoading: false,
-    backupScheduleSaving: false,
-    backupSchedule: {
-      enabled: false,
+    // Schedules
+    backupSchedules: [],
+    backupSchedulesLoading: false,
+    showNewScheduleForm: false,
+    savingNewSchedule: false,
+    deletingScheduleId: null,
+    scheduleMsg: '',
+    scheduleMsgOk: true,
+    newSchedule: {
+      enabled: true,
       frequency: 'DAILY',
       weekday: '0',
       hour_utc: 2,
@@ -3984,74 +4047,113 @@ function instanceConsole(instanceId) {
       }
     },
 
-    async loadBackupSchedule() {
-      this.backupScheduleLoading = true;
+    async loadBackupSchedules() {
+      this.backupSchedulesLoading = true;
       try {
-        const res = await fetch(`/api/backups/instances/${this.instanceId}/schedule/`);
+        const res  = await fetch(`/api/backups/instances/${this.instanceId}/schedule/`);
         const data = await res.json();
-        this.backupSchedule = {
-          enabled: !!data.enabled,
-          frequency: data.frequency || 'DAILY',
-          weekday: String(data.weekday ?? '0'),
-          hour_utc: Number.isFinite(Number(data.hour_utc)) ? Number(data.hour_utc) : 2,
-          minute_utc: Number.isFinite(Number(data.minute_utc)) ? Number(data.minute_utc) : 0,
-        };
+        this.backupSchedules = data.results ?? [];
       } catch (_) {
-        this.backupSchedule = {
-          enabled: false,
-          frequency: 'DAILY',
-          weekday: '0',
-          hour_utc: 2,
-          minute_utc: 0,
-        };
+        this.backupSchedules = [];
       } finally {
-        this.backupScheduleLoading = false;
+        this.backupSchedulesLoading = false;
       }
     },
 
-    async saveBackupSchedule() {
-      if (this.instanceActionsLocked()) {
-        this.backupMsgOk = false;
-        this.backupMsg = this.instanceActionLockReason();
-        return;
+    formatScheduleLabel(sched) {
+      const pad = n => String(n).padStart(2, '0');
+      const time = `${pad(sched.hour_utc)}:${pad(sched.minute_utc)} UTC`;
+      if (sched.frequency === 'WEEKLY') {
+        const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+        const day  = days[Number(sched.weekday)] ?? `Day ${sched.weekday}`;
+        return `Weekly on ${day} at ${time}`;
       }
-      this.backupScheduleSaving = true;
-      this.backupMsg = '';
+      return `Daily at ${time}`;
+    },
+
+    async addBackupSchedule() {
+      this.savingNewSchedule = true;
+      this.scheduleMsg = '';
       try {
         const payload = {
-          enabled: !!this.backupSchedule.enabled,
-          frequency: this.backupSchedule.frequency || 'DAILY',
-          weekday: String(this.backupSchedule.weekday || '0'),
-          hour_utc: Number(this.backupSchedule.hour_utc),
-          minute_utc: Number(this.backupSchedule.minute_utc),
+          enabled:    !!this.newSchedule.enabled,
+          frequency:  this.newSchedule.frequency || 'DAILY',
+          weekday:    String(this.newSchedule.weekday || '0'),
+          hour_utc:   Number(this.newSchedule.hour_utc),
+          minute_utc: Number(this.newSchedule.minute_utc),
         };
-        const res = await fetch(`/api/backups/instances/${this.instanceId}/schedule/`, {
+        const res  = await fetch(`/api/backups/instances/${this.instanceId}/schedule/`, {
           method: 'POST',
-          headers: {
-            'X-CSRFToken': this.getCsrf(),
-            'Content-Type': 'application/json',
-          },
+          headers: { 'X-CSRFToken': this.getCsrf(), 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
         const data = await res.json();
-        this.backupMsgOk = res.ok;
-        this.backupMsg = res.ok
-          ? (payload.enabled ? 'Backup schedule saved.' : 'Backup schedule disabled.')
-          : (data.error || 'Could not save backup schedule.');
+        this.scheduleMsgOk = res.ok;
+        this.scheduleMsg   = res.ok ? 'Schedule saved.' : (data.error || 'Could not save schedule.');
         if (res.ok) {
-          this.backupSchedule = {
-            enabled: !!data.enabled,
-            frequency: data.frequency || 'DAILY',
-            weekday: String(data.weekday ?? '0'),
-            hour_utc: Number(data.hour_utc ?? 2),
-            minute_utc: Number(data.minute_utc ?? 0),
-          };
+          this.backupSchedules.push(data);
+          this.showNewScheduleForm = false;
+          this.newSchedule = { enabled: true, frequency: 'DAILY', weekday: '0', hour_utc: 2, minute_utc: 0 };
         }
       } catch (err) {
-        this.backupMsgOk = false;
-        this.backupMsg = 'Network error: ' + err.message;
+        this.scheduleMsgOk = false;
+        this.scheduleMsg   = 'Network error: ' + err.message;
       } finally {
-        this.backupScheduleSaving = false;
+        this.savingNewSchedule = false;
+      }
+    },
+
+    async toggleBackupSchedule(sched) {
+      const newEnabled = !sched.enabled;
+      try {
+        const res = await fetch(
+          `/api/backups/instances/${this.instanceId}/schedule/${sched.id}/`,
+          {
+            method: 'PATCH',
+            headers: { 'X-CSRFToken': this.getCsrf(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled: newEnabled }),
+          }
+        );
+        if (res.ok) {
+          const updated = await res.json();
+          const idx = this.backupSchedules.findIndex(s => s.id === sched.id);
+          if (idx !== -1) this.backupSchedules[idx] = updated;
+          this.scheduleMsgOk = true;
+          this.scheduleMsg   = newEnabled ? 'Schedule enabled.' : 'Schedule disabled.';
+        } else {
+          const data = await res.json();
+          this.scheduleMsgOk = false;
+          this.scheduleMsg   = data.error || 'Could not update schedule.';
+        }
+      } catch (err) {
+        this.scheduleMsgOk = false;
+        this.scheduleMsg   = 'Network error: ' + err.message;
+      }
+    },
+
+    async deleteBackupSchedule(scheduleId) {
+      if (!confirm('Delete this backup schedule?')) return;
+      this.deletingScheduleId = scheduleId;
+      this.scheduleMsg = '';
+      try {
+        const res = await fetch(
+          `/api/backups/instances/${this.instanceId}/schedule/${scheduleId}/`,
+          { method: 'DELETE', headers: { 'X-CSRFToken': this.getCsrf() } }
+        );
+        if (res.ok) {
+          this.backupSchedules = this.backupSchedules.filter(s => s.id !== scheduleId);
+          this.scheduleMsgOk = true;
+          this.scheduleMsg   = 'Schedule deleted.';
+        } else {
+          const data = await res.json();
+          this.scheduleMsgOk = false;
+          this.scheduleMsg   = data.error || 'Could not delete schedule.';
+        }
+      } catch (err) {
+        this.scheduleMsgOk = false;
+        this.scheduleMsg   = 'Network error: ' + err.message;
+      } finally {
+        this.deletingScheduleId = null;
       }
     },
 
