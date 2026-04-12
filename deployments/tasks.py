@@ -1418,6 +1418,11 @@ def _default_docker_instance_delete_playbook() -> str:
     return str(Path(settings.BASE_DIR) / "infra" / "ansible" / "delete_docker_odoo_instance.yml")
 
 
+def _default_odoo_instance_delete_playbook() -> str:
+    """Absolute path to the repo-local bare-metal instance deletion playbook."""
+    return str(Path(settings.BASE_DIR) / "infra" / "ansible" / "delete_odoo_instance_direct.yml")
+
+
 def _default_enterprise_sync_playbook() -> str:
     """Instance-level: server shared dir → instance path (local copy on server)."""
     return str(Path(settings.BASE_DIR) / "infra" / "ansible" / "sync_odoo_enterprise_addons.yml")
@@ -3091,8 +3096,15 @@ def create_odoo_instance(self, instance_id: int, job_id: int | None = None):
 
 
 @shared_task(bind=True, max_retries=0)
-def delete_odoo_instance(self, instance_id: int):
-    """Run the deletion playbook, then remove the instance record completely."""
+def delete_odoo_instance(self, instance_id: int, job_id: int | None = None):
+    """
+    Stop the remote Odoo service, drop the database, clean up files,
+    then remove the instance record from the database.
+
+    Remote cleanup runs FIRST. The Django record is only deleted after the
+    remote work succeeds (or after a best-effort attempt if it partially fails).
+    The job (if supplied) is marked done/failed accordingly.
+    """
     instance = OdooInstance.objects.select_related(
         "organization",
         "server",
@@ -3101,49 +3113,42 @@ def delete_odoo_instance(self, instance_id: int):
     ).get(pk=instance_id)
     server = instance.server
 
+    _job_start(job_id, self.request.id)
+    full_log = ""
+    ok = True
+
     try:
+        # 1. Detach any active domain assignments first
         for assignment in _active_domain_assignments(instance):
             domain_ok, domain_log = _detach_instance_domain_overlay(instance, assignment.domain)
             if domain_log:
+                full_log = _append_text(full_log, f"[domain detach]\n{domain_log}")
                 instance.provisioning_log = _append_text(instance.provisioning_log, f"[domain detach]\n{domain_log}")
             if not domain_ok:
                 logger.warning("Instance %s domain cleanup completed with warnings: %s", instance_id, domain_log)
+
+        # 2. Run the appropriate remote cleanup
         if server.ip_address:
             if server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
                 _run_docker_instance_delete(instance, server)
             else:
-                playbook = os.getenv("ANSIBLE_ODOO_INSTANCE_DELETE_PLAYBOOK", "").strip()
-                if playbook:
-                    ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
-                    try:
-                        ok, log_blob = _run_ansible_playbook(
-                            playbook,
-                            str(server.ip_address),
-                            {
-                                "db_name": instance.db_name,
-                                "http_port": instance.http_port,
-                            },
-                            ssh_user=ssh_user,
-                            ssh_key_path=ssh_key,
-                            ssh_password=ssh_password,
-                        )
-                    finally:
-                        if tmp_key:
-                            os.unlink(tmp_key)
-                    instance.provisioning_log = _append_text(instance.provisioning_log, f"[ansible delete]\n{log_blob}")
-                    instance.status = OdooInstance.Status.DELETED
-                    instance.save(update_fields=["status", "provisioning_log", "updated_at"])
-                else:
-                    instance.status = OdooInstance.Status.DELETED
-                    instance.provisioning_log = _append_text(instance.provisioning_log, "No delete playbook configured; removing record.")
-                    instance.save(update_fields=["status", "provisioning_log", "updated_at"])
+                _run_bare_metal_instance_delete(instance, server)
+            full_log = _append_text(full_log, instance.provisioning_log)
         else:
+            msg = "Server IP unavailable; skipped remote cleanup."
+            full_log = _append_text(full_log, msg)
+            instance.provisioning_log = _append_text(instance.provisioning_log, msg)
             instance.status = OdooInstance.Status.DELETED
-            instance.provisioning_log = _append_text(instance.provisioning_log, "Server IP unavailable; skipped remote cleanup.")
             instance.save(update_fields=["status", "provisioning_log", "updated_at"])
-    except Exception:
-        logger.warning("Instance %s cleanup failed; removing database record anyway.", instance_id, exc_info=True)
+
+    except Exception as exc:
+        ok = False
+        err_msg = f"Remote cleanup error: {exc}"
+        full_log = _append_text(full_log, err_msg)
+        logger.warning("Instance %s cleanup failed; will still remove Django record.", instance_id, exc_info=True)
+
     finally:
+        _job_done(job_id, ok=ok, log=full_log)
         _broadcast_instance_removed(instance.id, server.id)
         instance.delete()
         _broadcast_server_snapshot(server)
@@ -4709,6 +4714,52 @@ def _run_docker_instance_delete(instance: OdooInstance, server: OdooServer):
             os.unlink(tmp_key)
 
     instance.provisioning_log = _append_text(instance.provisioning_log, f"[docker delete]\n{log_blob}")
+    instance.status = OdooInstance.Status.DELETED
+    instance.save(update_fields=["status", "provisioning_log", "updated_at"])
+
+
+def _run_bare_metal_instance_delete(instance: OdooInstance, server: OdooServer):
+    """
+    Stop the systemd service, drop the PostgreSQL database, remove the
+    instance directory and UFW rule on a bare-metal server, then mark
+    the instance DELETED.  Uses the repo-local playbook as the default;
+    the env var ANSIBLE_ODOO_INSTANCE_DELETE_PLAYBOOK overrides it.
+    """
+    _pb = os.getenv("ANSIBLE_ODOO_INSTANCE_DELETE_PLAYBOOK", "").strip()
+    playbook = _pb if (_pb and Path(_pb).exists()) else _default_odoo_instance_delete_playbook()
+    if not Path(playbook).exists():
+        logger.warning(
+            "Bare-metal instance delete playbook not found at %s; marking DELETED without cleanup.",
+            playbook,
+        )
+        instance.status = OdooInstance.Status.DELETED
+        instance.provisioning_log = _append_text(
+            instance.provisioning_log,
+            f"Delete playbook not found: {playbook}. Marked DELETED without remote cleanup.",
+        )
+        instance.save(update_fields=["status", "provisioning_log", "updated_at"])
+        return
+
+    extra_vars = {
+        "db_name":   instance.db_name,
+        "http_port": instance.http_port,
+    }
+
+    ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
+    try:
+        ok, log_blob = _run_ansible_playbook(
+            playbook,
+            str(server.ip_address),
+            extra_vars,
+            ssh_user=ssh_user,
+            ssh_key_path=ssh_key,
+            ssh_password=ssh_password,
+        )
+    finally:
+        if tmp_key:
+            os.unlink(tmp_key)
+
+    instance.provisioning_log = _append_text(instance.provisioning_log, f"[ansible delete]\n{log_blob}")
     instance.status = OdooInstance.Status.DELETED
     instance.save(update_fields=["status", "provisioning_log", "updated_at"])
 

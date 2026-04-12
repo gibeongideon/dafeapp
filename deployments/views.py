@@ -3465,9 +3465,15 @@ class OdooInstanceDeleteAPIView(LoginRequiredMixin, View):
         lock_reason = _instance_mutation_lock_reason(instance)
         if lock_reason:
             return JsonResponse({"error": lock_reason}, status=409)
-        # Dispatch async cleanup (stop service, drop DB, free port).
-        _dispatch(delete_odoo_instance, instance.id)
-        return JsonResponse({"ok": True, "message": "Instance deletion queued."})
+        job = DeploymentJob.objects.create(
+            organization=org,
+            job_type=DeploymentJob.JobType.DELETE_INSTANCE,
+            odoo_instance=instance,
+            odoo_server=instance.server,
+            created_by=request.user,
+        )
+        _dispatch(delete_odoo_instance, instance.id, job.id)
+        return JsonResponse({"ok": True, "job_id": job.pk, "message": "Instance deletion queued."})
 
 
 class OdooServerArchiveAPIView(LoginRequiredMixin, View):
