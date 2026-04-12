@@ -2003,7 +2003,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
     });
     const res = await fetch(endpoint, { method: "POST", headers: { "X-CSRFToken": csrf }, body: fd });
     const data = await res.json().catch(() => ({}));
-    return { ok: res.ok, data };
+    return { ok: res.ok, status: res.status, data };
   }
 
   async function requestJson(endpoint, { method = "GET", payload = null } = {}) {
@@ -4569,7 +4569,9 @@ chmod 600 ~/.ssh/authorized_keys</pre>
         window.location.reload();
       }
     } else {
-      alert((resp && resp.data && (resp.data.error || resp.data.message)) || "Action failed.");
+      const errMsg = (resp && resp.data && (resp.data.error || resp.data.message))
+        || `Action failed (HTTP ${resp?.status ?? '?'}).`;
+      alert(errMsg);
     }
   });
 

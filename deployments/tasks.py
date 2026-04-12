@@ -3150,7 +3150,10 @@ def delete_odoo_instance(self, instance_id: int, job_id: int | None = None):
     finally:
         _job_done(job_id, ok=ok, log=full_log)
         _broadcast_instance_removed(instance.id, server.id)
-        instance.delete()
+        try:
+            instance.delete()
+        except Exception:
+            logger.warning("Could not delete OdooInstance %s DB record.", instance_id, exc_info=True)
         _broadcast_server_snapshot(server)
 
 

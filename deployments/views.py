@@ -3465,14 +3465,18 @@ class OdooInstanceDeleteAPIView(LoginRequiredMixin, View):
         lock_reason = _instance_mutation_lock_reason(instance)
         if lock_reason:
             return JsonResponse({"error": lock_reason}, status=409)
-        job = DeploymentJob.objects.create(
-            organization=org,
-            job_type=DeploymentJob.JobType.DELETE_INSTANCE,
-            odoo_instance=instance,
-            odoo_server=instance.server,
-            created_by=request.user,
-        )
-        _dispatch(delete_odoo_instance, instance.id, job.id)
+        try:
+            job = DeploymentJob.objects.create(
+                organization=org,
+                job_type=DeploymentJob.JobType.DELETE_INSTANCE,
+                odoo_instance=instance,
+                odoo_server=instance.server,
+                created_by=request.user,
+            )
+            _dispatch(delete_odoo_instance, instance.id, job.id)
+        except Exception as exc:
+            logger.exception("delete_odoo_instance dispatch failed for instance %s", instance_id)
+            return JsonResponse({"error": f"Failed to queue deletion: {exc}"}, status=500)
         return JsonResponse({"ok": True, "job_id": job.pk, "message": "Instance deletion queued."})
 
 
