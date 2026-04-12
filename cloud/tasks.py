@@ -94,9 +94,12 @@ def validate_cloud_account(self, account_id: int):
         logger.error("CloudAccount %s not found", account_id)
         return
 
-    # Sanity-check: if the raw token is empty after decryption the encryption key
-    # is wrong/missing rather than the token itself being invalid.
-    if account.provider == "DIGITALOCEAN" and not account.encrypted_api_token:
+    # Sanity-check: if the effective token is empty the encryption key is
+    # wrong/missing rather than the token itself being invalid.
+    # For OAuth accounts the token lives in encrypted_do_oauth_token, not
+    # encrypted_api_token, so we use the model's api_token property which
+    # already handles both auth methods.
+    if account.provider == "DIGITALOCEAN" and not account.api_token:
         message = "No API token stored — please re-add the account."
         account.is_verified = False
         account.verification_error = message
