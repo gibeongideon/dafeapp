@@ -176,7 +176,17 @@
             DafeApp auto-detects the version from names like <span class="font-mono">odoo_19.0+e.20260327.tar.gz</span>, stores Odoo 17, 18, and 19 in separate folders, replaces an existing upload with the same code date, and keeps only the latest release for each Odoo version.
           </p>
           <p id="enterprise-upload-msg" class="text-xs text-gray-500"></p>
-          <button id="submit-enterprise-upload" type="button" class="inline-flex items-center px-4 py-2.5 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700 transition-colors">
+          <div id="enterprise-upload-progress" class="hidden space-y-1.5 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
+            <div class="flex items-center justify-between text-xs font-medium text-gray-700">
+              <span id="enterprise-upload-phase">Uploading…</span>
+              <span id="enterprise-upload-pct">0%</span>
+            </div>
+            <div class="h-2 overflow-hidden rounded-full bg-gray-200">
+              <div id="enterprise-upload-bar" class="h-full rounded-full bg-gray-900 transition-all duration-150" style="width:0%"></div>
+            </div>
+            <p id="enterprise-upload-bytes" class="text-[11px] text-gray-500"></p>
+          </div>
+          <button id="submit-enterprise-upload" type="button" class="inline-flex items-center px-4 py-2.5 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50">
             Upload Enterprise Source
           </button>
         </form>
@@ -3917,7 +3927,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
   $("dns-refresh-accounts")?.addEventListener("click", () => loadDnsDashboard());
   $("enterprise-archive")?.addEventListener("change", updateEnterpriseArchivePreview);
 
-  $("submit-enterprise-upload")?.addEventListener("click", async () => {
+  $("submit-enterprise-upload")?.addEventListener("click", () => {
     const msgEl = $("enterprise-upload-msg");
     const archiveInput = $("enterprise-archive");
     const archive = archiveInput?.files?.[0] || null;
@@ -3930,23 +3940,80 @@ chmod 600 ~/.ssh/authorized_keys</pre>
       setMsg(msgEl, "Archive name must look like odoo_19.0+e.20260327.tar.gz.", true);
       return;
     }
+
+    const progressEl   = $("enterprise-upload-progress");
+    const phaseEl      = $("enterprise-upload-phase");
+    const pctEl        = $("enterprise-upload-pct");
+    const barEl        = $("enterprise-upload-bar");
+    const bytesEl      = $("enterprise-upload-bytes");
+    const submitBtn    = $("submit-enterprise-upload");
+
+    function formatBytes(b) {
+      if (b >= 1073741824) return (b / 1073741824).toFixed(1) + " GB";
+      if (b >= 1048576)    return (b / 1048576).toFixed(1) + " MB";
+      if (b >= 1024)       return (b / 1024).toFixed(0) + " KB";
+      return b + " B";
+    }
+
+    function setProgress(pct, phase, loaded, total) {
+      progressEl.classList.remove("hidden");
+      barEl.style.width = pct + "%";
+      pctEl.textContent = pct + "%";
+      phaseEl.textContent = phase;
+      if (total > 0) {
+        bytesEl.textContent = formatBytes(loaded) + " of " + formatBytes(total);
+      }
+    }
+
+    setMsg(msgEl, "");
+    progressEl.classList.remove("hidden");
+    setProgress(0, "Starting upload…", 0, 0);
+    submitBtn.disabled = true;
+
     const formData = new FormData();
     formData.append("archive", archive);
-    setMsg(msgEl, "Uploading and extracting Enterprise source…");
-    const uploadRes = await fetch("/deployments/enterprise/sources/", {
-      method: "POST",
-      headers: { "X-CSRFToken": csrf },
-      body: formData,
-    });
-    const uploadData = await uploadRes.json().catch(() => ({}));
-    if (!uploadRes.ok) {
-      setMsg(msgEl, uploadData.error || "Enterprise upload failed.", true);
-      return;
-    }
-    setMsg(msgEl, `Uploaded ${uploadData.package_name || "Enterprise source"}. Refreshing the list…`);
-    if (archiveInput) archiveInput.value = "";
-    updateEnterpriseArchivePreview();
-    queueEnterpriseReload();
+
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/deployments/enterprise/sources/");
+    xhr.setRequestHeader("X-CSRFToken", csrf);
+
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        const pct = Math.min(99, Math.round((event.loaded / event.total) * 100));
+        setProgress(pct, "Uploading…", event.loaded, event.total);
+      }
+    };
+
+    xhr.onload = () => {
+      submitBtn.disabled = false;
+      let data = {};
+      try { data = JSON.parse(xhr.responseText); } catch (_) {}
+      if (xhr.status >= 200 && xhr.status < 300) {
+        barEl.style.width = "100%";
+        pctEl.textContent = "100%";
+        phaseEl.textContent = "Extracting…";
+        bytesEl.textContent = "Upload complete — extracting archive on server.";
+        setTimeout(() => {
+          progressEl.classList.add("hidden");
+          barEl.style.width = "0%";
+        }, 2000);
+        setMsg(msgEl, `Uploaded ${data.package_name || "Enterprise source"}. Refreshing the list…`);
+        if (archiveInput) archiveInput.value = "";
+        updateEnterpriseArchivePreview();
+        queueEnterpriseReload();
+      } else {
+        progressEl.classList.add("hidden");
+        setMsg(msgEl, data.error || "Enterprise upload failed.", true);
+      }
+    };
+
+    xhr.onerror = () => {
+      submitBtn.disabled = false;
+      progressEl.classList.add("hidden");
+      setMsg(msgEl, "Network error during upload.", true);
+    };
+
+    xhr.send(formData);
   });
 
   $("submit-dns-account")?.addEventListener("click", async () => {
