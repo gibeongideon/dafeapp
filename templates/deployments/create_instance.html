@@ -1208,6 +1208,7 @@
                   data-server-id="{{ s.id }}"
                   data-server-name="{{ s.name }}"
                   data-server-status="{{ s.status }}"
+                  data-instance-count="{{ s.instances.count }}"
                   {% if s.status == 'CONNECTING' or s.status == 'PROVISIONING' or s.status == 'CONFIGURING' %}disabled aria-disabled="true" title="Server provisioning is still in progress."{% endif %}>
             Delete permanently
           </button>
@@ -3590,7 +3591,8 @@ chmod 600 ~/.ssh/authorized_keys</pre>
                   class="delete-server-btn text-[11px] font-medium text-red-600 underline"
                   data-server-id="${sid}"
                   data-server-name="${name}"
-                  data-server-status="${escapeHtml(server.status || "")}">
+                  data-server-status="${escapeHtml(server.status || "")}"
+                  data-instance-count="0">
             Delete permanently
           </button>
         </div>
@@ -4771,15 +4773,20 @@ chmod 600 ~/.ssh/authorized_keys</pre>
     if (deleteBtn) {
       const busyStatuses = ["CONNECTING", "PROVISIONING", "CONFIGURING"];
       const isBusy = busyStatuses.includes((deleteBtn.dataset.serverStatus || "").toUpperCase());
-      const warning = isBusy
-        ? `Server "${deleteBtn.dataset.serverName}" is still provisioning. Deleting will cancel the task and remove it. This cannot be undone.`
-        : `Permanently delete server "${deleteBtn.dataset.serverName}" from the database? This cannot be undone.`;
+      const hasInstances = parseInt(deleteBtn.dataset.instanceCount || "0", 10) > 0;
+      let warning = `Permanently delete server "${deleteBtn.dataset.serverName}"?`;
+      if (hasInstances) warning += ` This will also stop and remove all ${deleteBtn.dataset.instanceCount} instance(s) on it.`;
+      if (isBusy) warning += " (Provisioning will be cancelled.)";
+      warning += " This cannot be undone.";
       showConfirm(
-        "Delete Server Permanently",
+        "Delete Server",
         warning,
         `/api/deployments/odoo/servers/${deleteBtn.dataset.serverId}/delete/`,
         "Delete",
-        () => handleServerRemovalSuccess(deleteBtn.dataset.serverId)
+        (resp) => {
+          alert(`Server deletion queued (job #${resp?.data?.job_id ?? '?'}). The server and its instances will be removed shortly.`);
+          handleServerRemovalSuccess(deleteBtn.dataset.serverId);
+        }
       );
     }
   });

@@ -3158,6 +3158,81 @@ def delete_odoo_instance(self, instance_id: int, job_id: int | None = None):
 
 
 @shared_task(bind=True, max_retries=0)
+def delete_odoo_server(self, server_id: int, job_id: int | None = None):
+    """
+    Delete an OdooServer and all its instances.
+
+    For each instance:
+      - Best-effort remote cleanup (stop service / drop DB / remove container).
+        SSH errors are logged and skipped — the instance DB record is deleted regardless.
+    After all instances are gone the server DB record is deleted unconditionally.
+    The job (if supplied) is marked done/failed accordingly.
+    """
+    server = OdooServer.objects.select_related(
+        "organization",
+        "infrastructure",
+        "infrastructure__external_server",
+    ).get(pk=server_id)
+
+    _job_start(job_id, self.request.id)
+    full_log = ""
+    overall_ok = True
+
+    # ── 1. Clean up each instance ────────────────────────────────────────────
+    instances = list(server.instances.exclude(status=OdooInstance.Status.DELETED))
+    for instance in instances:
+        inst_log = f"[instance {instance.db_name}]\n"
+        try:
+            # Domain detach (best-effort)
+            for assignment in _active_domain_assignments(instance):
+                _, domain_log = _detach_instance_domain_overlay(instance, assignment.domain)
+                if domain_log:
+                    inst_log += domain_log + "\n"
+
+            # Remote service/container cleanup (best-effort — skip if unreachable)
+            if server.ip_address:
+                if server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
+                    _run_docker_instance_delete(instance, server)
+                else:
+                    _run_bare_metal_instance_delete(instance, server)
+                inst_log += "Remote cleanup completed.\n"
+            else:
+                inst_log += "No server IP — skipped remote cleanup.\n"
+
+        except Exception as exc:
+            overall_ok = False
+            inst_log += f"Remote cleanup failed (SSH unreachable or error): {exc}\n"
+            inst_log += "Removing Django record anyway.\n"
+            logger.warning(
+                "Server %s instance %s remote cleanup failed; removing record anyway.",
+                server_id, instance.pk, exc_info=True,
+            )
+
+        # Always remove the Django instance record
+        try:
+            _broadcast_instance_removed(instance.id, server_id)
+            instance.delete()
+            inst_log += "Instance record deleted.\n"
+        except Exception as exc:
+            inst_log += f"Could not delete instance record: {exc}\n"
+            logger.warning("Could not delete instance %s record.", instance.pk, exc_info=True)
+
+        full_log = _append_text(full_log, inst_log)
+
+    # ── 2. Delete the server DB record ───────────────────────────────────────
+    full_log = _append_text(full_log, f"Deleting server record (id={server_id}).")
+    try:
+        server.delete()
+        full_log = _append_text(full_log, "Server record deleted.")
+    except Exception as exc:
+        overall_ok = False
+        full_log = _append_text(full_log, f"Could not delete server record: {exc}")
+        logger.exception("Could not delete OdooServer %s record.", server_id)
+
+    _job_done(job_id, ok=overall_ok, log=full_log)
+
+
+@shared_task(bind=True, max_retries=0)
 def provision_instance_domain(self, instance_id: int):
     instance = OdooInstance.objects.select_related("server").get(pk=instance_id)
     if instance.status == OdooInstance.Status.DELETED:

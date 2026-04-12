@@ -796,6 +796,7 @@ class DeploymentJob(models.Model):
         CLEANUP_STAGING_INSTANCE = "CLEANUP_STAGING_INSTANCE", "Cleanup Staging (TTL)"
         BACKUP_INSTANCE          = "BACKUP_INSTANCE",          "Backup Instance"
         RESTORE_INSTANCE         = "RESTORE_INSTANCE",         "Restore Instance"
+        DELETE_SERVER            = "DELETE_SERVER",            "Delete Server"
 
     class Status(models.TextChoices):
         QUEUED = "QUEUED", "Queued"

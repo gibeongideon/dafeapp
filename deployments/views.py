@@ -86,6 +86,7 @@ from deployments.tasks import (
     create_odoo_instance,
     detach_instance_domain,
     delete_odoo_instance,
+    delete_odoo_server,
     deploy_server_ssh_key,
     provision_instance_domain,
     provision_odoo_server,
@@ -3527,45 +3528,56 @@ class OdooServerArchiveAPIView(LoginRequiredMixin, View):
 
 
 class OdooServerDeleteAPIView(LoginRequiredMixin, View):
+    """
+    POST /api/deployments/odoo/servers/<id>/delete/
+
+    Queues a Celery task that:
+      1. Best-effort stops/removes every instance on the server via SSH/Ansible.
+         SSH failures are logged and skipped — the Django records are deleted anyway.
+      2. Deletes the OdooServer Django record unconditionally.
+
+    Only SUPER_ADMIN and ADMIN may delete a server.
+    """
+
     def post(self, request, server_id):
         org = getattr(request, "organization", None)
-        if not org:
+
+        # Platform admins may not have a session org; look the server up first
+        # and derive the org from it so we can still enforce the role check.
+        if not org and getattr(request.user, "is_platform_admin", False):
+            server = get_object_or_404(OdooServer, pk=server_id)
+            org = server.organization
+        elif not org:
             return JsonResponse({"error": "No active organization."}, status=400)
-        if request.org_role not in ("SUPER_ADMIN", "ADMIN", "MANAGER"):
-            return JsonResponse({"error": "Permission denied."}, status=403)
+        else:
+            server = get_object_or_404(OdooServer, pk=server_id, organization=org)
 
-        server = get_object_or_404(
-            OdooServer.objects.select_related(
-                "infrastructure",
-                "infrastructure__cloud_account",
-                "cloud_account",
-            ),
-            pk=server_id,
-            organization=org,
-        )
+        # Server deletion is restricted to SUPER_ADMIN and ADMIN only
+        if request.org_role not in ("SUPER_ADMIN", "ADMIN") and not getattr(request.user, "is_platform_admin", False):
+            return JsonResponse({"error": "Permission denied. Only SUPER_ADMIN or ADMIN can delete a server."}, status=403)
 
-        # If the server is still running a provisioning task, cancel it first.
-        busy_statuses = {
-            OdooServer.Status.CONNECTING,
-            OdooServer.Status.PROVISIONING,
-            OdooServer.Status.CONFIGURING,
-        }
-        if server.status in busy_statuses:
-            task_id = server.celery_task_id
-            if task_id:
-                try:
-                    from dafeapp.celery import app as celery_app
-                    celery_app.control.revoke(task_id, terminate=True, signal="SIGTERM")
-                except Exception:
-                    pass  # best-effort; proceed with delete regardless
+        # Cancel any in-progress provisioning task so the worker doesn't
+        # keep running after the record is gone.
+        if server.celery_task_id:
+            try:
+                from dafeapp.celery import app as celery_app
+                celery_app.control.revoke(server.celery_task_id, terminate=True, signal="SIGTERM")
+            except Exception:
+                pass  # best-effort; proceed regardless
 
         try:
-            with transaction.atomic():
-                server.delete()
-            return JsonResponse({"ok": True, "message": "Server deleted."})
+            job = DeploymentJob.objects.create(
+                organization=org,
+                job_type=DeploymentJob.JobType.DELETE_SERVER,
+                odoo_server=server,
+                created_by=request.user,
+            )
+            _dispatch(delete_odoo_server, server.pk, job.pk)
         except Exception as exc:
-            logger.exception("Unexpected error deleting OdooServer %s", server_id)
-            return JsonResponse({"error": f"Delete failed: {exc}"}, status=500)
+            logger.exception("delete_odoo_server dispatch failed for server %s", server_id)
+            return JsonResponse({"error": f"Failed to queue server deletion: {exc}"}, status=500)
+
+        return JsonResponse({"ok": True, "job_id": job.pk, "message": "Server deletion queued."})
 
 
 class InfrastructureDeleteAPIView(LoginRequiredMixin, View):
