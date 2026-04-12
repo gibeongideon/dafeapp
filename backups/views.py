@@ -2,7 +2,10 @@ import logging
 import os
 import posixpath
 import shlex
+import tempfile
+import zipfile
 from contextlib import suppress
+from datetime import datetime, timezone as dt_timezone
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import JsonResponse, StreamingHttpResponse
@@ -27,6 +30,45 @@ def _dispatch(task, *args):
     except Exception:
         logger.warning("Celery broker unavailable; running backup task synchronously.", exc_info=True)
         task(*args)
+
+
+def _timestamp() -> str:
+    return datetime.now(dt_timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+
+def _analyze_uploaded_backup_zip(archive_path: str) -> dict:
+    """Validate an uploaded backup ZIP and locate db.sql.gz / filestore.tar.gz inside it."""
+    with zipfile.ZipFile(archive_path) as archive:
+        members = [info.filename for info in archive.infolist() if not info.is_dir()]
+
+    if not members:
+        raise ValueError("The uploaded ZIP archive is empty.")
+
+    normalized = []
+    for member in members:
+        clean = posixpath.normpath(member or "").lstrip("/")
+        if clean in ("", ".") or clean.startswith("../") or "/../" in f"/{clean}":
+            raise ValueError("The uploaded ZIP archive contains unsafe paths.")
+        normalized.append(clean)
+
+    db_members = [member for member in normalized if posixpath.basename(member) == "db.sql.gz"]
+    if len(db_members) != 1:
+        raise ValueError("The uploaded ZIP must contain exactly one db.sql.gz file.")
+
+    db_member = db_members[0]
+    backup_root = posixpath.dirname(db_member)
+    fs_members = [
+        member for member in normalized
+        if posixpath.basename(member) == "filestore.tar.gz" and posixpath.dirname(member) == backup_root
+    ]
+    if len(fs_members) > 1:
+        raise ValueError("The uploaded ZIP contains multiple filestore.tar.gz files.")
+
+    return {
+        "backup_root": backup_root,
+        "db_member": db_member,
+        "filestore_member": fs_members[0] if fs_members else "",
+    }
 
 
 class InstanceBackupListAPIView(LoginRequiredMixin, View):
@@ -110,15 +152,28 @@ class DownloadBackupAPIView(LoginRequiredMixin, View):
 
         backup_dir = backup.backup_dir.rstrip("/")
         parent_dir = posixpath.dirname(backup_dir)
-        leaf_dir = posixpath.basename(backup_dir)
         timestamp = backup.created_at.strftime("%Y%m%d_%H%M%S")
-        archive_name = f"{instance.db_name}_backup_{timestamp}.tar.gz"
+        archive_name = f"{instance.db_name}_backup_{timestamp}.zip"
 
         client = None
         tmp_key = None
         try:
             client, tmp_key = _connect_ssh_client(instance.server)
-            command = f"tar -C {shlex.quote(parent_dir)} -czf - {shlex.quote(leaf_dir)}"
+            script = """
+import os
+import sys
+import zipfile
+
+root = sys.argv[1].rstrip("/")
+base = os.path.dirname(root)
+
+with zipfile.ZipFile(sys.stdout.buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+    for dirpath, _, filenames in os.walk(root):
+        for name in filenames:
+            full = os.path.join(dirpath, name)
+            zf.write(full, os.path.relpath(full, base))
+"""
+            command = f"python3 -c {shlex.quote(script)} {shlex.quote(backup_dir)}"
             stdin, stdout, stderr = client.exec_command(f"bash -lc {shlex.quote(command)}", timeout=3600)
             stdout.channel.settimeout(3600)
         except Exception as exc:
@@ -157,9 +212,141 @@ class DownloadBackupAPIView(LoginRequiredMixin, View):
                     with suppress(OSError):
                         os.unlink(tmp_key)
 
-        response = StreamingHttpResponse(stream(), content_type="application/gzip")
+        response = StreamingHttpResponse(stream(), content_type="application/zip")
         response["Content-Disposition"] = f'attachment; filename="{archive_name}"'
         return response
+
+
+class UploadRestoreBackupAPIView(LoginRequiredMixin, View):
+    """POST /api/backups/instances/{instance_id}/restore/upload/ — upload a ZIP and restore from it."""
+
+    def post(self, request, instance_id):
+        if not getattr(request, "organization", None):
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if request.org_role not in _ALLOWED_ROLES:
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        instance = get_object_or_404(
+            OdooInstance.objects.select_related("server"),
+            pk=instance_id,
+            organization=request.organization,
+        )
+        uploaded_file = request.FILES.get("archive") or request.FILES.get("file") or request.FILES.get("backup_zip")
+        if not uploaded_file:
+            return JsonResponse({"error": "Choose a ZIP backup file to restore."}, status=400)
+
+        filename = (uploaded_file.name or "").lower()
+        if not filename.endswith(".zip"):
+            return JsonResponse({"error": "The uploaded file must be a .zip backup archive."}, status=400)
+
+        local_tmp_path = None
+        client = None
+        sftp = None
+        tmp_key = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as handle:
+                for chunk in uploaded_file.chunks():
+                    handle.write(chunk)
+                local_tmp_path = handle.name
+
+            analyzed = _analyze_uploaded_backup_zip(local_tmp_path)
+            backup_ts = _timestamp()
+            remote_root = f"/backups/dafeapp/.uploaded/{instance.db_name}/{backup_ts}"
+            remote_archive_path = f"{remote_root}/upload.zip"
+            remote_extract_dir = f"{remote_root}/contents"
+            remote_backup_dir = (
+                f"{remote_extract_dir}/{analyzed['backup_root']}"
+                if analyzed["backup_root"] else remote_extract_dir
+            )
+            remote_db_path = f"{remote_extract_dir}/{analyzed['db_member']}"
+            remote_fs_path = (
+                f"{remote_extract_dir}/{analyzed['filestore_member']}"
+                if analyzed["filestore_member"] else ""
+            )
+
+            code, out = _ssh_run(instance.server, f"mkdir -p {shlex.quote(remote_extract_dir)}", timeout=60)
+            if code != 0:
+                raise RuntimeError(f"Could not prepare remote upload folder: {out}")
+
+            client, tmp_key = _connect_ssh_client(instance.server)
+            sftp = client.open_sftp()
+            sftp.put(local_tmp_path, remote_archive_path)
+            sftp.close()
+            sftp = None
+
+            extract_script = """
+import os
+import shutil
+import sys
+import zipfile
+
+archive_path, dest = sys.argv[1], sys.argv[2]
+os.makedirs(dest, exist_ok=True)
+base = os.path.realpath(dest) + os.sep
+
+with zipfile.ZipFile(archive_path) as zf:
+    for info in zf.infolist():
+        if info.is_dir():
+            continue
+        target = os.path.realpath(os.path.join(dest, info.filename))
+        if not target.startswith(base):
+            raise SystemExit(f"unsafe path: {info.filename}")
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with zf.open(info) as src, open(target, "wb") as dst:
+            shutil.copyfileobj(src, dst)
+"""
+            extract_command = (
+                f"python3 -c {shlex.quote(extract_script)} "
+                f"{shlex.quote(remote_archive_path)} {shlex.quote(remote_extract_dir)}"
+            )
+            code, out = _ssh_run(instance.server, extract_command, timeout=3600)
+            if code != 0:
+                raise RuntimeError(f"Could not extract uploaded backup ZIP: {out}")
+
+            _ssh_run(instance.server, f"rm -f {shlex.quote(remote_archive_path)}", timeout=60)
+
+            backup = OdooInstanceBackup.objects.create(
+                organization=request.organization,
+                instance=instance,
+                backup_type=OdooInstanceBackup.BackupType.FULL,
+                status=OdooInstanceBackup.Status.DONE,
+                backup_dir=remote_backup_dir,
+                db_backup_path=remote_db_path,
+                filestore_backup_path=remote_fs_path,
+                size_bytes=getattr(uploaded_file, "size", 0) or 0,
+                note=f"Uploaded ZIP restore: {uploaded_file.name}"[:255],
+                created_by=request.user,
+            )
+
+            job = DeploymentJob.objects.create(
+                organization=request.organization,
+                job_type=DeploymentJob.JobType.RESTORE_INSTANCE,
+                odoo_instance=instance,
+                odoo_server=instance.server,
+                created_by=request.user,
+            )
+            _dispatch(restore_odoo_instance, instance.pk, backup.pk, job.pk)
+            return JsonResponse({"ok": True, "job_id": job.pk, "backup_id": backup.pk}, status=202)
+        except zipfile.BadZipFile:
+            return JsonResponse({"error": "The uploaded file must be a valid .zip backup archive."}, status=400)
+        except ValueError as exc:
+            return JsonResponse({"error": str(exc)}, status=400)
+        except Exception as exc:
+            logger.warning("backup upload restore failed for instance %s", instance.pk, exc_info=True)
+            return JsonResponse({"error": f"Could not upload and restore backup ZIP: {exc}"}, status=502)
+        finally:
+            if sftp is not None:
+                with suppress(Exception):
+                    sftp.close()
+            if client is not None:
+                with suppress(Exception):
+                    client.close()
+            if tmp_key:
+                with suppress(OSError):
+                    os.unlink(tmp_key)
+            if local_tmp_path:
+                with suppress(OSError):
+                    os.unlink(local_tmp_path)
 
 
 class RestoreBackupAPIView(LoginRequiredMixin, View):

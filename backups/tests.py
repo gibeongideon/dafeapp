@@ -1,7 +1,9 @@
 import io
+import zipfile
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 
@@ -42,6 +44,7 @@ class _FakeClient:
         self.closed = False
         self.command = None
         self.timeout = None
+        self.sftp = None
 
     def exec_command(self, command, timeout=None):
         self.command = command
@@ -51,6 +54,22 @@ class _FakeClient:
             _FakeStream(self.payload, exit_status=0),
             _FakeStream(),
         )
+
+    def close(self):
+        self.closed = True
+
+    def open_sftp(self):
+        self.sftp = _FakeSFTP()
+        return self.sftp
+
+
+class _FakeSFTP:
+    def __init__(self):
+        self.put_calls = []
+        self.closed = False
+
+    def put(self, local_path, remote_path):
+        self.put_calls.append((local_path, remote_path))
 
     def close(self):
         self.closed = True
@@ -116,8 +135,58 @@ class BackupDownloadTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response["Content-Type"], "application/gzip")
+        self.assertEqual(response["Content-Type"], "application/zip")
         self.assertIn('attachment; filename="prod_db_backup_', response["Content-Disposition"])
         self.assertEqual(b"".join(response.streaming_content), b"backup-archive-bytes")
         self.assertTrue(fake_client.closed)
-        self.assertIn("tar -C /backups/dafeapp/prod_db -czf - 20260412_191400", fake_client.command)
+        self.assertIn("python3 -c", fake_client.command)
+        self.assertIn("/backups/dafeapp/prod_db/20260412_191400", fake_client.command)
+
+    @patch("backups.views._dispatch")
+    @patch("backups.views._connect_ssh_client")
+    @patch("backups.views._ssh_run")
+    def test_upload_restore_zip_creates_backup_and_dispatches_restore(self, mock_ssh_run, mock_connect_ssh_client, mock_dispatch):
+        archive_buffer = io.BytesIO()
+        with zipfile.ZipFile(archive_buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("20260412_191400/db.sql.gz", b"fake-db")
+            archive.writestr("20260412_191400/filestore.tar.gz", b"fake-filestore")
+
+        upload = SimpleUploadedFile(
+            "prod_backup.zip",
+            archive_buffer.getvalue(),
+            content_type="application/zip",
+        )
+        fake_client = _FakeClient()
+        mock_connect_ssh_client.return_value = (fake_client, None)
+        mock_ssh_run.return_value = (0, "")
+
+        response = self.client.post(
+            reverse(
+                "backups:instance-backup-restore-upload",
+                kwargs={"instance_id": self.instance.id},
+            ),
+            {"archive": upload},
+        )
+
+        self.assertEqual(response.status_code, 202)
+        created_backup = OdooInstanceBackup.objects.latest("id")
+        self.assertEqual(created_backup.status, OdooInstanceBackup.Status.DONE)
+        self.assertTrue(created_backup.backup_dir.endswith("/contents/20260412_191400"))
+        self.assertTrue(created_backup.db_backup_path.endswith("/contents/20260412_191400/db.sql.gz"))
+        self.assertTrue(created_backup.filestore_backup_path.endswith("/contents/20260412_191400/filestore.tar.gz"))
+        self.assertIn("Uploaded ZIP restore", created_backup.note)
+
+        self.assertTrue(fake_client.closed)
+        self.assertIsNotNone(fake_client.sftp)
+        self.assertEqual(len(fake_client.sftp.put_calls), 1)
+        self.assertTrue(fake_client.sftp.put_calls[0][1].endswith("/upload.zip"))
+
+        commands = [call.args[1] for call in mock_ssh_run.call_args_list]
+        self.assertTrue(any(command.startswith("mkdir -p ") and "/backups/dafeapp/.uploaded/prod_db/" in command for command in commands))
+        self.assertTrue(any("python3 -c" in command and "upload.zip" in command for command in commands))
+        self.assertTrue(any(command.startswith("rm -f ") and "/upload.zip" in command for command in commands))
+
+        dispatch_args = mock_dispatch.call_args[0]
+        self.assertEqual(dispatch_args[0].__name__, "restore_odoo_instance")
+        self.assertEqual(dispatch_args[1], self.instance.pk)
+        self.assertEqual(dispatch_args[2], created_backup.pk)

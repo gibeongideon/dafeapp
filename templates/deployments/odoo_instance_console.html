@@ -1311,6 +1311,35 @@
           </button>
         </div>
 
+        <div class="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p class="text-sm font-medium text-slate-900">Restore from Local ZIP</p>
+              <p class="mt-1 text-sm text-slate-500">
+                Upload a ZIP created from these backups, then restore this instance from it.
+              </p>
+            </div>
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div>
+                <input type="file"
+                       x-ref="restoreZipInput"
+                       accept=".zip,application/zip"
+                       @change="setRestoreZipFile($event)"
+                       :disabled="backupBusy"
+                       class="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-xs file:font-medium file:text-white hover:file:bg-slate-700 disabled:opacity-50">
+                <p class="mt-1 text-xs text-slate-500" x-text="restoreZipFileName || 'Choose a .zip backup file.'"></p>
+              </div>
+              <button type="button"
+                      @click="uploadRestoreZip()"
+                      :disabled="backupBusy || !restoreZipFile || instanceActionsLocked()"
+                      :title="instanceActionLockReason() || ''"
+                      class="inline-flex items-center justify-center rounded-xl border border-indigo-200 bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50 transition-colors">
+                <span x-text="backupBusy ? 'Working…' : 'Upload ZIP & Restore'"></span>
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- Status message -->
         <div x-show="backupMsg"
              :class="backupMsgOk ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700'"
@@ -1376,7 +1405,7 @@
                   <a x-show="bk.status === 'DONE'"
                      :href="backupDownloadUrl(bk.id)"
                      class="inline-flex items-center rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-700 hover:bg-sky-100">
-                    Download
+                    Download ZIP
                   </a>
                   <button type="button"
                           x-show="bk.status === 'DONE'"
@@ -2000,6 +2029,8 @@ function instanceConsole(instanceId) {
     backupBusy: false,
     backupMsg: '',
     backupMsgOk: true,
+    restoreZipFile: null,
+    restoreZipFileName: '',
 
     // Operations
     commands: null,
@@ -3900,6 +3931,57 @@ function instanceConsole(instanceId) {
       } catch (err) {
         this.backupMsgOk = false;
         this.backupMsg   = 'Network error: ' + err.message;
+      } finally {
+        this.backupBusy = false;
+      }
+    },
+
+    setRestoreZipFile(event) {
+      const [file] = event.target.files || [];
+      this.restoreZipFile = file || null;
+      this.restoreZipFileName = file ? file.name : '';
+    },
+
+    async uploadRestoreZip() {
+      if (this.instanceActionsLocked()) {
+        this.backupMsgOk = false;
+        this.backupMsg = this.instanceActionLockReason();
+        return;
+      }
+      if (!this.restoreZipFile) {
+        this.backupMsgOk = false;
+        this.backupMsg = 'Choose a ZIP backup file first.';
+        return;
+      }
+      if (!confirm(`Restore this instance from ${this.restoreZipFile.name}?\n\nThis will stop Odoo, overwrite the current database and filestore, then restart.`)) return;
+
+      this.backupBusy = true;
+      this.backupMsg = '';
+      try {
+        const formData = new FormData();
+        formData.append('archive', this.restoreZipFile);
+
+        const res = await fetch(`/api/backups/instances/${this.instanceId}/restore/upload/`, {
+          method: 'POST',
+          headers: { 'X-CSRFToken': this.getCsrf() },
+          body: formData,
+        });
+        const data = await res.json();
+        this.backupMsgOk = res.ok;
+        this.backupMsg = res.ok
+          ? 'ZIP uploaded and restore started. Monitor progress in the Jobs tab.'
+          : (data.error || 'ZIP restore request failed.');
+        if (res.ok) {
+          this.restoreZipFile = null;
+          this.restoreZipFileName = '';
+          if (this.$refs.restoreZipInput) this.$refs.restoreZipInput.value = '';
+          this.loadJobs();
+          this.loadBackups();
+          this.setToolbarTab('upgrade-tools');
+        }
+      } catch (err) {
+        this.backupMsgOk = false;
+        this.backupMsg = 'Network error: ' + err.message;
       } finally {
         this.backupBusy = false;
       }
