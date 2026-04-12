@@ -1,7 +1,11 @@
 import logging
+import os
+import posixpath
+import shlex
+from contextlib import suppress
 
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import JsonResponse
+from django.http import JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.views import View
 
@@ -9,6 +13,7 @@ from backups.models import OdooInstanceBackup
 from backups.serializers import OdooInstanceBackupSerializer
 from backups.tasks import backup_odoo_instance, restore_backup_to_new_instance, restore_odoo_instance
 from deployments.models import DeploymentJob, OdooInstance, OdooServer
+from deployments.tasks import _connect_ssh_client, _ssh_run
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +70,96 @@ class CreateBackupAPIView(LoginRequiredMixin, View):
         )
         _dispatch(backup_odoo_instance, instance.pk, job.pk)
         return JsonResponse({"ok": True, "job_id": job.pk}, status=202)
+
+
+class DownloadBackupAPIView(LoginRequiredMixin, View):
+    """GET /api/backups/instances/{instance_id}/download/{backup_id}/ — stream a backup archive."""
+
+    def get(self, request, instance_id, backup_id):
+        if not getattr(request, "organization", None):
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if request.org_role not in _ALLOWED_ROLES:
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        instance = get_object_or_404(
+            OdooInstance.objects.select_related("server"),
+            pk=instance_id,
+            organization=request.organization,
+        )
+        backup = get_object_or_404(
+            OdooInstanceBackup,
+            pk=backup_id,
+            instance=instance,
+            organization=request.organization,
+        )
+        if backup.status != OdooInstanceBackup.Status.DONE:
+            return JsonResponse(
+                {"error": f"Backup is not ready for download (status: {backup.status})."},
+                status=400,
+            )
+        if not backup.backup_dir:
+            return JsonResponse({"error": "Backup directory is unavailable."}, status=400)
+
+        exists_code, _ = _ssh_run(
+            instance.server,
+            f"test -d {shlex.quote(backup.backup_dir)}",
+            timeout=30,
+        )
+        if exists_code != 0:
+            return JsonResponse({"error": "Backup directory was not found on the server."}, status=404)
+
+        backup_dir = backup.backup_dir.rstrip("/")
+        parent_dir = posixpath.dirname(backup_dir)
+        leaf_dir = posixpath.basename(backup_dir)
+        timestamp = backup.created_at.strftime("%Y%m%d_%H%M%S")
+        archive_name = f"{instance.db_name}_backup_{timestamp}.tar.gz"
+
+        client = None
+        tmp_key = None
+        try:
+            client, tmp_key = _connect_ssh_client(instance.server)
+            command = f"tar -C {shlex.quote(parent_dir)} -czf - {shlex.quote(leaf_dir)}"
+            stdin, stdout, stderr = client.exec_command(f"bash -lc {shlex.quote(command)}", timeout=3600)
+            stdout.channel.settimeout(3600)
+        except Exception as exc:
+            if client is not None:
+                client.close()
+            if tmp_key:
+                with suppress(OSError):
+                    os.unlink(tmp_key)
+            logger.warning("backup download setup failed for backup %s", backup.pk, exc_info=True)
+            return JsonResponse({"error": f"Unable to open backup download: {exc}"}, status=502)
+
+        def stream():
+            try:
+                while True:
+                    chunk = stdout.read(64 * 1024)
+                    if not chunk:
+                        break
+                    yield chunk
+
+                exit_status = stdout.channel.recv_exit_status()
+                if exit_status != 0:
+                    err_output = stderr.read().decode(errors="replace").strip()
+                    logger.warning(
+                        "backup download command failed for backup %s (exit %s): %s",
+                        backup.pk,
+                        exit_status,
+                        err_output,
+                    )
+            finally:
+                for handle in (stdin, stdout, stderr):
+                    with suppress(Exception):
+                        handle.close()
+                if client is not None:
+                    client.close()
+                if tmp_key:
+                    with suppress(OSError):
+                        os.unlink(tmp_key)
+
+        response = StreamingHttpResponse(stream(), content_type="application/gzip")
+        response["Content-Disposition"] = f'attachment; filename="{archive_name}"'
+        return response
 
 
 class RestoreBackupAPIView(LoginRequiredMixin, View):

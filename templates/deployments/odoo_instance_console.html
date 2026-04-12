@@ -1372,7 +1372,12 @@
                   x-text="bk.status"></span>
                 </div>
                 <!-- Actions -->
-                <div class="col-span-2 flex justify-end gap-2">
+                <div class="col-span-2 flex flex-wrap justify-end gap-2">
+                  <a x-show="bk.status === 'DONE'"
+                     :href="backupDownloadUrl(bk.id)"
+                     class="inline-flex items-center rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-700 hover:bg-sky-100">
+                    Download
+                  </a>
                   <button type="button"
                           x-show="bk.status === 'DONE'"
                           @click="restoreBackup(bk.id, bk.created_at)"
@@ -3933,6 +3938,10 @@ function instanceConsole(instanceId) {
       if (!iso) return '—';
       const d = new Date(iso);
       return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+    },
+
+    backupDownloadUrl(backupId) {
+      return `/api/backups/instances/${this.instanceId}/download/${backupId}/`;
     },
 
     openRestoreToNewModal(bk) {
