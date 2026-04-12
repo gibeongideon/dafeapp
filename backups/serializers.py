@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from backups.models import OdooInstanceBackup
+from backups.models import OdooInstanceBackup, OdooInstanceBackupSchedule
 
 
 class OdooInstanceBackupSerializer(serializers.ModelSerializer):
@@ -27,3 +27,17 @@ class OdooInstanceBackupSerializer(serializers.ModelSerializer):
 
     def get_created_by_email(self, obj):
         return obj.created_by.email if obj.created_by_id else None
+
+
+class OdooInstanceBackupScheduleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OdooInstanceBackupSchedule
+        fields = [
+            "enabled",
+            "frequency",
+            "weekday",
+            "hour_utc",
+            "minute_utc",
+            "created_at",
+            "updated_at",
+        ]

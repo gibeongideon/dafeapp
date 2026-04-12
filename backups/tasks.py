@@ -64,6 +64,54 @@ def _log_append(existing: str, line: str) -> str:
     return (existing + "\n" + line).strip()
 
 
+def _dispatch(task, *args):
+    try:
+        task.delay(*args)
+    except Exception:
+        logger.warning("Celery broker unavailable; running task synchronously.", exc_info=True)
+        task(*args)
+
+
+@shared_task(bind=True, max_retries=0)
+def run_scheduled_instance_backup(self, instance_id: int):
+    """
+    Beat entrypoint for per-instance scheduled backups.
+    Creates a DeploymentJob and then dispatches the normal backup task.
+    """
+    try:
+        instance = OdooInstance.objects.select_related("organization", "server").get(pk=instance_id)
+    except OdooInstance.DoesNotExist:
+        logger.warning("Scheduled backup skipped; instance %s no longer exists.", instance_id)
+        return
+
+    schedule = getattr(instance, "backup_schedule", None)
+    if not schedule or not schedule.enabled:
+        logger.info("Scheduled backup skipped for instance %s; schedule is disabled.", instance_id)
+        return
+    if instance.status != OdooInstance.Status.RUNNING:
+        logger.info("Scheduled backup skipped for instance %s; status is %s.", instance_id, instance.status)
+        return
+    if OdooInstanceBackup.objects.filter(instance=instance, status=OdooInstanceBackup.Status.RUNNING).exists():
+        logger.info("Scheduled backup skipped for instance %s; another backup is already running.", instance_id)
+        return
+    if DeploymentJob.objects.filter(
+        odoo_instance=instance,
+        job_type=DeploymentJob.JobType.BACKUP_INSTANCE,
+        status__in=[DeploymentJob.Status.QUEUED, DeploymentJob.Status.RUNNING],
+    ).exists():
+        logger.info("Scheduled backup skipped for instance %s; a backup job is already queued or running.", instance_id)
+        return
+
+    job = DeploymentJob.objects.create(
+        organization=instance.organization,
+        job_type=DeploymentJob.JobType.BACKUP_INSTANCE,
+        odoo_instance=instance,
+        odoo_server=instance.server,
+        created_by=schedule.created_by,
+    )
+    _dispatch(backup_odoo_instance, instance.pk, job.pk)
+
+
 # ── backup ────────────────────────────────────────────────────────────────────
 
 @shared_task(bind=True, max_retries=0)

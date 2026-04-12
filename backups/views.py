@@ -6,14 +6,15 @@ import tempfile
 import zipfile
 from contextlib import suppress
 from datetime import datetime, timezone as dt_timezone
+import json
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from django.views import View
 
-from backups.models import OdooInstanceBackup
-from backups.serializers import OdooInstanceBackupSerializer
+from backups.models import OdooInstanceBackup, OdooInstanceBackupSchedule
+from backups.serializers import OdooInstanceBackupScheduleSerializer, OdooInstanceBackupSerializer
 from backups.tasks import backup_odoo_instance, restore_backup_to_new_instance, restore_odoo_instance
 from deployments.models import DeploymentJob, OdooInstance, OdooServer
 from deployments.tasks import _connect_ssh_client, _ssh_run
@@ -34,6 +35,16 @@ def _dispatch(task, *args):
 
 def _timestamp() -> str:
     return datetime.now(dt_timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+
+def _default_schedule_payload() -> dict:
+    return {
+        "enabled": False,
+        "frequency": OdooInstanceBackupSchedule.Frequency.DAILY,
+        "weekday": OdooInstanceBackupSchedule.Weekday.SUNDAY,
+        "hour_utc": 2,
+        "minute_utc": 0,
+    }
 
 
 def _analyze_uploaded_backup_zip(archive_path: str) -> dict:
@@ -83,6 +94,79 @@ class InstanceBackupListAPIView(LoginRequiredMixin, View):
         )
         backups = OdooInstanceBackup.objects.filter(instance=instance).order_by("-created_at")[:50]
         return JsonResponse({"results": OdooInstanceBackupSerializer(backups, many=True).data})
+
+
+class InstanceBackupScheduleAPIView(LoginRequiredMixin, View):
+    """GET/POST /api/backups/instances/{instance_id}/schedule/ — read or update per-instance backup schedule."""
+
+    def get(self, request, instance_id):
+        if not getattr(request, "organization", None):
+            return JsonResponse({"error": "No active organization."}, status=400)
+
+        instance = get_object_or_404(
+            OdooInstance,
+            pk=instance_id,
+            organization=request.organization,
+        )
+        schedule = getattr(instance, "backup_schedule", None)
+        if schedule is None:
+            return JsonResponse(_default_schedule_payload())
+        return JsonResponse(OdooInstanceBackupScheduleSerializer(schedule).data)
+
+    def post(self, request, instance_id):
+        if not getattr(request, "organization", None):
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if request.org_role not in _ALLOWED_ROLES:
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        instance = get_object_or_404(
+            OdooInstance,
+            pk=instance_id,
+            organization=request.organization,
+        )
+        try:
+            payload = json.loads(request.body or "{}")
+        except (TypeError, ValueError):
+            payload = {}
+
+        enabled = bool(payload.get("enabled"))
+        frequency = (payload.get("frequency") or OdooInstanceBackupSchedule.Frequency.DAILY).strip().upper()
+        weekday = str(payload.get("weekday") or OdooInstanceBackupSchedule.Weekday.SUNDAY).strip()
+
+        try:
+            hour_utc = int(payload.get("hour_utc", 2))
+            minute_utc = int(payload.get("minute_utc", 0))
+        except (TypeError, ValueError):
+            return JsonResponse({"error": "hour_utc and minute_utc must be integers."}, status=400)
+
+        if frequency not in OdooInstanceBackupSchedule.Frequency.values:
+            return JsonResponse({"error": "Unsupported backup frequency."}, status=400)
+        if weekday not in OdooInstanceBackupSchedule.Weekday.values:
+            return JsonResponse({"error": "Unsupported backup weekday."}, status=400)
+        if not 0 <= hour_utc <= 23:
+            return JsonResponse({"error": "hour_utc must be between 0 and 23."}, status=400)
+        if not 0 <= minute_utc <= 59:
+            return JsonResponse({"error": "minute_utc must be between 0 and 59."}, status=400)
+
+        schedule, created = OdooInstanceBackupSchedule.objects.get_or_create(
+            instance=instance,
+            defaults={
+                "organization": request.organization,
+                "created_by": request.user,
+            },
+        )
+        schedule.organization = request.organization
+        schedule.enabled = enabled
+        schedule.frequency = frequency
+        schedule.weekday = weekday
+        schedule.hour_utc = hour_utc
+        schedule.minute_utc = minute_utc
+        if created and not schedule.created_by_id:
+            schedule.created_by = request.user
+        schedule.updated_by = request.user
+        schedule.save()
+
+        return JsonResponse(OdooInstanceBackupScheduleSerializer(schedule).data)
 
 
 class CreateBackupAPIView(LoginRequiredMixin, View):

@@ -1287,7 +1287,7 @@
     </div>
 
     <!-- ── Tab: Backups ── -->
-    <div x-show="activeTab === 'backups'" x-init="$watch('activeTab', v => { if (v === 'backups') loadBackups() })" class="space-y-5 p-5">
+    <div x-show="activeTab === 'backups'" x-init="$watch('activeTab', v => { if (v === 'backups') { loadBackups(); loadBackupSchedule(); } }); if (activeTab === 'backups') { loadBackups(); loadBackupSchedule(); }" class="space-y-5 p-5">
 
       <!-- Header -->
       <div class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -1309,6 +1309,76 @@
             </svg>
             <span x-text="backupBusy ? 'Working…' : 'Create Backup'"></span>
           </button>
+        </div>
+
+        <div class="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-4">
+          <div class="flex flex-col gap-1">
+            <p class="text-sm font-medium text-slate-900">Scheduled Backups</p>
+            <p class="text-sm text-slate-500">Run automatic backups for this instance on a UTC schedule.</p>
+          </div>
+          <div class="grid gap-3 lg:grid-cols-5 lg:items-end">
+            <label class="inline-flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700">
+              <input type="checkbox"
+                     x-model="backupSchedule.enabled"
+                     :disabled="backupScheduleLoading || backupScheduleSaving || instanceActionsLocked()"
+                     class="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-400">
+              <span>Enable schedule</span>
+            </label>
+            <div>
+              <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Frequency</label>
+              <select x-model="backupSchedule.frequency"
+                      :disabled="backupScheduleLoading || backupScheduleSaving"
+                      class="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700">
+                <option value="DAILY">Daily</option>
+                <option value="WEEKLY">Weekly</option>
+              </select>
+            </div>
+            <div x-show="backupSchedule.frequency === 'WEEKLY'">
+              <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Weekday</label>
+              <select x-model="backupSchedule.weekday"
+                      :disabled="backupScheduleLoading || backupScheduleSaving"
+                      class="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700">
+                <option value="1">Monday</option>
+                <option value="2">Tuesday</option>
+                <option value="3">Wednesday</option>
+                <option value="4">Thursday</option>
+                <option value="5">Friday</option>
+                <option value="6">Saturday</option>
+                <option value="0">Sunday</option>
+              </select>
+            </div>
+            <div>
+              <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Hour (UTC)</label>
+              <input type="number"
+                     min="0"
+                     max="23"
+                     x-model.number="backupSchedule.hour_utc"
+                     :disabled="backupScheduleLoading || backupScheduleSaving"
+                     class="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700">
+            </div>
+            <div>
+              <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Minute (UTC)</label>
+              <input type="number"
+                     min="0"
+                     max="59"
+                     x-model.number="backupSchedule.minute_utc"
+                     :disabled="backupScheduleLoading || backupScheduleSaving"
+                     class="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700">
+            </div>
+          </div>
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p class="text-xs text-slate-500">
+              <span x-show="backupScheduleLoading">Loading schedule…</span>
+              <span x-show="!backupScheduleLoading">Celery Beat uses the saved UTC time for automatic runs.</span>
+            </p>
+            <button type="button"
+                    @click="saveBackupSchedule()"
+                    :disabled="backupScheduleLoading || backupScheduleSaving || instanceActionsLocked()"
+                    :title="instanceActionLockReason() || ''"
+                    class="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50 transition-colors">
+              <span x-text="backupScheduleSaving ? 'Saving…' : 'Save Schedule'"></span>
+            </button>
+          </div>
         </div>
 
         <div class="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -2029,6 +2099,15 @@ function instanceConsole(instanceId) {
     backupBusy: false,
     backupMsg: '',
     backupMsgOk: true,
+    backupScheduleLoading: false,
+    backupScheduleSaving: false,
+    backupSchedule: {
+      enabled: false,
+      frequency: 'DAILY',
+      weekday: '0',
+      hour_utc: 2,
+      minute_utc: 0,
+    },
     restoreZipFile: null,
     restoreZipFileName: '',
 
@@ -3902,6 +3981,77 @@ function instanceConsole(instanceId) {
         this.backups = [];
       } finally {
         this.backupsLoading = false;
+      }
+    },
+
+    async loadBackupSchedule() {
+      this.backupScheduleLoading = true;
+      try {
+        const res = await fetch(`/api/backups/instances/${this.instanceId}/schedule/`);
+        const data = await res.json();
+        this.backupSchedule = {
+          enabled: !!data.enabled,
+          frequency: data.frequency || 'DAILY',
+          weekday: String(data.weekday ?? '0'),
+          hour_utc: Number.isFinite(Number(data.hour_utc)) ? Number(data.hour_utc) : 2,
+          minute_utc: Number.isFinite(Number(data.minute_utc)) ? Number(data.minute_utc) : 0,
+        };
+      } catch (_) {
+        this.backupSchedule = {
+          enabled: false,
+          frequency: 'DAILY',
+          weekday: '0',
+          hour_utc: 2,
+          minute_utc: 0,
+        };
+      } finally {
+        this.backupScheduleLoading = false;
+      }
+    },
+
+    async saveBackupSchedule() {
+      if (this.instanceActionsLocked()) {
+        this.backupMsgOk = false;
+        this.backupMsg = this.instanceActionLockReason();
+        return;
+      }
+      this.backupScheduleSaving = true;
+      this.backupMsg = '';
+      try {
+        const payload = {
+          enabled: !!this.backupSchedule.enabled,
+          frequency: this.backupSchedule.frequency || 'DAILY',
+          weekday: String(this.backupSchedule.weekday || '0'),
+          hour_utc: Number(this.backupSchedule.hour_utc),
+          minute_utc: Number(this.backupSchedule.minute_utc),
+        };
+        const res = await fetch(`/api/backups/instances/${this.instanceId}/schedule/`, {
+          method: 'POST',
+          headers: {
+            'X-CSRFToken': this.getCsrf(),
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        this.backupMsgOk = res.ok;
+        this.backupMsg = res.ok
+          ? (payload.enabled ? 'Backup schedule saved.' : 'Backup schedule disabled.')
+          : (data.error || 'Could not save backup schedule.');
+        if (res.ok) {
+          this.backupSchedule = {
+            enabled: !!data.enabled,
+            frequency: data.frequency || 'DAILY',
+            weekday: String(data.weekday ?? '0'),
+            hour_utc: Number(data.hour_utc ?? 2),
+            minute_utc: Number(data.minute_utc ?? 0),
+          };
+        }
+      } catch (err) {
+        this.backupMsgOk = false;
+        this.backupMsg = 'Network error: ' + err.message;
+      } finally {
+        this.backupScheduleSaving = false;
       }
     },
 

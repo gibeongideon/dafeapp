@@ -6,8 +6,10 @@ from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
+from django_celery_beat.models import CrontabSchedule, PeriodicTask
 
-from backups.models import OdooInstanceBackup
+from backups.models import OdooInstanceBackup, OdooInstanceBackupSchedule
+from backups.scheduling import backup_schedule_task_name, sync_backup_schedule_periodic_task
 from deployments.models import OdooInstance, OdooServer
 from organizations.models import Organization, OrganizationMembership
 
@@ -190,3 +192,95 @@ class BackupDownloadTests(TestCase):
         self.assertEqual(dispatch_args[0].__name__, "restore_odoo_instance")
         self.assertEqual(dispatch_args[1], self.instance.pk)
         self.assertEqual(dispatch_args[2], created_backup.pk)
+
+
+class BackupScheduleTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(email="schedule@test.com", password="pass")
+        cls.org = Organization.objects.create(name="Schedule Org", owner=cls.user)
+        OrganizationMembership.objects.create(
+            user=cls.user,
+            organization=cls.org,
+            role=OrganizationMembership.Role.SUPER_ADMIN,
+        )
+        cls.server = OdooServer.objects.create(
+            organization=cls.org,
+            name="odoo19-schedule-server",
+            odoo_version=OdooServer.OdooVersion.V19,
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            status=OdooServer.Status.PROVISIONED,
+            deployment_mode=OdooServer.DeploymentMode.DOCKER,
+        )
+        cls.instance = OdooInstance.objects.create(
+            organization=cls.org,
+            server=cls.server,
+            name="Scheduled Instance",
+            db_name="scheduled_db",
+            http_port=8070,
+            status=OdooInstance.Status.RUNNING,
+        )
+
+    def setUp(self):
+        self.client.force_login(self.user)
+        session = self.client.session
+        session["current_org_id"] = self.org.id
+        session.save()
+
+    def test_schedule_api_returns_defaults_when_missing(self):
+        response = self.client.get(
+            reverse("backups:instance-backup-schedule", kwargs={"instance_id": self.instance.id})
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertJSONEqual(
+            response.content,
+            {
+                "enabled": False,
+                "frequency": "DAILY",
+                "weekday": "0",
+                "hour_utc": 2,
+                "minute_utc": 0,
+            },
+        )
+
+    def test_schedule_api_saves_schedule(self):
+        response = self.client.post(
+            reverse("backups:instance-backup-schedule", kwargs={"instance_id": self.instance.id}),
+            data='{"enabled": true, "frequency": "WEEKLY", "weekday": "5", "hour_utc": 3, "minute_utc": 45}',
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        schedule = OdooInstanceBackupSchedule.objects.get(instance=self.instance)
+        self.assertTrue(schedule.enabled)
+        self.assertEqual(schedule.frequency, OdooInstanceBackupSchedule.Frequency.WEEKLY)
+        self.assertEqual(schedule.weekday, OdooInstanceBackupSchedule.Weekday.FRIDAY)
+        self.assertEqual(schedule.hour_utc, 3)
+        self.assertEqual(schedule.minute_utc, 45)
+        self.assertEqual(schedule.created_by, self.user)
+        self.assertEqual(schedule.updated_by, self.user)
+
+    def test_sync_schedule_creates_periodic_task(self):
+        schedule = OdooInstanceBackupSchedule.objects.create(
+            organization=self.org,
+            instance=self.instance,
+            enabled=True,
+            frequency=OdooInstanceBackupSchedule.Frequency.WEEKLY,
+            weekday=OdooInstanceBackupSchedule.Weekday.MONDAY,
+            hour_utc=4,
+            minute_utc=30,
+            created_by=self.user,
+        )
+
+        sync_backup_schedule_periodic_task(schedule)
+
+        periodic_task = PeriodicTask.objects.get(name=backup_schedule_task_name(self.instance.id))
+        self.assertEqual(periodic_task.task, "backups.tasks.run_scheduled_instance_backup")
+        self.assertTrue(periodic_task.enabled)
+        self.assertEqual(periodic_task.args, f"[{self.instance.id}]")
+        self.assertIsInstance(periodic_task.crontab, CrontabSchedule)
+        self.assertEqual(periodic_task.crontab.minute, "30")
+        self.assertEqual(periodic_task.crontab.hour, "4")
+        self.assertEqual(periodic_task.crontab.day_of_week, "1")

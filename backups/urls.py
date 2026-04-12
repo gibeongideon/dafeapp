@@ -16,6 +16,11 @@ urlpatterns = [
         name="instance-backup-create",
     ),
     path(
+        "instances/<int:instance_id>/schedule/",
+        views.InstanceBackupScheduleAPIView.as_view(),
+        name="instance-backup-schedule",
+    ),
+    path(
         "instances/<int:instance_id>/download/<int:backup_id>/",
         views.DownloadBackupAPIView.as_view(),
         name="instance-backup-download",
