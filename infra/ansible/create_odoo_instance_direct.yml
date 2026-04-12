@@ -266,6 +266,34 @@
       when: odoo_schema_check.stdout | trim != 'ir_module_module'
 
     # ------------------------------------------------------------------
+    # 5b. Set Odoo admin user login password (captured by DafeApp)
+    # ------------------------------------------------------------------
+    - name: Generate Odoo admin user password
+      set_fact:
+        odoo_admin_user_password: "{{ lookup('password', '/tmp/.odoo_user_pw_' ~ db_name ~ ' chars=ascii_letters,digits length=24') }}"
+
+    - name: Hash admin user password with passlib
+      become_user: "{{ odoo_user }}"
+      shell: |
+        "{{ venv_dir }}/bin/python3" -c "
+        from passlib.context import CryptContext
+        ctx = CryptContext(schemes=['pbkdf2_sha512'], deprecated='auto')
+        print(ctx.hash('{{ odoo_admin_user_password }}'))
+        "
+      register: odoo_admin_user_hash
+      changed_when: false
+
+    - name: Write admin user password hash to database
+      become_user: postgres
+      command: >
+        psql -d {{ db_name }} -c
+        "UPDATE res_users SET password = '{{ odoo_admin_user_hash.stdout | trim }}' WHERE login = 'admin'"
+
+    - name: Output admin user credentials for DafeApp
+      debug:
+        msg: "Odoo admin user password: {{ odoo_admin_user_password }}"
+
+    # ------------------------------------------------------------------
     # 6. Render systemd service unit
     # ------------------------------------------------------------------
     - name: Render systemd service file

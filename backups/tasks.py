@@ -19,12 +19,12 @@ import logging
 import os
 import shlex
 import tempfile
-from datetime import datetime, timezone as dt_timezone
+from datetime import datetime, timedelta, timezone as dt_timezone
 
 from celery import shared_task
 from django.utils import timezone
 
-from backups.models import OdooInstanceBackup
+from backups.models import OdooInstanceBackup, OdooInstanceBackupSchedule
 from deployments.models import DeploymentJob, OdooInstance, OdooServer
 from deployments.tasks import (
     _connect_ssh_client,
@@ -72,11 +72,55 @@ def _dispatch(task, *args):
         task(*args)
 
 
+def _prune_old_backups(
+    instance: "OdooInstance",
+    server: "OdooServer",
+    retention_days: int,
+    exclude_backup_id: int | None = None,
+) -> None:
+    """
+    Delete DONE backups for `instance` that are older than `retention_days`.
+    Remote backup directories are removed via SSH best-effort before the
+    Django record is deleted.  `exclude_backup_id` protects the just-created
+    backup from being pruned in the same run.
+    """
+    if not retention_days or retention_days <= 0:
+        return  # 0 = keep forever
+
+    cutoff = timezone.now() - timedelta(days=retention_days)
+    old_qs = OdooInstanceBackup.objects.filter(
+        instance=instance,
+        status=OdooInstanceBackup.Status.DONE,
+        created_at__lt=cutoff,
+    )
+    if exclude_backup_id:
+        old_qs = old_qs.exclude(pk=exclude_backup_id)
+
+    for old_backup in old_qs:
+        try:
+            if old_backup.backup_dir:
+                _ssh_run(server, f"rm -rf {shlex.quote(old_backup.backup_dir)}", timeout=120)
+        except Exception:
+            logger.warning(
+                "Could not remove remote backup dir for backup #%s: %s",
+                old_backup.pk,
+                old_backup.backup_dir,
+                exc_info=True,
+            )
+        try:
+            old_backup.delete()
+            logger.info("Pruned backup #%s (older than %d day(s))", old_backup.pk, retention_days)
+        except Exception:
+            logger.warning("Could not delete backup record #%s from DB", old_backup.pk, exc_info=True)
+
+
 @shared_task(bind=True, max_retries=0)
-def run_scheduled_instance_backup(self, instance_id: int):
+def run_scheduled_instance_backup(self, instance_id: int, schedule_id: int | None = None):
     """
     Beat entrypoint for per-instance scheduled backups.
-    Creates a DeploymentJob and then dispatches the normal backup task.
+
+    ``schedule_id`` is the PK of the OdooInstanceBackupSchedule that
+    triggered this run — used to read the retention policy.
     """
     try:
         instance = OdooInstance.objects.select_related("organization", "server").get(pk=instance_id)
@@ -84,9 +128,21 @@ def run_scheduled_instance_backup(self, instance_id: int):
         logger.warning("Scheduled backup skipped; instance %s no longer exists.", instance_id)
         return
 
-    if not instance.backup_schedules.filter(enabled=True).exists():
-        logger.info("Scheduled backup skipped for instance %s; no enabled schedules.", instance_id)
-        return
+    # Resolve the triggering schedule (for retention + created_by)
+    schedule: OdooInstanceBackupSchedule | None = None
+    if schedule_id:
+        schedule = (
+            OdooInstanceBackupSchedule.objects
+            .filter(pk=schedule_id, instance=instance, enabled=True)
+            .first()
+        )
+
+    if schedule is None:
+        # Fallback: check that at least one enabled schedule exists
+        if not instance.backup_schedules.filter(enabled=True).exists():
+            logger.info("Scheduled backup skipped for instance %s; no enabled schedules.", instance_id)
+            return
+
     if instance.status != OdooInstance.Status.RUNNING:
         logger.info("Scheduled backup skipped for instance %s; status is %s.", instance_id, instance.status)
         return
@@ -101,25 +157,36 @@ def run_scheduled_instance_backup(self, instance_id: int):
         logger.info("Scheduled backup skipped for instance %s; a backup job is already queued or running.", instance_id)
         return
 
+    retention_days: int | None = schedule.retention_days if schedule else None
+
     job = DeploymentJob.objects.create(
         organization=instance.organization,
         job_type=DeploymentJob.JobType.BACKUP_INSTANCE,
         odoo_instance=instance,
         odoo_server=instance.server,
-        created_by=schedule.created_by,
+        created_by=schedule.created_by if schedule else None,
     )
-    _dispatch(backup_odoo_instance, instance.pk, job.pk)
+    _dispatch(backup_odoo_instance, instance.pk, job.pk, retention_days)
 
 
 # ── backup ────────────────────────────────────────────────────────────────────
 
 @shared_task(bind=True, max_retries=0)
-def backup_odoo_instance(self, instance_id: int, job_id: int | None = None):
+def backup_odoo_instance(
+    self,
+    instance_id: int,
+    job_id: int | None = None,
+    retention_days: int | None = None,
+):
     """
     Create a point-in-time backup of an OdooInstance.
 
     Writes db.sql.gz and (for FULL backups) filestore.tar.gz to
     /backups/dafeapp/{db_name}/{timestamp}/ on the target server.
+
+    If ``retention_days`` is a positive integer, backups older than that
+    many days are pruned from the server and from the database after the
+    new backup completes successfully.
     """
     _job_start(job_id, self.request.id)
 
@@ -238,6 +305,16 @@ def backup_odoo_instance(self, instance_id: int, job_id: int | None = None):
         backup.save(update_fields=["status", "db_backup_path", "filestore_backup_path", "size_bytes", "log", "updated_at"])
 
         step(f"Backup complete. Size: {backup.size_display}")
+
+        # ── Retention pruning ─────────────────────────────────────────────────
+        if retention_days and retention_days > 0:
+            step(f"Applying retention policy: removing backups older than {retention_days} day(s)…")
+            try:
+                _prune_old_backups(instance, server, retention_days, exclude_backup_id=backup.pk)
+            except Exception as prune_exc:
+                # Non-fatal — don't fail the whole backup job if pruning has issues
+                step(f"Warning: retention pruning encountered an error: {prune_exc}")
+
         _job_done(job_id, ok=True, log=log)
 
     except Exception as exc:

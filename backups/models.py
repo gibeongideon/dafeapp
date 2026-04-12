@@ -91,6 +91,12 @@ class OdooInstanceBackupSchedule(models.Model):
         SATURDAY = "6", "Saturday"
         SUNDAY = "0", "Sunday"
 
+    class RetentionDays(models.IntegerChoices):
+        ONE_DAY   = 1,  "1 Day"
+        ONE_WEEK  = 7,  "1 Week"
+        ONE_MONTH = 30, "1 Month"
+        FOREVER   = 0,  "Keep Forever"
+
     organization = models.ForeignKey(
         "organizations.Organization",
         on_delete=models.CASCADE,
@@ -114,6 +120,11 @@ class OdooInstanceBackupSchedule(models.Model):
     )
     hour_utc = models.PositiveSmallIntegerField(default=2)
     minute_utc = models.PositiveSmallIntegerField(default=0)
+    retention_days = models.IntegerField(
+        choices=RetentionDays.choices,
+        default=RetentionDays.FOREVER,
+        help_text="Delete backups older than this. 0 = keep forever.",
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,

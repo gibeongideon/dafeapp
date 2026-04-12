@@ -114,14 +114,18 @@
               <p class="mt-0.5 font-medium text-slate-700 truncate">{% if odoo_instance.domain %}{{ odoo_instance.domain }}{% else %}:{{ odoo_instance.http_port }}{% endif %}</p>
             </div>
           </div>
-          <a href="{{ odoo_instance.preferred_access_url|default:'#' }}"
-             {% if odoo_instance.preferred_access_url %}target="_blank" rel="noopener noreferrer"{% endif %}
-             class="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100">
-            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+          <button @click="loginAsAdmin()"
+                  :disabled="adminLoginBusy"
+                  class="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-50">
+            <svg x-show="!adminLoginBusy" class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"/>
             </svg>
-            Open Live App
-          </a>
+            <svg x-show="adminLoginBusy" class="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+            </svg>
+            <span x-text="adminLoginBusy ? 'Logging in…' : 'Login as Admin'"></span>
+          </button>
         </div>
 
         <!-- ── Environment navigation ── -->
@@ -292,11 +296,24 @@
               </div>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-              <a href="{{ odoo_instance.preferred_access_url|default:'#' }}"
-                 {% if odoo_instance.preferred_access_url %}target="_blank" rel="noopener noreferrer"{% endif %}
-                 class="inline-flex items-center justify-center rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800">
-                Open Live App
+              <button @click="loginAsAdmin()"
+                      :disabled="adminLoginBusy"
+                      class="inline-flex items-center gap-2 justify-center rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60">
+                <svg x-show="adminLoginBusy" class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                </svg>
+                <span x-text="adminLoginBusy ? 'Logging in…' : 'Login as Admin'"></span>
+              </button>
+              {% if odoo_instance.preferred_access_url %}
+              <a href="{{ odoo_instance.preferred_access_url }}" target="_blank" rel="noopener noreferrer"
+                 class="inline-flex items-center gap-1.5 justify-center rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                </svg>
+                Open
               </a>
+              {% endif %}
               <button @click="runHealthCheck()"
                       :disabled="healthLoading"
                       class="inline-flex items-center gap-1.5 rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">
@@ -1372,7 +1389,7 @@
           <div x-show="showNewScheduleForm"
                class="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
             <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">New Schedule</p>
-            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <div>
                 <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Frequency</label>
                 <select x-model="newSchedule.frequency"
@@ -1405,6 +1422,16 @@
                 <input type="number" min="0" max="59"
                        x-model.number="newSchedule.minute_utc"
                        class="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700">
+              </div>
+              <div>
+                <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Retention</label>
+                <select x-model.number="newSchedule.retention_days"
+                        class="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700">
+                  <option :value="0">Keep Forever</option>
+                  <option :value="1">1 Day</option>
+                  <option :value="7">1 Week</option>
+                  <option :value="30">1 Month</option>
+                </select>
               </div>
             </div>
             <div class="flex items-center gap-2">
@@ -2150,6 +2177,9 @@ function instanceConsole(instanceId) {
     enterpriseToggleOn: false,
     showEnterpriseDetails: false,
 
+    // Admin login relay
+    adminLoginBusy: false,
+
     // Backups
     backups: [],
     backupsLoading: false,
@@ -2170,6 +2200,7 @@ function instanceConsole(instanceId) {
       weekday: '0',
       hour_utc: 2,
       minute_utc: 0,
+      retention_days: 0,
     },
     restoreZipFile: null,
     restoreZipFileName: '',
@@ -4033,6 +4064,29 @@ function instanceConsole(instanceId) {
       }
     },
 
+    // ── Admin login relay ──
+    async loginAsAdmin() {
+      if (this.adminLoginBusy) return;
+      this.adminLoginBusy = true;
+      try {
+        const csrf = document.cookie.match(/csrftoken=([^;]+)/)?.[1] ?? '';
+        const res = await fetch(`/api/deployments/odoo/instances/${this.instanceId}/admin-login/`, {
+          method: 'POST',
+          headers: { 'X-CSRFToken': csrf, 'Content-Type': 'application/json' },
+        });
+        const data = await res.json();
+        if (res.ok && data.relay_url) {
+          window.open(data.relay_url, '_blank', 'noopener');
+        } else {
+          alert(data.error || data.detail || 'Admin login failed. The instance may not have a stored admin password yet — try re-provisioning.');
+        }
+      } catch (err) {
+        alert('Network error: ' + err.message);
+      } finally {
+        this.adminLoginBusy = false;
+      }
+    },
+
     // ── Backups ──
     async loadBackups() {
       this.backupsLoading = true;
@@ -4063,12 +4117,17 @@ function instanceConsole(instanceId) {
     formatScheduleLabel(sched) {
       const pad = n => String(n).padStart(2, '0');
       const time = `${pad(sched.hour_utc)}:${pad(sched.minute_utc)} UTC`;
+      let freq;
       if (sched.frequency === 'WEEKLY') {
         const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
         const day  = days[Number(sched.weekday)] ?? `Day ${sched.weekday}`;
-        return `Weekly on ${day} at ${time}`;
+        freq = `Weekly on ${day} at ${time}`;
+      } else {
+        freq = `Daily at ${time}`;
       }
-      return `Daily at ${time}`;
+      const retMap = {0: 'Keep Forever', 1: 'Keep 1 Day', 7: 'Keep 1 Week', 30: 'Keep 1 Month'};
+      const ret = retMap[sched.retention_days] ?? `Keep ${sched.retention_days}d`;
+      return `${freq} — ${ret}`;
     },
 
     async addBackupSchedule() {
@@ -4076,11 +4135,12 @@ function instanceConsole(instanceId) {
       this.scheduleMsg = '';
       try {
         const payload = {
-          enabled:    !!this.newSchedule.enabled,
-          frequency:  this.newSchedule.frequency || 'DAILY',
-          weekday:    String(this.newSchedule.weekday || '0'),
-          hour_utc:   Number(this.newSchedule.hour_utc),
-          minute_utc: Number(this.newSchedule.minute_utc),
+          enabled:        !!this.newSchedule.enabled,
+          frequency:      this.newSchedule.frequency || 'DAILY',
+          weekday:        String(this.newSchedule.weekday || '0'),
+          hour_utc:       Number(this.newSchedule.hour_utc),
+          minute_utc:     Number(this.newSchedule.minute_utc),
+          retention_days: Number(this.newSchedule.retention_days ?? 0),
         };
         const res  = await fetch(`/api/backups/instances/${this.instanceId}/schedule/`, {
           method: 'POST',
@@ -4093,7 +4153,7 @@ function instanceConsole(instanceId) {
         if (res.ok) {
           this.backupSchedules.push(data);
           this.showNewScheduleForm = false;
-          this.newSchedule = { enabled: true, frequency: 'DAILY', weekday: '0', hour_utc: 2, minute_utc: 0 };
+          this.newSchedule = { enabled: true, frequency: 'DAILY', weekday: '0', hour_utc: 2, minute_utc: 0, retention_days: 0 };
         }
       } catch (err) {
         this.scheduleMsgOk = false;

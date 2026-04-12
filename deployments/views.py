@@ -20,7 +20,7 @@ from django.conf import settings
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Q
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.urls import reverse
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
@@ -4094,3 +4094,143 @@ class ServerSSHKeyDeleteAPIView(LoginRequiredMixin, View):
         key_obj = get_object_or_404(ServerSSHKey, pk=key_id, server=server)
         key_obj.delete()
         return JsonResponse({"deleted": True})
+
+
+# ── Odoo Admin Login Relay ────────────────────────────────────────────────────
+
+import secrets as _secrets
+from django.core.cache import cache as _cache
+
+_LOGIN_TOKEN_TTL = 60  # seconds — token is single-use and short-lived
+
+
+class OdooAdminLoginAPIView(LoginRequiredMixin, View):
+    """
+    POST /api/deployments/odoo/instances/<id>/admin-login/
+
+    Generates a short-lived one-time relay token.  The caller should open
+    the returned relay_url in a new tab: that page auto-submits an HTML
+    form directly to Odoo's /web/login, logging the user in as admin
+    without the password being visible in the DafeApp UI.
+    """
+
+    def post(self, request, instance_id):
+        org = getattr(request, "organization", None)
+        if not org and getattr(request.user, "is_platform_admin", False):
+            from deployments.models import OdooInstance
+            instance = get_object_or_404(OdooInstance, pk=instance_id)
+        elif not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        else:
+            instance = get_object_or_404(OdooInstance, pk=instance_id, organization=org)
+
+        if not instance.odoo_admin_password:
+            return JsonResponse(
+                {
+                    "error": (
+                        "Admin login credentials are not available for this instance. "
+                        "Re-provision the instance to generate them automatically."
+                    )
+                },
+                status=404,
+            )
+
+        odoo_url = (instance.preferred_access_url or "").rstrip("/")
+        if not odoo_url:
+            return JsonResponse(
+                {"error": "No accessible URL found for this instance."},
+                status=400,
+            )
+
+        token = _secrets.token_urlsafe(32)
+        _cache.set(
+            f"odoo_login_token:{token}",
+            {
+                "instance_id": instance.pk,
+                "odoo_url": odoo_url,
+                "db_name": instance.db_name,
+                "password": instance.odoo_admin_password,
+            },
+            timeout=_LOGIN_TOKEN_TTL,
+        )
+
+        relay_url = reverse("deployments:odoo-admin-login-relay") + f"?t={token}"
+        return JsonResponse({"relay_url": relay_url})
+
+
+class OdooAdminLoginRelayView(LoginRequiredMixin, View):
+    """
+    GET /deployments/odoo/instances/login-relay/?t=<token>
+
+    Validates the one-time token and returns an HTML page that immediately
+    auto-submits a form to Odoo's /web/login.  Because the form POSTs
+    directly to the Odoo domain, the browser sets the session cookie there
+    — no cross-domain cookie hacks required.
+    """
+
+    def get(self, request):
+        token = request.GET.get("t", "").strip()
+        cache_key = f"odoo_login_token:{token}"
+        data = _cache.get(cache_key)
+
+        if not data:
+            return HttpResponse(
+                "<html><body><p>Login link expired or invalid. Please try again from DafeApp.</p></body></html>",
+                status=400,
+                content_type="text/html",
+            )
+
+        # Consume the token immediately (one-time use)
+        _cache.delete(cache_key)
+
+        odoo_url = data["odoo_url"].rstrip("/")
+        db_name  = data["db_name"]
+        password = data["password"]
+
+        # Escape any characters that could break out of HTML attributes
+        def _esc(v):
+            return (
+                v.replace("&", "&amp;")
+                 .replace('"', "&quot;")
+                 .replace("<", "&lt;")
+                 .replace(">", "&gt;")
+            )
+
+        html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Logging in to Odoo…</title>
+  <style>
+    body {{
+      font-family: system-ui, sans-serif;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; margin: 0; background: #f8fafc; color: #334155;
+    }}
+    .box {{
+      text-align: center; padding: 2rem;
+      background: #fff; border-radius: 1rem; border: 1px solid #e2e8f0;
+      box-shadow: 0 1px 4px rgba(0,0,0,.08);
+    }}
+    p {{ margin: 0.5rem 0; font-size: .9rem; color: #64748b; }}
+  </style>
+</head>
+<body>
+  <div class="box">
+    <p>Logging you in to <strong>{_esc(db_name)}</strong>…</p>
+    <p style="font-size:.75rem">You will be redirected automatically.</p>
+  </div>
+  <form id="relay" method="POST" action="{_esc(odoo_url)}/web/login">
+    <input type="hidden" name="db"       value="{_esc(db_name)}">
+    <input type="hidden" name="login"    value="admin">
+    <input type="hidden" name="password" value="{_esc(password)}">
+    <input type="hidden" name="redirect" value="/odoo">
+  </form>
+  <script>
+    // Submit after a tiny delay so the page paints first
+    setTimeout(function() {{ document.getElementById('relay').submit(); }}, 120);
+  </script>
+</body>
+</html>"""
+
+        return HttpResponse(html, content_type="text/html; charset=utf-8")

@@ -270,7 +270,7 @@ class BackupScheduleTests(TestCase):
         periodic_task = PeriodicTask.objects.get(name=backup_schedule_task_name(schedule.id))
         self.assertEqual(periodic_task.task, "backups.tasks.run_scheduled_instance_backup")
         self.assertTrue(periodic_task.enabled)
-        self.assertEqual(periodic_task.args, f"[{self.instance.id}]")
+        self.assertEqual(periodic_task.args, f"[{self.instance.id}, {schedule.id}]")
         self.assertIsInstance(periodic_task.crontab, CrontabSchedule)
         self.assertEqual(periodic_task.crontab.minute, "30")
         self.assertEqual(periodic_task.crontab.hour, "4")

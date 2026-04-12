@@ -97,6 +97,27 @@
       when: db_init_result.rc != 0
       ignore_errors: true
 
+    # Set a known admin user password so DafeApp can do password-less relay login
+    - name: Generate Odoo admin user password
+      set_fact:
+        odoo_admin_user_password: "{{ lookup('password', '/tmp/.odoo_user_pw_' ~ db_name ~ ' chars=ascii_letters,digits length=24') }}"
+
+    - name: Hash admin user password via Odoo image
+      command: >
+        docker run --rm odoo:{{ odoo_version }} python3 -c
+        "from passlib.context import CryptContext; print(CryptContext(['pbkdf2_sha512']).hash('{{ odoo_admin_user_password }}'))"
+      register: odoo_admin_user_hash
+      changed_when: false
+
+    - name: Write admin user password hash to database
+      command: >
+        docker exec odoo-postgres psql -U odoo -d {{ db_name }} -c
+        "UPDATE res_users SET password = '{{ odoo_admin_user_hash.stdout | trim }}' WHERE login = 'admin'"
+
+    - name: Output admin user credentials for DafeApp
+      debug:
+        msg: "Odoo admin user password: {{ odoo_admin_user_password }}"
+
     - name: Start Odoo container
       command: >
         docker compose -f {{ instance_compose }} up -d

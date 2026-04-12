@@ -39,6 +39,7 @@ class OdooInstanceBackupScheduleSerializer(serializers.ModelSerializer):
             "weekday",
             "hour_utc",
             "minute_utc",
+            "retention_days",
             "created_at",
             "updated_at",
         ]

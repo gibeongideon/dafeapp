@@ -41,7 +41,9 @@ def sync_backup_schedule_periodic_task(schedule: OdooInstanceBackupSchedule) -> 
         defaults={
             "task": "backups.tasks.run_scheduled_instance_backup",
             "crontab": crontab,
-            "args": json.dumps([schedule.instance_id]),
+            # Pass both instance_id and schedule_id so the task knows
+            # which retention policy to apply.
+            "args": json.dumps([schedule.instance_id, schedule.pk]),
             "enabled": True,
             "description": f"Scheduled backup for instance {schedule.instance.db_name} (schedule #{schedule.pk})",
         },

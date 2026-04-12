@@ -160,6 +160,17 @@ class InstanceBackupScheduleAPIView(LoginRequiredMixin, View):
         except (TypeError, ValueError):
             return JsonResponse({"error": "hour_utc and minute_utc must be integers."}, status=400)
 
+        try:
+            retention_days = int(payload.get("retention_days", 0))
+        except (TypeError, ValueError):
+            return JsonResponse({"error": "retention_days must be an integer."}, status=400)
+
+        valid_retention = [c[0] for c in OdooInstanceBackupSchedule.RetentionDays.choices]
+        if retention_days not in valid_retention:
+            return JsonResponse(
+                {"error": f"retention_days must be one of {valid_retention}."},
+                status=400,
+            )
         if frequency not in OdooInstanceBackupSchedule.Frequency.values:
             return JsonResponse({"error": "Unsupported backup frequency."}, status=400)
         if weekday not in OdooInstanceBackupSchedule.Weekday.values:
@@ -177,6 +188,7 @@ class InstanceBackupScheduleAPIView(LoginRequiredMixin, View):
             weekday=weekday,
             hour_utc=hour_utc,
             minute_utc=minute_utc,
+            retention_days=retention_days,
             created_by=request.user,
             updated_by=request.user,
         )
@@ -236,6 +248,19 @@ class BackupScheduleDetailAPIView(LoginRequiredMixin, View):
             if not 0 <= minute_utc <= 59:
                 return JsonResponse({"error": "minute_utc must be between 0 and 59."}, status=400)
             schedule.minute_utc = minute_utc
+
+        if "retention_days" in payload:
+            try:
+                retention_days = int(payload["retention_days"])
+            except (TypeError, ValueError):
+                return JsonResponse({"error": "retention_days must be an integer."}, status=400)
+            valid_retention = [c[0] for c in OdooInstanceBackupSchedule.RetentionDays.choices]
+            if retention_days not in valid_retention:
+                return JsonResponse(
+                    {"error": f"retention_days must be one of {valid_retention}."},
+                    status=400,
+                )
+            schedule.retention_days = retention_days
 
         schedule.updated_by = request.user
         schedule.save()

@@ -464,6 +464,8 @@ class OdooInstance(models.Model):
         default=AddonsSyncStatus.NOT_CONFIGURED,
     )
     addons_last_sync_at = models.DateTimeField(null=True, blank=True)
+    # Admin user login credentials (set during provisioning, used for relay login)
+    odoo_admin_password = models.CharField(max_length=128, blank=True, default="")
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,

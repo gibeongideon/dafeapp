@@ -953,7 +953,7 @@ def _record_instance_error(instance: OdooInstance, heading: str, detail: str):
 
 
 def _extract_admin_password(log_blob: str) -> str:
-    """Pull the generated admin password from ansible / shell summary output."""
+    """Pull the generated master admin password from ansible / shell summary output."""
     if not log_blob:
         return ""
     patterns = (
@@ -964,6 +964,19 @@ def _extract_admin_password(log_blob: str) -> str:
         match = re.search(pattern, log_blob, flags=re.IGNORECASE)
         if match:
             return match.group(1).strip()
+    return ""
+
+
+def _extract_odoo_admin_user_password(log_blob: str) -> str:
+    """
+    Pull the Odoo admin *user* login password from ansible output.
+    Matches: 'Odoo admin user password: <password>'
+    """
+    if not log_blob:
+        return ""
+    match = re.search(r"Odoo admin user password:\s*(.+)", log_blob, flags=re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
     return ""
 
 
@@ -3012,6 +3025,11 @@ def create_odoo_instance(self, instance_id: int, job_id: int | None = None):
                 ssh_user=ssh_user or "root",
                 use_direct=use_direct,
             )
+            # Store the admin user password extracted from playbook output
+            admin_user_pw = _extract_odoo_admin_user_password(log_blob)
+            if admin_user_pw:
+                instance.odoo_admin_password = admin_user_pw
+                instance.save(update_fields=["odoo_admin_password", "updated_at"])
             _initialize_instance_addons_metadata(instance)
             _record_instance_step(instance, "Addon metadata initialized")
         else:
@@ -4691,6 +4709,11 @@ def _run_docker_instance_create(instance: OdooInstance, server: OdooServer, job_
             ssh_user=ssh_user or "root",
             use_direct=False,
         )
+        # Store the admin user password extracted from playbook output
+        admin_user_pw = _extract_odoo_admin_user_password(log_blob)
+        if admin_user_pw:
+            instance.odoo_admin_password = admin_user_pw
+            instance.save(update_fields=["odoo_admin_password", "updated_at"])
         _initialize_instance_addons_metadata(instance)
         _record_instance_step(instance, "Addon metadata initialized")
     else:

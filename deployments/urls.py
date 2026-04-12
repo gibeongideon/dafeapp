@@ -66,4 +66,7 @@ urlpatterns = [
     path("odoo/instances/<int:instance_id>/staging/create/", views.StagingEnvironmentCreateAPIView.as_view(), name="staging-create"),
     path("odoo/staging/<int:staging_id>/", views.StagingEnvironmentDetailAPIView.as_view(), name="staging-detail"),
     path("odoo/staging/<int:staging_id>/delete/", views.StagingEnvironmentDeleteAPIView.as_view(), name="staging-delete"),
+    # Odoo admin login relay
+    path("odoo/instances/<int:instance_id>/admin-login/", views.OdooAdminLoginAPIView.as_view(), name="odoo-admin-login"),
+    path("odoo/instances/login-relay/", views.OdooAdminLoginRelayView.as_view(), name="odoo-admin-login-relay"),
 ]
