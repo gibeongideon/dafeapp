@@ -114,17 +114,12 @@
               <p class="mt-0.5 font-medium text-slate-700 truncate">{% if odoo_instance.domain %}{{ odoo_instance.domain }}{% else %}:{{ odoo_instance.http_port }}{% endif %}</p>
             </div>
           </div>
-          <button @click="loginAsAdmin()"
-                  :disabled="adminLoginBusy"
-                  class="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-50">
-            <svg x-show="!adminLoginBusy" class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <button @click="openUserLoginModal()"
+                  class="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100">
+            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"/>
             </svg>
-            <svg x-show="adminLoginBusy" class="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
-            </svg>
-            <span x-text="adminLoginBusy ? 'Logging in…' : 'Login as Admin'"></span>
+            Login as User
           </button>
         </div>
 
@@ -296,14 +291,12 @@
               </div>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-              <button @click="loginAsAdmin()"
-                      :disabled="adminLoginBusy"
-                      class="inline-flex items-center gap-2 justify-center rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60">
-                <svg x-show="adminLoginBusy" class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+              <button @click="openUserLoginModal()"
+                      class="inline-flex items-center gap-2 justify-center rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"/>
                 </svg>
-                <span x-text="adminLoginBusy ? 'Logging in…' : 'Login as Admin'"></span>
+                Login as User
               </button>
               {% if odoo_instance.preferred_access_url %}
               <a href="{{ odoo_instance.preferred_access_url }}" target="_blank" rel="noopener noreferrer"
@@ -2056,6 +2049,83 @@
   </div>
 </div>
 
+<!-- ── Login-as-User Modal ───────────────────────────────────────────────── -->
+<div x-data x-show="$store.userLogin.open"
+     class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+     style="display:none"
+     @keydown.escape.window="$store.userLogin.close()">
+  <div class="w-full max-w-md rounded-2xl bg-white shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+       @click.stop>
+
+    <!-- Header -->
+    <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+      <h2 class="text-base font-semibold text-slate-800">Login as Odoo User</h2>
+      <button @click="$store.userLogin.close()"
+              class="text-slate-400 hover:text-slate-600 text-xl leading-none">&times;</button>
+    </div>
+
+    <!-- Search -->
+    <div class="px-5 pt-4 pb-2">
+      <input type="search"
+             x-model="$store.userLogin.search"
+             placeholder="Search by name or login…"
+             class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400">
+    </div>
+
+    <!-- User list -->
+    <div class="flex-1 overflow-y-auto px-5 pb-4">
+
+      <!-- Loading state -->
+      <div x-show="$store.userLogin.loading"
+           class="flex items-center justify-center gap-2 py-8 text-sm text-slate-400">
+        <svg class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+        </svg>
+        Loading users…
+      </div>
+
+      <!-- Error state -->
+      <div x-show="!$store.userLogin.loading && $store.userLogin.error"
+           class="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+           x-text="$store.userLogin.error"></div>
+
+      <!-- Empty state -->
+      <div x-show="!$store.userLogin.loading && !$store.userLogin.error && $store.userLogin.filtered().length === 0"
+           class="py-8 text-center text-sm text-slate-400">
+        No users found.
+      </div>
+
+      <!-- User rows -->
+      <ul x-show="!$store.userLogin.loading && $store.userLogin.filtered().length > 0"
+          class="mt-2 divide-y divide-slate-100">
+        <template x-for="u in $store.userLogin.filtered()" :key="u.id">
+          <li class="flex items-center justify-between gap-3 py-2.5">
+            <div>
+              <p class="text-sm font-medium text-slate-800" x-text="u.name"></p>
+              <p class="text-xs text-slate-400" x-text="u.login"></p>
+            </div>
+            <button @click="$store.userLogin.loginAs(u)"
+                    :disabled="$store.userLogin.busy === u.id"
+                    class="shrink-0 inline-flex items-center gap-1 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700 disabled:opacity-50">
+              <svg x-show="$store.userLogin.busy === u.id" class="h-3 w-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+              </svg>
+              <span x-text="$store.userLogin.busy === u.id ? 'Opening…' : 'Login'"></span>
+            </button>
+          </li>
+        </template>
+      </ul>
+
+      <!-- Login error per user -->
+      <div x-show="$store.userLogin.loginError"
+           class="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+           x-text="$store.userLogin.loginError"></div>
+    </div>
+  </div>
+</div>
+
 <script>
 function instanceConsole(instanceId) {
   return {
@@ -2176,9 +2246,6 @@ function instanceConsole(instanceId) {
     enterpriseBusy: false,
     enterpriseToggleOn: false,
     showEnterpriseDetails: false,
-
-    // Admin login relay
-    adminLoginBusy: false,
 
     // Backups
     backups: [],
@@ -4064,27 +4131,9 @@ function instanceConsole(instanceId) {
       }
     },
 
-    // ── Admin login relay ──
-    async loginAsAdmin() {
-      if (this.adminLoginBusy) return;
-      this.adminLoginBusy = true;
-      try {
-        const csrf = document.cookie.match(/csrftoken=([^;]+)/)?.[1] ?? '';
-        const res = await fetch(`/api/deployments/odoo/instances/${this.instanceId}/admin-login/`, {
-          method: 'POST',
-          headers: { 'X-CSRFToken': csrf, 'Content-Type': 'application/json' },
-        });
-        const data = await res.json();
-        if (res.ok && data.relay_url) {
-          window.open(data.relay_url, '_blank', 'noopener');
-        } else {
-          alert(data.error || data.detail || 'Admin login failed. The instance may not have a stored admin password yet — try re-provisioning.');
-        }
-      } catch (err) {
-        alert('Network error: ' + err.message);
-      } finally {
-        this.adminLoginBusy = false;
-      }
+    // ── User login modal ──
+    openUserLoginModal() {
+      Alpine.store('userLogin').open_(this.instanceId);
     },
 
     // ── Backups ──
@@ -4580,6 +4629,72 @@ document.addEventListener('alpine:init', () => {
         this.msg   = 'Network error: ' + err.message;
         this.msgOk = false;
         this.busy  = false;
+      }
+    },
+  });
+
+  // ── Login-as-User store ──────────────────────────────────────────────────
+  Alpine.store('userLogin', {
+    open:       false,
+    loading:    false,
+    error:      '',
+    users:      [],
+    search:     '',
+    busy:       null,   // user id currently being logged-in-as
+    loginError: '',
+    instanceId: null,
+
+    filtered() {
+      const q = this.search.trim().toLowerCase();
+      if (!q) return this.users;
+      return this.users.filter(u =>
+        u.name.toLowerCase().includes(q) || u.login.toLowerCase().includes(q)
+      );
+    },
+
+    async open_(instanceId) {
+      this.instanceId = instanceId;
+      this.open       = true;
+      this.search     = '';
+      this.loginError = '';
+      this.error      = '';
+      this.users      = [];
+      this.loading    = true;
+      try {
+        const res  = await fetch(`/api/deployments/odoo/instances/${instanceId}/odoo-users/`);
+        const data = await res.json();
+        if (!res.ok) { this.error = data.error || 'Failed to load users.'; return; }
+        this.users = data.results ?? [];
+      } catch (err) {
+        this.error = 'Network error: ' + err.message;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    close() { this.open = false; },
+
+    async loginAs(user) {
+      this.loginError = '';
+      this.busy       = user.id;
+      const csrf = document.cookie.match(/csrftoken=([^;]+)/)?.[1] ?? '';
+      try {
+        const res  = await fetch(`/api/deployments/odoo/instances/${this.instanceId}/login-as/`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+          body:    JSON.stringify({ user_id: parseInt(user.id) }),
+        });
+        const data = await res.json();
+        if (res.ok && data.relay_url) {
+          window.open(data.relay_url, '_blank', 'noopener');
+          this.close();
+        } else {
+          this.loginError = data.error || 'Login failed.';
+        }
+      } catch (err) {
+        this.loginError = 'Network error: ' + err.message;
+      } finally {
+        this.busy = null;
       }
     },
   });

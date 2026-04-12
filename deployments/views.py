@@ -4147,9 +4147,202 @@ class OdooAdminLoginAPIView(LoginRequiredMixin, View):
             f"odoo_login_token:{token}",
             {
                 "instance_id": instance.pk,
-                "odoo_url": odoo_url,
-                "db_name": instance.db_name,
-                "password": instance.odoo_admin_password,
+                "odoo_url":    odoo_url,
+                "db_name":     instance.db_name,
+                "login":       "admin",
+                "password":    instance.odoo_admin_password,
+            },
+            timeout=_LOGIN_TOKEN_TTL,
+        )
+
+        relay_url = reverse("deployments:odoo-admin-login-relay") + f"?t={token}"
+        return JsonResponse({"relay_url": relay_url})
+
+
+class OdooInstanceUsersAPIView(LoginRequiredMixin, View):
+    """
+    GET /api/deployments/odoo/instances/<id>/odoo-users/
+
+    Returns the list of internal (non-portal) active Odoo users for the
+    user-picker in the console.  Fetches directly from the instance DB via SSH.
+    """
+
+    def get(self, request, instance_id):
+        from deployments.tasks import _ssh_run
+
+        org = getattr(request, "organization", None)
+        if not org and getattr(request.user, "is_platform_admin", False):
+            instance = get_object_or_404(OdooInstance, pk=instance_id)
+        elif not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        else:
+            instance = get_object_or_404(OdooInstance, pk=instance_id, organization=org)
+
+        server  = instance.server
+        db_name = instance.db_name
+
+        sql = (
+            "SELECT id, name, login FROM res_users "
+            "WHERE active = true AND share = false "
+            "ORDER BY name"
+        )
+
+        if server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
+            cmd = (
+                f"docker exec odoo-postgres psql -U odoo -d {shlex.quote(db_name)} "
+                f"-tAF'|' -c {shlex.quote(sql)}"
+            )
+        else:
+            cmd = (
+                f"sudo -u postgres psql -d {shlex.quote(db_name)} "
+                f"-tAF'|' -c {shlex.quote(sql)}"
+            )
+
+        try:
+            code, output = _ssh_run(server, cmd, timeout=30)
+        except Exception as exc:
+            return JsonResponse({"error": str(exc)}, status=502)
+
+        if code != 0:
+            return JsonResponse({"error": output[:500]}, status=502)
+
+        users = []
+        for line in output.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split("|")
+            if len(parts) >= 3:
+                users.append({
+                    "id":    parts[0].strip(),
+                    "name":  parts[1].strip(),
+                    "login": parts[2].strip(),
+                })
+
+        return JsonResponse({"results": users})
+
+
+class OdooLoginAsUserAPIView(LoginRequiredMixin, View):
+    """
+    POST /api/deployments/odoo/instances/<id>/login-as/
+    Body: {"user_id": 7}
+
+    Generates a temporary password for the selected Odoo user (writes hash to DB
+    via SSH), then returns a short-lived relay URL that auto-submits a login form
+    to Odoo's /web/login endpoint.
+    """
+
+    def post(self, request, instance_id):
+        from deployments.tasks import _ssh_run
+
+        org = getattr(request, "organization", None)
+        if not org and getattr(request.user, "is_platform_admin", False):
+            instance = get_object_or_404(OdooInstance, pk=instance_id)
+        elif not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        else:
+            instance = get_object_or_404(OdooInstance, pk=instance_id, organization=org)
+
+        try:
+            payload = json.loads(request.body)
+            user_id = int(payload.get("user_id", 0))
+        except Exception:
+            return JsonResponse({"error": "Invalid request body."}, status=400)
+
+        if not user_id:
+            return JsonResponse({"error": "user_id is required."}, status=400)
+
+        odoo_url = (instance.preferred_access_url or "").rstrip("/")
+        if not odoo_url:
+            return JsonResponse({"error": "No accessible URL found for this instance."}, status=400)
+
+        server  = instance.server
+        db_name = instance.db_name
+
+        # ── 1. Fetch the user's login name ──────────────────────────────────
+        sql_get = (
+            f"SELECT login FROM res_users "
+            f"WHERE id = {int(user_id)} AND active = true AND share = false"
+        )
+        if server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
+            cmd_get = (
+                f"docker exec odoo-postgres psql -U odoo -d {shlex.quote(db_name)} "
+                f"-tAc {shlex.quote(sql_get)}"
+            )
+        else:
+            cmd_get = (
+                f"sudo -u postgres psql -d {shlex.quote(db_name)} "
+                f"-tAc {shlex.quote(sql_get)}"
+            )
+
+        try:
+            code, output = _ssh_run(server, cmd_get, timeout=20)
+        except Exception as exc:
+            return JsonResponse({"error": str(exc)}, status=502)
+
+        user_login = output.strip()
+        if code != 0 or not user_login:
+            return JsonResponse({"error": "User not found or is not an internal user."}, status=404)
+
+        # ── 2. Generate a temp password (alphanumeric only — safe for shell) ─
+        temp_pw = _secrets.token_urlsafe(18).replace("-", "x").replace("_", "y")
+
+        # ── 3. Hash the password using Odoo's Python env on the server ───────
+        hash_script = (
+            "from passlib.context import CryptContext; "
+            f"print(CryptContext(['pbkdf2_sha512']).hash('{temp_pw}'))"
+        )
+        if server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
+            odoo_ver = server.odoo_version or "17"
+            cmd_hash = f"docker run --rm odoo:{odoo_ver} python3 -c {shlex.quote(hash_script)}"
+        else:
+            venv_py = f"/odoo/instances/{db_name}/venv/bin/python3"
+            cmd_hash = f"sudo -u odoo {venv_py} -c {shlex.quote(hash_script)}"
+
+        try:
+            code, pw_hash = _ssh_run(server, cmd_hash, timeout=60)
+        except Exception as exc:
+            return JsonResponse({"error": str(exc)}, status=502)
+
+        pw_hash = pw_hash.strip()
+        if code != 0 or not pw_hash:
+            return JsonResponse({"error": "Failed to hash password on server."}, status=502)
+
+        # ── 4. Write hash to DB ───────────────────────────────────────────────
+        # pbkdf2_sha512 output contains only base64 chars — no single quotes
+        sql_upd = (
+            f"UPDATE res_users SET password = '{pw_hash}' "
+            f"WHERE id = {int(user_id)}"
+        )
+        if server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
+            cmd_upd = (
+                f"docker exec odoo-postgres psql -U odoo -d {shlex.quote(db_name)} "
+                f"-c {shlex.quote(sql_upd)}"
+            )
+        else:
+            cmd_upd = (
+                f"sudo -u postgres psql -d {shlex.quote(db_name)} "
+                f"-c {shlex.quote(sql_upd)}"
+            )
+
+        try:
+            code, _ = _ssh_run(server, cmd_upd, timeout=20)
+        except Exception as exc:
+            return JsonResponse({"error": str(exc)}, status=502)
+
+        if code != 0:
+            return JsonResponse({"error": "Failed to set temporary password on server."}, status=502)
+
+        # ── 5. Create one-time relay token ────────────────────────────────────
+        token = _secrets.token_urlsafe(32)
+        _cache.set(
+            f"odoo_login_token:{token}",
+            {
+                "instance_id": instance.pk,
+                "odoo_url":    odoo_url,
+                "db_name":     db_name,
+                "login":       user_login,
+                "password":    temp_pw,
             },
             timeout=_LOGIN_TOKEN_TTL,
         )
@@ -4183,9 +4376,10 @@ class OdooAdminLoginRelayView(LoginRequiredMixin, View):
         # Consume the token immediately (one-time use)
         _cache.delete(cache_key)
 
-        odoo_url = data["odoo_url"].rstrip("/")
-        db_name  = data["db_name"]
-        password = data["password"]
+        odoo_url   = data["odoo_url"].rstrip("/")
+        db_name    = data["db_name"]
+        user_login = data.get("login", "admin")
+        password   = data["password"]
 
         # Escape any characters that could break out of HTML attributes
         def _esc(v):
@@ -4217,12 +4411,12 @@ class OdooAdminLoginRelayView(LoginRequiredMixin, View):
 </head>
 <body>
   <div class="box">
-    <p>Logging you in to <strong>{_esc(db_name)}</strong>…</p>
+    <p>Logging you in as <strong>{_esc(user_login)}</strong>…</p>
     <p style="font-size:.75rem">You will be redirected automatically.</p>
   </div>
   <form id="relay" method="POST" action="{_esc(odoo_url)}/web/login">
     <input type="hidden" name="db"       value="{_esc(db_name)}">
-    <input type="hidden" name="login"    value="admin">
+    <input type="hidden" name="login"    value="{_esc(user_login)}">
     <input type="hidden" name="password" value="{_esc(password)}">
     <input type="hidden" name="redirect" value="/odoo">
   </form>
