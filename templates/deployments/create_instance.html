@@ -4778,16 +4778,28 @@ chmod 600 ~/.ssh/authorized_keys</pre>
       if (hasInstances) warning += ` This will also stop and remove all ${deleteBtn.dataset.instanceCount} instance(s) on it.`;
       if (isBusy) warning += " (Provisioning will be cancelled.)";
       warning += " This cannot be undone.";
-      showConfirm(
-        "Delete Server",
-        warning,
-        `/api/deployments/odoo/servers/${deleteBtn.dataset.serverId}/delete/`,
-        "Delete",
-        (resp) => {
-          alert(`Server deletion queued (job #${resp?.data?.job_id ?? '?'}). The server and its instances will be removed shortly.`);
-          handleServerRemovalSuccess(deleteBtn.dataset.serverId);
-        }
-      );
+      if (!confirm(warning)) return;
+
+      const sid = deleteBtn.dataset.serverId;
+      deleteBtn.disabled = true;
+      deleteBtn.textContent = "Deleting…";
+
+      const resp = await postForm(`/api/deployments/odoo/servers/${sid}/delete/`, {});
+
+      if (resp.ok) {
+        // Queued successfully
+        handleServerRemovalSuccess(sid);
+      } else if (resp.status === 404 || resp.status === 400) {
+        // Server is gone or no longer accessible — remove from UI silently
+        handleServerRemovalSuccess(sid);
+      } else {
+        // Real server-side error (5xx) — restore button and show error
+        deleteBtn.disabled = false;
+        deleteBtn.textContent = "Delete permanently";
+        const errMsg = (resp.data && (resp.data.error || resp.data.message))
+          || `Delete failed (HTTP ${resp.status}).`;
+        alert(errMsg);
+      }
     }
   });
 
