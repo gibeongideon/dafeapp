@@ -183,6 +183,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "deployments.tasks.cleanup_expired_staging_instances",
         "schedule": 3600.0,  # every hour
     },
+    "auto-check-core-updates": {
+        "task": "deployments.tasks.auto_check_core_updates",
+        "schedule": 86400.0,  # once per day
+    },
 }
 
 STAGING_AUTO_CREATE_ON_PUSH = env.bool("STAGING_AUTO_CREATE_ON_PUSH", default=False)

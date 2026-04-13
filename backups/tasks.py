@@ -206,6 +206,11 @@ def backup_odoo_instance(
     if job_id:
         created_by = DeploymentJob.objects.filter(pk=job_id).values_list("created_by", flat=True).first()
 
+    # Capture git snapshot metadata from the primary linked repo (if any)
+    linked_repo = instance.git_repos.filter(is_enabled=True).order_by("display_order", "id").first()
+    git_branch = linked_repo.branch if linked_repo else ""
+    git_revision = linked_repo.last_pulled_commit if linked_repo else ""
+
     backup = OdooInstanceBackup.objects.create(
         organization=instance.organization,
         instance=instance,
@@ -213,6 +218,9 @@ def backup_odoo_instance(
         status=OdooInstanceBackup.Status.RUNNING,
         backup_dir=backup_dir,
         created_by=created_by,
+        branch=git_branch,
+        revision=git_revision,
+        odoo_version=server.odoo_version,
     )
 
     log = ""

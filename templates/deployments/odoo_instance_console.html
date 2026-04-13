@@ -319,15 +319,15 @@
         </div>
 
         <div class="border-b border-slate-200 bg-white px-4 sm:px-6">
-          <div class="flex flex-wrap items-center gap-6 md:gap-8">
+          <div class="flex flex-wrap items-center gap-1">
             <template x-for="tool in toolbarTabs" :key="tool.id">
               <button type="button"
                       @click="setToolbarTab(tool.id)"
-                      :class="toolbarTab === tool.id ? 'border-cyan-500 text-slate-950' : 'border-transparent text-slate-600 hover:text-slate-900'"
-                      class="inline-flex items-center gap-2 border-b-[3px] px-0 py-3.5 text-[12px] font-semibold uppercase tracking-[0.16em] transition">
+                      :class="toolbarTab === tool.id ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'"
+                      class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-[13px] font-medium transition my-1.5">
                 <span x-text="tool.label"></span>
                 <span x-show="tool.id === 'upgrade-tools' && runningJobCount > 0"
-                      class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-800"
+                      class="rounded-full bg-cyan-100 px-1.5 py-0.5 text-[10px] font-bold text-cyan-700"
                       x-text="runningJobCount"></span>
               </button>
             </template>
@@ -1131,6 +1131,401 @@
       </div>
     </div>
 
+    <!-- ── Tab: Git ── -->
+    <div x-show="activeTab === 'git'" class="p-5 space-y-5">
+
+      <!-- Header row -->
+      <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <p class="text-sm font-medium text-gray-700">Repository</p>
+          <p class="mt-1 text-xs text-gray-500">One repository per instance. Branches map to your production and staging environments.</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <!-- No repo: two CTA cards -->
+          <template x-if="!linkedRepo">
+            <div class="flex flex-wrap gap-2">
+              <button type="button"
+                      @click="openRepoModal('github')"
+                      :disabled="instanceActionsLocked()"
+                      :title="instanceActionLockReason()"
+                      class="inline-flex items-center justify-center px-3 py-2 text-xs font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 disabled:opacity-50">
+                Link existing
+              </button>
+              <button type="button"
+                      @click="openRepoModal('upload')"
+                      :disabled="instanceActionsLocked()"
+                      :title="instanceActionLockReason()"
+                      class="inline-flex items-center justify-center px-3 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">
+                Create new
+              </button>
+            </div>
+          </template>
+          <!-- Repo linked: management buttons -->
+          <template x-if="linkedRepo">
+            <div class="flex flex-wrap gap-2">
+              <button type="button"
+                      @click="openSyncRepoModal(linkedRepo)"
+                      :disabled="instanceActionsLocked() || repoIsWorking(linkedRepo)"
+                      :title="instanceActionLockReason()"
+                      class="inline-flex items-center justify-center px-3 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                Sync Now
+              </button>
+              <button type="button"
+                      @click="openRepoModal('edit', linkedRepo)"
+                      :disabled="instanceActionsLocked() || repoIsWorking(linkedRepo)"
+                      :title="instanceActionLockReason()"
+                      class="inline-flex items-center justify-center px-3 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">
+                Settings
+              </button>
+              <button type="button"
+                      @click="removeRepo(linkedRepo)"
+                      :disabled="instanceActionsLocked() || repoIsWorking(linkedRepo)"
+                      :title="instanceActionLockReason()"
+                      class="inline-flex items-center justify-center px-3 py-2 text-xs font-medium text-red-600 bg-white border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50">
+                Unlink
+              </button>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Instance actions locked banner -->
+      <div x-show="instanceActionsLocked()" class="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-xs text-amber-800" x-text="instanceActionLockReason()"></div>
+
+      <!-- No repo linked empty state -->
+      <div x-show="!linkedRepo && !reposLoading" class="rounded-2xl border border-dashed border-gray-200 bg-gray-50/60 px-6 py-10 text-center">
+        <svg class="mx-auto h-8 w-8 text-gray-300 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+        </svg>
+        <p class="text-sm font-medium text-gray-600">No repository linked</p>
+        <p class="mt-1 text-xs text-gray-400">Link an existing GitHub repo or create a new one to get started.</p>
+        <div class="mt-4 flex justify-center gap-2">
+          <button type="button" @click="openRepoModal('github')" :disabled="instanceActionsLocked()"
+                  class="inline-flex items-center px-4 py-2 text-xs font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 disabled:opacity-50">
+            Link existing
+          </button>
+          <button type="button" @click="openRepoModal('upload')" :disabled="instanceActionsLocked()"
+                  class="inline-flex items-center px-4 py-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50">
+            Create new
+          </button>
+        </div>
+      </div>
+
+      <!-- Repo message -->
+      <div x-show="repoMessage" :class="repoMessageOk ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'"
+           class="rounded-xl border px-4 py-2.5 text-xs" x-text="repoMessage"></div>
+
+      <!-- Linked repo card -->
+      <template x-if="linkedRepo">
+        <div class="rounded-2xl border border-gray-200 bg-white overflow-hidden">
+          <!-- Repo header -->
+          <div class="flex flex-wrap items-start justify-between gap-3 px-5 py-4">
+            <div class="min-w-0">
+              <div class="flex flex-wrap items-center gap-2">
+                <p class="text-sm font-semibold text-gray-900" x-text="linkedRepo.repo_name"></p>
+                <!-- Status badge -->
+                <span :class="{
+                  'bg-emerald-100 text-emerald-700': linkedRepo.status === 'CONNECTED',
+                  'bg-blue-100 text-blue-700': linkedRepo.status === 'CLONING' || linkedRepo.status === 'UPDATING',
+                  'bg-red-100 text-red-700': linkedRepo.status === 'ERROR',
+                  'bg-gray-100 text-gray-600': linkedRepo.status === 'DISCONNECTED'
+                }" class="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold" x-text="linkedRepo.status"></span>
+                <!-- Auto-update badge -->
+                <span x-show="linkedRepo.auto_update"
+                      class="inline-flex items-center rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
+                  Auto-deploy on push
+                </span>
+              </div>
+              <a :href="linkedRepo.git_url" target="_blank" rel="noopener"
+                 class="mt-1 text-xs text-blue-600 hover:underline truncate block max-w-xs" x-text="linkedRepo.git_url"></a>
+            </div>
+          </div>
+
+          <!-- Production branch row -->
+          <div class="border-t border-gray-100 px-5 py-3 flex items-center justify-between gap-3">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-400 shrink-0">Production</span>
+              <span class="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800 shrink-0" x-text="linkedRepo.branch || 'main'"></span>
+              <span class="text-[11px] text-gray-400 truncate" x-show="linkedRepo.last_pulled_at">
+                Synced <span x-text="linkedRepo.last_pulled_at ? new Date(linkedRepo.last_pulled_at).toLocaleString() : ''"></span>
+              </span>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+              <!-- Manual update button -->
+              <button @click="manualUpdateRepo(linkedRepo)"
+                      :disabled="instanceActionsLocked() || repoIsWorking(linkedRepo)"
+                      :title="instanceActionsLocked() ? instanceActionLockReason() : ''"
+                      class="inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[11px] font-medium transition disabled:opacity-40 disabled:cursor-not-allowed"
+                      :class="{
+                        'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100': linkedRepo.status === 'DISCONNECTED' || linkedRepo.status === 'ERROR',
+                        'border-blue-200 bg-white text-blue-700 hover:bg-blue-50': linkedRepo.status !== 'DISCONNECTED' && linkedRepo.status !== 'ERROR'
+                      }">
+                <!-- Spinner when working -->
+                <span x-show="repoIsWorking(linkedRepo)"
+                      class="inline-block h-3 w-3 rounded-full border-2 border-current border-r-transparent animate-spin"></span>
+                <!-- Reconnect icon when disconnected/error -->
+                <svg x-show="!repoIsWorking(linkedRepo) && (linkedRepo.status === 'DISCONNECTED' || linkedRepo.status === 'ERROR')"
+                     class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
+                </svg>
+                <!-- Pull icon when connected -->
+                <svg x-show="!repoIsWorking(linkedRepo) && linkedRepo.status !== 'DISCONNECTED' && linkedRepo.status !== 'ERROR'"
+                     class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                </svg>
+                <span x-text="manualUpdateLabel(linkedRepo)"></span>
+              </button>
+              <!-- Rollback button -->
+              <button x-show="linkedRepo.previous_commit"
+                      @click="rollbackRepo(linkedRepo)"
+                      :disabled="instanceActionsLocked() || repoIsWorking(linkedRepo)"
+                      class="inline-flex items-center rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed">
+                Rollback
+              </button>
+            </div>
+          </div>
+
+          <!-- Environments: branches -->
+          <div class="border-t border-gray-100 px-5 py-4 space-y-3">
+            <div class="flex items-center justify-between">
+              <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-400">Branches &amp; Environments</p>
+              <button x-show="linkedRepo?.credential && !linkedRepoBranchesLoading"
+                      @click="loadLinkedRepoBranches()"
+                      class="text-[11px] text-blue-600 hover:underline">Refresh</button>
+              <div x-show="linkedRepoBranchesLoading" class="text-[11px] text-gray-400">Loading…</div>
+            </div>
+
+            <!-- Branch list -->
+            <div x-show="linkedRepoBranches.length > 0" class="space-y-1.5">
+              <template x-for="branch in linkedRepoBranches" :key="branch">
+                <div class="flex items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50/60 px-4 py-2.5">
+                  <div class="flex flex-wrap items-center gap-2 min-w-0">
+                    <span class="text-sm font-medium text-gray-800 truncate" x-text="branch"></span>
+                    <span x-show="branch === linkedRepo?.branch"
+                          class="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Production</span>
+                    <span x-show="stagingEnvironments.some(e => e.branch === branch)"
+                          class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">Staging</span>
+                  </div>
+                  <div class="flex shrink-0 items-center gap-2">
+                    <button x-show="branch !== linkedRepo?.branch"
+                            @click="switchProductionBranch(branch)"
+                            :disabled="instanceActionsLocked() || repoIsWorking(linkedRepo)"
+                            class="inline-flex items-center rounded-lg border border-emerald-200 bg-white px-2.5 py-1 text-[11px] font-medium text-emerald-800 hover:bg-emerald-50 disabled:opacity-40 disabled:cursor-not-allowed">
+                      Set Production
+                    </button>
+                    <button x-show="branch !== linkedRepo?.branch && !stagingEnvironments.some(e => e.branch === branch)"
+                            @click="openStagingModalForBranch(branch)"
+                            :disabled="instanceActionsLocked()"
+                            class="inline-flex items-center rounded-lg border border-amber-200 bg-white px-2.5 py-1 text-[11px] font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-40 disabled:cursor-not-allowed">
+                      Create Staging
+                    </button>
+                    <template x-if="stagingEnvironments.some(e => e.branch === branch)">
+                      <a :href="`/deployments/odoo/instances/${(stagingEnvironments.find(e => e.branch === branch) || {}).staging_instance?.id}/`"
+                         class="inline-flex items-center rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-50">
+                        Open Staging
+                      </a>
+                    </template>
+                  </div>
+                </div>
+              </template>
+            </div>
+
+            <!-- Auto-create staging (single branch case) -->
+            <div x-show="linkedRepoBranches.length === 1 && !stagingEnvironments.length && !linkedRepoBranchesLoading"
+                 class="rounded-xl border border-dashed border-amber-200 bg-amber-50/40 px-4 py-3 flex items-center justify-between gap-3">
+              <p class="text-xs text-amber-800">Only <span class="font-semibold" x-text="linkedRepoBranches[0]"></span> exists. Create a staging branch from it?</p>
+              <button @click="openStagingModalForBranch('staging')"
+                      :disabled="instanceActionsLocked()"
+                      class="shrink-0 inline-flex items-center rounded-lg border border-amber-300 bg-white px-2.5 py-1 text-[11px] font-medium text-amber-800 hover:bg-amber-50 disabled:opacity-40">
+                Create staging
+              </button>
+            </div>
+
+            <!-- No branches loaded -->
+            <div x-show="!linkedRepoBranches.length && !linkedRepoBranchesLoading"
+                 class="rounded-xl border border-dashed border-gray-200 bg-gray-50/40 px-4 py-3 text-center">
+              <p class="text-xs text-gray-400">
+                <span x-show="linkedRepo?.credential">No branches loaded. </span>
+                <span x-show="!linkedRepo?.credential">Connect a credential to load branches.</span>
+                Current production: <span class="font-semibold text-emerald-700" x-text="linkedRepo?.branch || 'main'"></span>
+              </p>
+            </div>
+          </div>
+
+          <!-- Pending commits panel -->
+          <div class="border-t border-gray-100 px-5 py-4">
+            <div class="flex items-center justify-between mb-2">
+              <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-400">
+                Pending Changes
+                <span x-show="pendingCommitsCount > 0"
+                      class="ml-1.5 inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700"
+                      x-text="pendingCommitsCount + ' ahead'"></span>
+                <span x-show="pendingCommitsCount === 0 && !pendingCommitsLoading"
+                      class="ml-1.5 inline-flex items-center rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">Up to date</span>
+              </p>
+              <div class="flex items-center gap-2">
+                <div x-show="pendingCommitsLoading" class="text-[11px] text-gray-400">Checking…</div>
+                <button x-show="!pendingCommitsLoading"
+                        @click="loadPendingCommits()"
+                        class="text-[11px] text-blue-600 hover:underline">Refresh</button>
+                <button x-show="pendingCommits.length > 0"
+                        @click="showPendingCommits = !showPendingCommits"
+                        class="text-[11px] text-gray-500 hover:underline"
+                        x-text="showPendingCommits ? 'Hide' : 'Show commits'"></button>
+              </div>
+            </div>
+
+            <!-- Commit list -->
+            <div x-show="showPendingCommits && pendingCommits.length > 0" class="space-y-1 mt-2">
+              <template x-for="c in pendingCommits" :key="c.sha">
+                <div class="flex items-start gap-3 rounded-lg bg-gray-50 px-3 py-2">
+                  <code class="shrink-0 text-[10px] font-mono text-gray-400 mt-0.5" x-text="c.sha.slice(0,7)"></code>
+                  <div class="min-w-0">
+                    <p class="text-xs text-gray-800 truncate" x-text="c.message"></p>
+                    <p class="text-[10px] text-gray-400 mt-0.5">
+                      <span x-text="c.author"></span>
+                      <span x-show="c.timestamp"> · <span x-text="c.timestamp ? new Date(c.timestamp).toLocaleString() : ''"></span></span>
+                    </p>
+                  </div>
+                </div>
+              </template>
+            </div>
+
+            <!-- Deploy now prompt when commits pending -->
+            <div x-show="pendingCommitsCount > 0 && linkedRepo?.auto_update === false" class="mt-2 flex items-center gap-2">
+              <p class="text-xs text-amber-700">Auto-deploy is off.</p>
+              <button @click="openSyncRepoModal(linkedRepo)"
+                      :disabled="instanceActionsLocked() || repoIsWorking(linkedRepo)"
+                      class="inline-flex items-center rounded-lg border border-blue-200 bg-white px-2.5 py-1 text-[11px] font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-40">
+                Deploy now
+              </button>
+            </div>
+          </div>
+
+          <!-- Auto-deploy toggle (minimal slider) -->
+          <div class="border-t border-gray-100 px-5 py-3 flex items-center justify-between">
+            <span class="text-sm text-gray-700">Auto-deploy on push</span>
+            <button type="button"
+                    @click="toggleAutoUpdate()"
+                    :disabled="instanceActionsLocked() || !linkedRepo"
+                    class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-40"
+                    :class="linkedRepo?.auto_update ? 'bg-violet-600' : 'bg-gray-300'">
+              <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+                    :class="linkedRepo?.auto_update ? 'translate-x-4' : 'translate-x-0'"></span>
+            </button>
+          </div>
+        </div>
+      </template>
+
+      <!-- Upload module panel -->
+      <div x-show="linkedRepo" class="rounded-2xl border border-gray-200 bg-white overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-3 border-b border-gray-100">
+          <div>
+            <p class="text-sm font-medium text-gray-800">Upload Module</p>
+            <p class="mt-0.5 text-xs text-gray-400">Push a zipped Odoo module directly to the linked repository.</p>
+          </div>
+          <button type="button"
+                  x-show="!githubUploadTarget"
+                  @click="prepareGithubUpload(linkedRepo)"
+                  :disabled="instanceActionsLocked() || !linkedRepo"
+                  :title="instanceActionsLocked() ? instanceActionLockReason() : (linkedRepo?.git_url?.includes('github.com') ? '' : 'Only available for GitHub repositories')"
+                  class="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3 py-2 text-xs font-medium text-white hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+            </svg>
+            Upload
+          </button>
+          <button type="button"
+                  x-show="githubUploadTarget"
+                  @click="clearGithubUpload()"
+                  class="text-xs text-gray-500 hover:text-gray-700">
+            Cancel
+          </button>
+        </div>
+
+        <!-- Upload form (shown when active) -->
+        <div id="git-module-upload-panel"
+             x-show="githubUploadTarget && linkedRepo && String(githubUploadTarget.id) === String(linkedRepo?.id)"
+             class="px-5 py-4 space-y-4">
+
+          <!-- Repo label -->
+          <div class="flex items-center justify-between">
+            <p class="text-xs text-gray-500">Target: <span class="font-medium text-gray-800" x-text="githubUploadTarget?.full_name || linkedRepo?.repo_name"></span></p>
+            <a x-show="githubUploadTarget?.html_url"
+               :href="githubUploadTarget?.html_url"
+               target="_blank"
+               class="text-xs text-blue-600 hover:underline">Open on GitHub</a>
+          </div>
+
+          <!-- File picker -->
+          <div>
+            <label class="block text-xs font-medium text-gray-700 mb-1">Zip file</label>
+            <input type="file"
+                   x-ref="gitUploadZipInput"
+                   accept=".zip,application/zip"
+                   @change="setInlineUploadZip($event)"
+                   :disabled="githubUploadSaving"
+                   class="block w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 file:mr-3 file:rounded-md file:border-0 file:bg-gray-900 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white hover:file:bg-gray-800">
+            <p class="mt-1.5 text-xs text-gray-500" x-text="githubUploadFileName || 'Choose a .zip containing your module folder.'"></p>
+            <p x-show="githubUploadFile" class="mt-0.5 text-[11px] text-gray-400" x-text="`Size: ${formatBytes(githubUploadFile?.size || 0)}`"></p>
+          </div>
+
+          <!-- Progress bar -->
+          <div x-show="githubUploadSaving || githubUploadProgress > 0" class="space-y-1.5 rounded-xl border border-gray-100 bg-gray-50 p-3">
+            <div class="flex items-center justify-between gap-3 text-xs">
+              <p class="font-medium text-gray-800" x-text="githubUploadStatusLabel()"></p>
+              <p class="text-gray-600" x-text="githubUploadPhase === 'uploading' ? `${githubUploadProgress}%` : (githubUploadPhase === 'publishing' ? 'Finalizing…' : '')"></p>
+            </div>
+            <div class="h-1.5 overflow-hidden rounded-full bg-gray-200">
+              <div class="h-full rounded-full bg-gray-900 transition-all duration-200"
+                   :class="githubUploadPhase === 'publishing' ? 'animate-pulse' : ''"
+                   :style="`width:${githubUploadPhase === 'publishing' ? 100 : githubUploadProgress}%`"></div>
+            </div>
+            <p x-show="githubUploadBytesTotal > 0" class="text-[11px] text-gray-400"
+               x-text="githubUploadPhase === 'uploading'
+                 ? `${formatBytes(githubUploadBytesSent)} of ${formatBytes(githubUploadBytesTotal)}`
+                 : `Uploaded ${formatBytes(githubUploadBytesTotal)}. Publishing to GitHub…`"></p>
+          </div>
+
+          <!-- Actions -->
+          <div class="flex items-center gap-2">
+            <button type="button"
+                    @click="submitLinkedGithubUpload()"
+                    :disabled="githubUploadSaving || !githubUploadFile || instanceActionsLocked()"
+                    class="inline-flex items-center rounded-lg bg-gray-900 px-4 py-2 text-xs font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+                    x-text="githubUploadButtonLabel()"></button>
+            <button type="button"
+                    @click="clearGithubUpload()"
+                    :disabled="githubUploadSaving"
+                    class="inline-flex items-center rounded-lg border border-gray-200 bg-white px-4 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+              Cancel
+            </button>
+          </div>
+
+          <!-- Result message -->
+          <div x-show="repoMessage && githubUploadPhase === 'idle'"
+               :class="repoMessageOk ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'"
+               class="rounded-lg border px-3 py-2 text-xs"
+               x-text="repoMessage"></div>
+        </div>
+
+        <!-- No GitHub repo notice -->
+        <div x-show="linkedRepo && !linkedRepo.git_url?.includes('github.com')"
+             class="px-5 py-4 text-xs text-gray-400">
+          Module upload is only available for GitHub-linked repositories.
+        </div>
+      </div>
+
+      <!-- Sync log panel -->
+      <template x-if="linkedRepo && linkedRepo.last_sync_log">
+        <div class="rounded-2xl border border-gray-100 bg-gray-50 p-4 space-y-1.5">
+          <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-400">Last Sync Log</p>
+          <pre class="text-[11px] text-gray-700 whitespace-pre-wrap break-all font-mono max-h-40 overflow-y-auto" x-text="linkedRepo.last_sync_log"></pre>
+        </div>
+      </template>
+
+    </div><!-- /git tab -->
+
     <!-- ── Tab: Jobs ── -->
     <div x-show="activeTab === 'jobs'" class="p-5">
       <div class="flex items-center justify-between mb-3">
@@ -1258,35 +1653,56 @@
           </thead>
           <tbody>
             <template x-for="item in history" :key="item.id">
-              <tr class="border-b border-gray-50 hover:bg-gray-50">
-                <td class="py-2 pr-4">
-                  <span class="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold"
-                        :class="historyTypeClass(item)"
-                        x-text="item.event_label"></span>
-                </td>
-                <td class="py-2 pr-4">
-                  <div class="max-w-[34rem]">
-                    <p class="font-medium text-gray-900" x-text="item.title"></p>
-                    <p class="mt-0.5 text-xs text-gray-500" x-text="item.details"></p>
-                  </div>
-                </td>
-                <td class="py-2 pr-4">
-                  <span class="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold"
-                        :class="historyStatusClass(item)"
-                        x-text="item.status || '—'"></span>
-                </td>
-                <td class="py-2 pr-4 text-gray-500 text-xs whitespace-nowrap" x-text="fmtDate(item.timestamp)"></td>
-                <td class="py-2 pr-4 text-xs font-medium text-gray-600 whitespace-nowrap" x-text="item.actor || 'System'"></td>
-                <td class="py-2 text-xs">
-                  <button x-show="item.can_rollback"
-                          @click="rollback(item.history_id)"
-                          :disabled="rollbackLoading === item.history_id || instanceActionsLocked()"
-                          :title="instanceActionLockReason()"
-                          class="text-blue-600 hover:underline font-medium disabled:opacity-50"
-                          x-text="rollbackLoading === item.history_id ? 'Rolling back…' : 'Rollback'">
-                  </button>
-                </td>
-              </tr>
+                <tr class="border-b border-gray-50 hover:bg-gray-50">
+                  <td class="py-2 pr-4">
+                    <span class="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold"
+                          :class="historyTypeClass(item)"
+                          x-text="item.event_label"></span>
+                  </td>
+                  <td class="py-2 pr-4">
+                    <div class="max-w-[34rem]">
+                      <p class="font-medium text-gray-900" x-text="item.title"></p>
+                      <p class="mt-0.5 text-xs text-gray-500" x-text="item.details"></p>
+                      <!-- GitHub: show commits toggle -->
+                      <button x-show="item.event_type === 'github' && item.commits_data && item.commits_data.length > 0"
+                              @click="item._showCommits = !item._showCommits"
+                              class="mt-1 text-[11px] text-blue-600 hover:underline"
+                              x-text="item._showCommits ? '▼ hide commits' : '▶ show commits'"></button>
+                    </div>
+                  </td>
+                  <td class="py-2 pr-4">
+                    <span class="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold"
+                          :class="historyStatusClass(item)"
+                          x-text="item.status || '—'"></span>
+                  </td>
+                  <td class="py-2 pr-4 text-gray-500 text-xs whitespace-nowrap" x-text="fmtDate(item.timestamp)"></td>
+                  <td class="py-2 pr-4 text-xs font-medium text-gray-600 whitespace-nowrap" x-text="item.actor || 'System'"></td>
+                  <td class="py-2 text-xs">
+                    <button x-show="item.can_rollback"
+                            @click="rollback(item.history_id)"
+                            :disabled="rollbackLoading === item.history_id || instanceActionsLocked()"
+                            :title="instanceActionLockReason()"
+                            class="text-blue-600 hover:underline font-medium disabled:opacity-50"
+                            x-text="rollbackLoading === item.history_id ? 'Rolling back…' : 'Rollback'">
+                    </button>
+                  </td>
+                </tr>
+                <!-- Expandable commits list for GitHub push events -->
+                <tr x-show="item.event_type === 'github' && item._showCommits" class="bg-gray-50/80">
+                  <td colspan="6" class="px-4 pb-3 pt-1">
+                    <div class="space-y-1 pl-2 border-l-2 border-gray-200">
+                      <template x-for="c in (item.commits_data || [])" :key="c.sha">
+                        <div class="flex items-start gap-2">
+                          <code class="shrink-0 text-[10px] font-mono text-gray-400 mt-0.5 w-14 truncate" x-text="c.sha.slice(0,7)"></code>
+                          <div class="min-w-0">
+                            <span class="text-xs text-gray-700" x-text="c.message"></span>
+                            <span class="text-[10px] text-gray-400 ml-2" x-text="c.author"></span>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+                  </td>
+                </tr>
             </template>
           </tbody>
         </table>
@@ -1300,277 +1716,394 @@
     </div>
 
     <!-- ── Tab: Backups ── -->
-    <div x-show="activeTab === 'backups'" x-init="$watch('activeTab', v => { if (v === 'backups') loadBackups() })" class="space-y-5 p-5">
+    <div x-show="activeTab === 'backups'" x-init="$watch('activeTab', v => { if (v === 'backups') { loadBackups(); loadBackupSchedules(); } })" class="space-y-4 p-5">
 
-      <!-- Header -->
-      <div class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p class="text-sm font-semibold text-slate-900">Backups</p>
-            <p class="mt-1 text-sm text-slate-500">
-              Full snapshots — PostgreSQL dump + filestore archive — stored on the server at
-              <span class="font-mono">/backups/dafeapp/{{ odoo_instance.db_name }}/</span>
-            </p>
-          </div>
-          <div class="flex flex-wrap items-center gap-3">
-            <button type="button"
-                    @click="createBackup()"
-                    :disabled="backupBusy || instanceActionsLocked()"
-                    :title="instanceActionLockReason() || ''"
-                    class="inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50">
-              <span x-text="backupBusy ? 'Creating Backup…' : 'Create Backup'"></span>
-            </button>
-            <button type="button"
-                    @click="openLatestBackupRestore()"
-                    :disabled="backupBusy || !latestCompletedBackup()"
-                    class="inline-flex items-center rounded-md border border-[#d8c9d8] bg-[#d8c9d8] px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-[#cfbdd0] disabled:cursor-not-allowed disabled:opacity-50">
-              Restore To New Instance
-            </button>
-          </div>
+      <!-- Header row -->
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p class="text-sm font-semibold text-slate-900">Backups</p>
+          <p class="mt-0.5 text-xs text-slate-500">
+            Stored at <span class="font-mono">/backups/dafeapp/{{ odoo_instance.db_name }}/</span>
+          </p>
+        </div>
+        <button type="button"
+                @click="createBackup()"
+                :disabled="backupBusy || instanceActionsLocked()"
+                :title="instanceActionLockReason() || ''"
+                class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+          </svg>
+          <span x-text="backupBusy ? 'Creating…' : 'Create Backup'"></span>
+        </button>
+      </div>
+
+      <!-- Sub-tab pills -->
+      <div class="flex gap-1 border-b border-slate-200 pb-0">
+        <button @click="activeBackupSubTab='backups'"
+                :class="activeBackupSubTab==='backups' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700'"
+                class="border-b-2 -mb-px px-3 py-2 text-sm font-medium transition">
+          Backups
+        </button>
+        <button @click="activeBackupSubTab='schedules'"
+                :class="activeBackupSubTab==='schedules' ? 'border-slate-900 text-slate-900' : 'border-transparent text-slate-500 hover:text-slate-700'"
+                class="border-b-2 -mb-px px-3 py-2 text-sm font-medium transition">
+          Schedules
+        </button>
+      </div>
+
+      <!-- ── Sub-tab: Backups ── -->
+      <div x-show="activeBackupSubTab === 'backups'" class="space-y-3">
+
+        <!-- Backup message -->
+        <div x-show="backupMsg"
+             :class="backupMsgOk ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700'"
+             class="rounded-lg border px-4 py-2.5 text-sm"
+             x-text="backupMsg"></div>
+
+        <!-- Backups table -->
+        <div class="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+          <table class="min-w-full text-left text-sm text-slate-700">
+            <thead class="border-b border-slate-200 bg-slate-50">
+              <tr class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                <th class="px-4 py-3">Time (UTC)</th>
+                <th class="px-4 py-3">Database</th>
+                <th class="px-4 py-3">Branch</th>
+                <th class="px-4 py-3">Version</th>
+                <th class="px-4 py-3">Comment</th>
+                <th class="px-4 py-3">Revision</th>
+                <th class="px-4 py-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              <tr x-show="backupsLoading">
+                <td colspan="7" class="px-4 py-10 text-center text-sm text-slate-400">Loading backups…</td>
+              </tr>
+              <tr x-show="!backupsLoading && backups.length === 0">
+                <td colspan="7" class="px-4 py-12 text-center text-sm text-slate-400">
+                  No backups yet. Click <span class="font-semibold text-slate-600">Create Backup</span> to take the first snapshot.
+                </td>
+              </tr>
+              <template x-for="bk in backups" :key="bk.id">
+                <tr class="hover:bg-slate-50 transition">
+                  <!-- Time -->
+                  <td class="px-4 py-3 whitespace-nowrap">
+                    <p class="text-xs font-medium text-slate-800" x-text="formatBackupDate(bk.created_at)"></p>
+                    <span :class="{
+                      'bg-emerald-100 text-emerald-700': bk.status === 'DONE',
+                      'bg-amber-100  text-amber-700':   bk.status === 'RUNNING' || bk.status === 'PENDING',
+                      'bg-red-100    text-red-700':     bk.status === 'FAILED',
+                    }"
+                    class="mt-0.5 inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+                    x-text="bk.status"></span>
+                  </td>
+                  <!-- Database -->
+                  <td class="px-4 py-3">
+                    <span class="font-mono text-xs text-slate-700" x-text="'{{ odoo_instance.db_name }}'"></span>
+                    <p class="text-[10px] text-slate-400 mt-0.5" x-text="bk.size_bytes > 0 ? bk.size_display : ''"></p>
+                  </td>
+                  <!-- Branch -->
+                  <td class="px-4 py-3">
+                    <span class="font-mono text-xs text-slate-600" x-text="bk.branch || '—'"></span>
+                  </td>
+                  <!-- Version -->
+                  <td class="px-4 py-3">
+                    <span class="text-xs text-slate-600" x-text="bk.odoo_version || '—'"></span>
+                  </td>
+                  <!-- Comment -->
+                  <td class="px-4 py-3 max-w-[160px]">
+                    <span class="text-xs text-slate-500 truncate block" x-text="bk.note || '—'"></span>
+                  </td>
+                  <!-- Revision -->
+                  <td class="px-4 py-3">
+                    <span class="font-mono text-[11px] text-slate-500" x-text="bk.revision ? bk.revision.slice(0,8) : '—'"></span>
+                  </td>
+                  <!-- Actions -->
+                  <td class="px-4 py-3">
+                    <div class="flex items-center justify-end gap-2">
+                      <!-- Download icon -->
+                      <a x-show="bk.status === 'DONE'"
+                         :href="`/backups/instances/{{ odoo_instance.id }}/backups/${bk.id}/download/`"
+                         title="Download backup"
+                         class="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition"
+                         @click.prevent="downloadBackup(bk)">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                        </svg>
+                      </a>
+                      <!-- Restore icon -->
+                      <button type="button"
+                              x-show="bk.status === 'DONE'"
+                              @click="openBackupRestoreModal(bk)"
+                              :disabled="backupBusy || instanceActionsLocked()"
+                              title="Restore options"
+                              class="rounded-md p-1.5 text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 transition disabled:opacity-40">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                        </svg>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
         </div>
 
-        <!-- Scheduled Backups -->
-        <div class="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-3">
-          <div class="flex items-center justify-between">
-            <div>
-              <p class="text-sm font-medium text-slate-900">Scheduled Backups</p>
-              <p class="text-xs text-slate-500 mt-0.5">Automatic backups run by Celery Beat on the UTC times below.</p>
-            </div>
-            <button type="button"
-                    @click="showNewScheduleForm = !showNewScheduleForm"
-                    :disabled="backupSchedulesLoading"
-                    class="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50 transition-colors">
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
-              </svg>
-              Add Schedule
-            </button>
-          </div>
-
-          <!-- Loading -->
-          <div x-show="backupSchedulesLoading" class="text-xs text-slate-400 py-2">Loading schedules…</div>
-
-          <!-- Existing schedules list -->
-          <div x-show="!backupSchedulesLoading && backupSchedules.length > 0" class="space-y-2">
-            <template x-for="sched in backupSchedules" :key="sched.id">
-              <div class="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm">
-                <!-- Enabled badge -->
-                <span :class="sched.enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'"
-                      class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
-                      x-text="sched.enabled ? 'Active' : 'Disabled'"></span>
-                <!-- Description -->
-                <span class="flex-1 text-slate-700 text-xs"
-                      x-text="formatScheduleLabel(sched)"></span>
-                <!-- Toggle enable -->
-                <button type="button"
-                        @click="toggleBackupSchedule(sched)"
-                        :disabled="deletingScheduleId === sched.id"
-                        class="text-xs text-slate-500 hover:text-slate-800 underline underline-offset-2 disabled:opacity-40"
-                        x-text="sched.enabled ? 'Disable' : 'Enable'"></button>
-                <!-- Delete -->
-                <button type="button"
-                        @click="deleteBackupSchedule(sched.id)"
-                        :disabled="deletingScheduleId === sched.id"
-                        class="inline-flex items-center gap-1 rounded-lg border border-red-100 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-100 disabled:opacity-40">
-                  <svg x-show="deletingScheduleId === sched.id" class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
-                  </svg>
-                  <span x-text="deletingScheduleId === sched.id ? 'Deleting…' : 'Delete'"></span>
-                </button>
-              </div>
-            </template>
-          </div>
-
-          <!-- Empty state -->
-          <div x-show="!backupSchedulesLoading && backupSchedules.length === 0 && !showNewScheduleForm"
-               class="text-xs text-slate-400 py-1">No schedules configured. Click <span class="font-semibold">Add Schedule</span> to create one.</div>
-
-          <!-- New schedule form -->
-          <div x-show="showNewScheduleForm"
-               class="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
-            <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">New Schedule</p>
-            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <div>
-                <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Frequency</label>
-                <select x-model="newSchedule.frequency"
-                        class="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700">
-                  <option value="DAILY">Daily</option>
-                  <option value="WEEKLY">Weekly</option>
-                </select>
-              </div>
-              <div x-show="newSchedule.frequency === 'WEEKLY'">
-                <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Weekday</label>
-                <select x-model="newSchedule.weekday"
-                        class="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700">
-                  <option value="1">Monday</option>
-                  <option value="2">Tuesday</option>
-                  <option value="3">Wednesday</option>
-                  <option value="4">Thursday</option>
-                  <option value="5">Friday</option>
-                  <option value="6">Saturday</option>
-                  <option value="0">Sunday</option>
-                </select>
-              </div>
-              <div>
-                <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Hour (UTC 0–23)</label>
-                <input type="number" min="0" max="23"
-                       x-model.number="newSchedule.hour_utc"
-                       class="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700">
-              </div>
-              <div>
-                <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Minute (0–59)</label>
-                <input type="number" min="0" max="59"
-                       x-model.number="newSchedule.minute_utc"
-                       class="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700">
-              </div>
-              <div>
-                <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Retention</label>
-                <select x-model.number="newSchedule.retention_days"
-                        class="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700">
-                  <option :value="0">Keep Forever</option>
-                  <option :value="1">1 Day</option>
-                  <option :value="7">1 Week</option>
-                  <option :value="30">1 Month</option>
-                </select>
-              </div>
-            </div>
-            <div class="flex items-center gap-2">
-              <label class="inline-flex items-center gap-2 text-sm text-slate-700">
-                <input type="checkbox"
-                       x-model="newSchedule.enabled"
-                       class="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-400">
-                Enable immediately
-              </label>
-            </div>
-            <div class="flex gap-2">
-              <button type="button"
-                      @click="addBackupSchedule()"
-                      :disabled="savingNewSchedule"
-                      class="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50 transition-colors">
-                <span x-text="savingNewSchedule ? 'Saving…' : 'Save Schedule'"></span>
-              </button>
-              <button type="button"
-                      @click="showNewScheduleForm = false"
-                      :disabled="savingNewSchedule"
-                      class="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50 transition-colors">
-                Cancel
-              </button>
-            </div>
-          </div>
-
-          <!-- Schedule message -->
-          <div x-show="scheduleMsg"
-               :class="scheduleMsgOk ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700'"
-               class="rounded-xl border px-3 py-2 text-xs"
-               x-text="scheduleMsg"></div>
-        </div>
-
-        <div class="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+        <!-- Restore from Local ZIP -->
+        <div class="rounded-xl border border-slate-200 bg-white p-4">
           <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p class="text-sm font-medium text-slate-900">Restore from Local ZIP</p>
-              <p class="mt-1 text-sm text-slate-500">
-                Upload a ZIP created from these backups, then restore this instance from it.
-              </p>
+              <p class="mt-0.5 text-xs text-slate-500">Upload a ZIP created from these backups.</p>
             </div>
-            <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
               <div>
                 <input type="file"
                        x-ref="restoreZipInput"
                        accept=".zip,application/zip"
                        @change="setRestoreZipFile($event)"
                        :disabled="backupBusy"
-                       class="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-xs file:font-medium file:text-white hover:file:bg-slate-700 disabled:opacity-50">
-                <p class="mt-1 text-xs text-slate-500" x-text="restoreZipFileName || 'Choose a .zip backup file.'"></p>
+                       class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-900 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-white hover:file:bg-slate-700 disabled:opacity-50">
+                <p class="mt-0.5 text-[11px] text-slate-400" x-text="restoreZipFileName || 'Choose a .zip backup file'"></p>
               </div>
               <button type="button"
                       @click="uploadRestoreZip()"
                       :disabled="backupBusy || !restoreZipFile || instanceActionsLocked()"
-                      :title="instanceActionLockReason() || ''"
-                      class="inline-flex items-center justify-center rounded-xl border border-indigo-200 bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50 transition-colors">
-                <span x-text="backupBusy ? 'Working…' : 'Upload ZIP & Restore'"></span>
+                      class="inline-flex items-center justify-center rounded-lg border border-indigo-200 bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50 transition">
+                <span x-text="backupBusy ? 'Working…' : 'Upload & Restore'"></span>
               </button>
             </div>
           </div>
         </div>
-
-        <div x-show="backupMsg"
-             :class="backupMsgOk ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700'"
-             class="mt-3 rounded-lg border px-4 py-2.5 text-sm"
-             x-text="backupMsg"></div>
       </div>
 
-      <div class="overflow-x-auto bg-white">
-        <table class="min-w-full text-left text-sm text-slate-700">
-          <thead>
-            <tr class="border-b border-slate-200 text-[12px] font-semibold text-slate-700">
-              <th class="px-4 py-3 sm:px-6">Time (UTC)</th>
-              <th class="px-4 py-3">Database name</th>
-              <th class="px-4 py-3">Branch</th>
-              <th class="px-4 py-3">Version</th>
-              <th class="px-4 py-3">Comment</th>
-              <th class="px-4 py-3">Revision</th>
-              <th class="px-4 py-3 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr x-show="backupsLoading">
-              <td colspan="7" class="px-4 py-8 text-center text-sm text-slate-400 sm:px-6">
-                Loading backups…
-              </td>
-            </tr>
-            <tr x-show="!backupsLoading && backups.length === 0">
-              <td colspan="7" class="px-4 py-10 text-center text-sm text-slate-400 sm:px-6">
-                No backups yet. Create the first snapshot to start this history.
-              </td>
-            </tr>
-            <template x-for="bk in backups" :key="bk.id">
-              <div class="px-5 py-4 border-b border-slate-50 last:border-0 grid grid-cols-12 gap-3 items-center text-sm">
-                <!-- Created -->
-                <div class="col-span-4">
-                  <p class="font-medium text-slate-800" x-text="formatBackupDate(bk.created_at)"></p>
-                  <p class="text-xs text-slate-400 mt-0.5" x-text="bk.note || ''"></p>
-                </div>
-                <!-- Type -->
-                <div class="col-span-2">
-                  <span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600"
-                        x-text="bk.backup_type === 'FULL' ? 'Full' : 'DB only'"></span>
-                </div>
-                <!-- Size -->
-                <div class="col-span-2 text-slate-600"
-                     x-text="bk.size_bytes > 0 ? bk.size_display : '—'"></div>
-                <!-- Status badge -->
-                <div class="col-span-2">
-                  <span :class="{
-                    'bg-emerald-100 text-emerald-700': bk.status === 'DONE',
-                    'bg-amber-100  text-amber-700':   bk.status === 'RUNNING' || bk.status === 'PENDING',
-                    'bg-red-100    text-red-700':     bk.status === 'FAILED',
-                  }"
-                  class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
-                  x-text="bk.status"></span>
-                </div>
-                <!-- Actions -->
-                <div class="col-span-2 flex justify-end gap-2">
-                  <button type="button"
-                          x-show="bk.status === 'DONE'"
-                          @click="restoreBackup(bk.id, bk.created_at)"
-                          :disabled="backupBusy || instanceActionsLocked()"
-                          class="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
-                    Restore
-                  </button>
-                  <button type="button"
-                          x-show="bk.status === 'DONE'"
-                          @click="openRestoreToNewModal(bk)"
-                          :disabled="backupBusy"
-                          class="inline-flex items-center rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50">
-                    New Instance
-                  </button>
-                </div>
-              </div>
-            </template>
-          </tbody>
-        </table>
+      <!-- ── Sub-tab: Schedules ── -->
+      <div x-show="activeBackupSubTab === 'schedules'" class="space-y-3">
+
+        <!-- Header row -->
+        <div class="flex items-center justify-between">
+          <p class="text-xs text-slate-500">Automatic backups run by Celery Beat on the UTC times below.</p>
+          <button type="button"
+                  @click="showNewScheduleForm = !showNewScheduleForm"
+                  :disabled="backupSchedulesLoading"
+                  class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+            </svg>
+            Add Schedule
+          </button>
+        </div>
+
+        <!-- Loading -->
+        <div x-show="backupSchedulesLoading" class="text-xs text-slate-400 py-2">Loading schedules…</div>
+
+        <!-- Existing schedules -->
+        <div x-show="!backupSchedulesLoading && backupSchedules.length > 0" class="space-y-2">
+          <template x-for="sched in backupSchedules" :key="sched.id">
+            <div class="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm">
+              <span :class="sched.enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'"
+                    class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                    x-text="sched.enabled ? 'Active' : 'Disabled'"></span>
+              <span class="flex-1 text-slate-700 text-xs" x-text="formatScheduleLabel(sched)"></span>
+              <button type="button"
+                      @click="toggleBackupSchedule(sched)"
+                      :disabled="deletingScheduleId === sched.id"
+                      class="text-xs text-slate-500 hover:text-slate-800 underline underline-offset-2 disabled:opacity-40"
+                      x-text="sched.enabled ? 'Disable' : 'Enable'"></button>
+              <button type="button"
+                      @click="deleteBackupSchedule(sched.id)"
+                      :disabled="deletingScheduleId === sched.id"
+                      class="inline-flex items-center gap-1 rounded-lg border border-red-100 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-100 disabled:opacity-40">
+                <svg x-show="deletingScheduleId === sched.id" class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                </svg>
+                <span x-text="deletingScheduleId === sched.id ? 'Deleting…' : 'Delete'"></span>
+              </button>
+            </div>
+          </template>
+        </div>
+
+        <!-- Empty state -->
+        <div x-show="!backupSchedulesLoading && backupSchedules.length === 0 && !showNewScheduleForm"
+             class="rounded-xl border border-slate-100 bg-slate-50 px-4 py-6 text-center text-xs text-slate-400">
+          No schedules yet. Click <span class="font-semibold">Add Schedule</span> to create one.
+        </div>
+
+        <!-- New schedule form -->
+        <div x-show="showNewScheduleForm"
+             class="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">New Schedule</p>
+          <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div>
+              <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Frequency</label>
+              <select x-model="newSchedule.frequency"
+                      class="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700">
+                <option value="DAILY">Daily</option>
+                <option value="WEEKLY">Weekly</option>
+              </select>
+            </div>
+            <div x-show="newSchedule.frequency === 'WEEKLY'">
+              <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Weekday</label>
+              <select x-model="newSchedule.weekday"
+                      class="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700">
+                <option value="1">Monday</option>
+                <option value="2">Tuesday</option>
+                <option value="3">Wednesday</option>
+                <option value="4">Thursday</option>
+                <option value="5">Friday</option>
+                <option value="6">Saturday</option>
+                <option value="0">Sunday</option>
+              </select>
+            </div>
+            <div>
+              <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Hour (UTC 0–23)</label>
+              <input type="number" min="0" max="23"
+                     x-model.number="newSchedule.hour_utc"
+                     class="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700">
+            </div>
+            <div>
+              <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Minute (0–59)</label>
+              <input type="number" min="0" max="59"
+                     x-model.number="newSchedule.minute_utc"
+                     class="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700">
+            </div>
+            <div>
+              <label class="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Retention</label>
+              <select x-model.number="newSchedule.retention_days"
+                      class="block w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-700">
+                <option :value="0">Keep Forever</option>
+                <option :value="1">1 Day</option>
+                <option :value="7">1 Week</option>
+                <option :value="30">1 Month</option>
+              </select>
+            </div>
+          </div>
+          <label class="inline-flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox"
+                   x-model="newSchedule.enabled"
+                   class="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-400">
+            Enable immediately
+          </label>
+          <div class="flex gap-2">
+            <button type="button"
+                    @click="addBackupSchedule()"
+                    :disabled="savingNewSchedule"
+                    class="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50 transition">
+              <span x-text="savingNewSchedule ? 'Saving…' : 'Save Schedule'"></span>
+            </button>
+            <button type="button"
+                    @click="showNewScheduleForm = false"
+                    :disabled="savingNewSchedule"
+                    class="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50 transition">
+              Cancel
+            </button>
+          </div>
+        </div>
+
+        <!-- Schedule message -->
+        <div x-show="scheduleMsg"
+             :class="scheduleMsgOk ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700'"
+             class="rounded-xl border px-3 py-2 text-xs"
+             x-text="scheduleMsg"></div>
+      </div>
+
+    </div>
+
+    <!-- ── Restore Modal ── -->
+    <div x-show="backupRestoreModal"
+         x-transition.opacity
+         class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+         @click.self="backupRestoreModal=false; backupRestoreConfirming=false;">
+      <div class="w-full max-w-md rounded-2xl bg-white shadow-xl" @click.stop>
+        <!-- Header -->
+        <div class="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+          <p class="text-sm font-semibold text-slate-900">Restore Backup</p>
+          <button @click="backupRestoreModal=false; backupRestoreConfirming=false;"
+                  class="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+
+        <!-- Backup info summary -->
+        <div x-show="backupRestoreTarget" class="px-6 pt-4">
+          <div class="rounded-lg bg-slate-50 px-4 py-3 text-xs text-slate-600 space-y-0.5">
+            <p><span class="font-medium">Time:</span> <span x-text="backupRestoreTarget ? formatBackupDate(backupRestoreTarget.created_at) : ''"></span></p>
+            <p x-show="backupRestoreTarget && backupRestoreTarget.branch"><span class="font-medium">Branch:</span> <span class="font-mono" x-text="backupRestoreTarget ? backupRestoreTarget.branch : ''"></span></p>
+            <p x-show="backupRestoreTarget && backupRestoreTarget.revision"><span class="font-medium">Revision:</span> <span class="font-mono" x-text="backupRestoreTarget ? (backupRestoreTarget.revision || '').slice(0,10) : ''"></span></p>
+          </div>
+        </div>
+
+        <!-- Choice buttons (default view) -->
+        <div x-show="!backupRestoreConfirming" class="p-6 space-y-3">
+          <p class="text-xs text-slate-500 mb-1">What would you like to do with this backup?</p>
+
+          <!-- Restore to New Instance -->
+          <button type="button"
+                  @click="backupRestoreModal=false; openRestoreToNewModal(backupRestoreTarget);"
+                  class="w-full flex items-start gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-left hover:bg-slate-50 transition">
+            <div class="mt-0.5 rounded-lg bg-indigo-50 p-1.5 shrink-0">
+              <svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+              </svg>
+            </div>
+            <div>
+              <p class="text-sm font-medium text-slate-800">Restore to New Instance</p>
+              <p class="text-xs text-slate-500 mt-0.5">Create a brand-new Odoo instance from this snapshot.</p>
+            </div>
+          </button>
+
+          <!-- Restore Backup (in-place) -->
+          <button type="button"
+                  @click="backupRestoreConfirming=true"
+                  :disabled="backupBusy || instanceActionsLocked()"
+                  class="w-full flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-left hover:bg-amber-100 transition disabled:opacity-50">
+            <div class="mt-0.5 rounded-lg bg-amber-100 p-1.5 shrink-0">
+              <svg class="w-4 h-4 text-amber-700" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+              </svg>
+            </div>
+            <div>
+              <p class="text-sm font-medium text-amber-900">Restore Backup</p>
+              <p class="text-xs text-amber-700 mt-0.5">Overwrite the current database with this snapshot.</p>
+            </div>
+          </button>
+        </div>
+
+        <!-- In-place restore confirmation -->
+        <div x-show="backupRestoreConfirming" class="p-6 space-y-4">
+          <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 space-y-1">
+            <p class="font-semibold">Restore Backup into: <span class="font-mono">{{ odoo_instance.db_name }}</span></p>
+            <p class="text-xs text-amber-700 mt-1">
+              Are you sure you wish to restore the backup from
+              <span class="font-medium" x-text="backupRestoreTarget ? formatBackupDate(backupRestoreTarget.created_at) : ''"></span>?
+            </p>
+            <p class="text-xs text-amber-700">
+              It will replace your current production database and container. A backup will be made before the operation.
+            </p>
+          </div>
+          <div class="flex gap-2">
+            <button type="button"
+                    @click="confirmRestoreBackup()"
+                    :disabled="backupRestoreWorking"
+                    class="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50 transition">
+              <svg x-show="backupRestoreWorking" class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+              </svg>
+              <span x-text="backupRestoreWorking ? 'Queuing…' : 'Yes, Restore Now'"></span>
+            </button>
+            <button type="button"
+                    @click="backupRestoreConfirming=false"
+                    :disabled="backupRestoreWorking"
+                    class="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50 transition">
+              Cancel
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1806,139 +2339,84 @@
     </div><!-- /operations tab -->
 
     <!-- ── Tab: Settings ── -->
-    <div x-show="activeTab === 'settings'" class="p-5 space-y-6">
+    <div x-show="activeTab === 'settings'" class="p-5">
+      <div class="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
 
-      <!-- Codebase / Git update -->
-      <div class="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
-        <div>
-          <h3 class="text-sm font-semibold text-slate-900">Codebase</h3>
-          <p class="mt-0.5 text-xs text-slate-500">Git repository linked to this instance and auto-update behaviour.</p>
-        </div>
-
-        <div x-show="!linkedRepo" class="rounded-lg border border-dashed border-slate-200 bg-slate-50 py-6 text-center text-xs text-slate-400">
-          No repository linked. Go to the <button @click="setToolbarTab('settings'); setActiveTab('addons')" class="underline font-medium">Addons tab</button> to link one.
-        </div>
-
-        <template x-if="linkedRepo">
-          <div class="space-y-3">
-            <!-- Current version + commit widget -->
-            <div class="flex items-center justify-between gap-3 rounded-lg border border-slate-100 bg-slate-50 px-4 py-3">
-              <div class="min-w-0">
-                <p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400 mb-1">Current</p>
-                <div class="flex flex-wrap items-center gap-2">
-                  <span class="text-xs font-bold text-slate-800">{{ odoo_server.odoo_version }}</span>
-                  <span class="font-mono text-xs text-slate-500" x-text="(linkedRepo?.last_pulled_commit || '').slice(0,9) || '—'"></span>
-                  <span x-show="linkedRepo?.last_remote_commit && linkedRepo?.last_pulled_commit && linkedRepo?.last_remote_commit !== linkedRepo?.last_pulled_commit"
-                        class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
-                    Updates available
-                  </span>
-                </div>
-                <p class="mt-0.5 text-[11px] text-slate-400" x-text="linkedRepo?.branch ? `Branch: ${linkedRepo.branch}` : ''"></p>
-              </div>
-              <button type="button"
-                      @click="openSyncRepoModal(linkedRepo)"
-                      :disabled="instanceActionsLocked() || repoIsWorking(linkedRepo)"
-                      class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
-                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                </svg>
-                Update now
-              </button>
-            </div>
-
-            <!-- Auto update toggle -->
-            <div class="flex items-center justify-between rounded-lg border border-slate-200 px-4 py-3">
-              <div class="min-w-0 pr-4">
-                <p class="text-sm font-medium text-slate-800">Auto update Odoo</p>
-                <p class="mt-0.5 text-xs text-slate-400">Sync code automatically on every push to the production branch.</p>
-              </div>
-              <button type="button"
-                      role="switch"
-                      @click="toggleAutoUpdate()"
-                      :aria-checked="linkedRepo?.auto_update ? 'true' : 'false'"
-                      class="relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors duration-200 ease-out focus:outline-none"
-                      :class="linkedRepo?.auto_update ? 'bg-emerald-500' : 'bg-slate-200'">
-                <span class="absolute top-0.5 left-0.5 inline-block h-5 w-5 rounded-full bg-white shadow transition-transform duration-200 ease-out"
-                      :class="linkedRepo?.auto_update ? 'translate-x-5' : 'translate-x-0'"></span>
-              </button>
-            </div>
-
-          </div>
-        </template>
-      </div>
-
-      <!-- Enterprise Edition -->
-      <div class="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
-        <div>
-          <h3 class="text-sm font-semibold text-slate-900">Enterprise Edition</h3>
-          <p class="mt-0.5 text-xs text-slate-500">Activate Odoo Enterprise for this instance. Requires a platform package or uploaded source.</p>
-        </div>
-
-        <button type="button"
-                role="switch"
-                @click="activateEnterprise()"
-                :aria-checked="enterpriseToggleOn ? 'true' : 'false'"
-                :disabled="enterpriseToggleDisabled() || instanceActionsLocked()"
-                :title="instanceActionLockReason()"
-                class="flex w-full items-center justify-between gap-4 rounded-xl border px-4 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-70"
-                :class="enterpriseToggleCardClass()">
-          <div class="min-w-0">
-            <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-500">Enterprise</p>
-            <p class="mt-1 text-sm font-medium text-gray-900" x-text="enterpriseToggleLabel()"></p>
-          </div>
-          <span class="relative inline-flex h-7 w-12 shrink-0 rounded-full transition-colors duration-200 ease-out"
-                :class="enterpriseToggleTrackClass()">
-            <span class="absolute top-1 left-1 inline-block h-5 w-5 rounded-full bg-white shadow-sm transition-transform duration-200 ease-out"
-                  :class="enterpriseToggleOn ? 'translate-x-5' : 'translate-x-0'"></span>
-          </span>
-        </button>
-
-        <div x-show="enterpriseError"
-             class="rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700"
-             x-text="enterpriseError"></div>
-        <div x-show="enterpriseMessage"
-             :class="enterpriseMessageOk ? 'border-green-200 bg-green-50 text-green-700' : 'border-red-200 bg-red-50 text-red-700'"
-             class="rounded-lg border px-3 py-2.5 text-sm"
-             x-text="enterpriseMessage"></div>
-
-        <div>
+        <!-- Auto-update Odoo (core) -->
+        <div class="flex items-center justify-between px-5 py-4">
+          <span class="text-sm text-slate-800">Auto-update Odoo</span>
           <button type="button"
-                  @click="showEnterpriseDetails = !showEnterpriseDetails"
-                  class="text-xs text-slate-500 underline hover:text-slate-700"
-                  x-text="showEnterpriseDetails ? 'Hide details' : 'Show details'"></button>
+                  @click="toggleCoreAutoUpdate()"
+                  :disabled="autoUpdateCoreBusy || instanceActionsLocked()"
+                  class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-40"
+                  :class="autoUpdateCore ? 'bg-emerald-500' : 'bg-slate-200'">
+            <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+                  :class="autoUpdateCore ? 'translate-x-4' : 'translate-x-0'"></span>
+          </button>
+        </div>
 
-          <div x-show="showEnterpriseDetails" class="mt-3 space-y-3">
-            <div class="grid gap-3 md:grid-cols-2">
-              <div class="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5">
-                <p class="text-[10px] uppercase tracking-wide text-slate-400">Platform Source</p>
-                <p class="mt-1 text-sm font-medium text-slate-800 break-all" x-text="enterpriseActiveSourceName || 'No active platform package'"></p>
+        <!-- Enterprise Edition -->
+        <div class="px-5 py-4 space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="text-sm text-slate-800">Enterprise Edition</span>
+            <button type="button"
+                    @click="activateEnterprise()"
+                    :disabled="enterpriseToggleDisabled() || instanceActionsLocked()"
+                    class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-40"
+                    :class="enterpriseToggleOn ? 'bg-emerald-500' : 'bg-slate-200'">
+              <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out"
+                    :class="enterpriseToggleOn ? 'translate-x-4' : 'translate-x-0'"></span>
+            </button>
+          </div>
+
+          <!-- Enterprise messages -->
+          <div x-show="enterpriseError"
+               class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
+               x-text="enterpriseError"></div>
+          <div x-show="enterpriseMessage"
+               :class="enterpriseMessageOk ? 'border-green-200 bg-green-50 text-green-700' : 'border-red-200 bg-red-50 text-red-700'"
+               class="rounded-lg border px-3 py-2 text-xs"
+               x-text="enterpriseMessage"></div>
+
+          <!-- Enterprise details (collapsible) -->
+          <div>
+            <button type="button"
+                    @click="showEnterpriseDetails = !showEnterpriseDetails"
+                    class="text-xs text-slate-400 hover:text-slate-600"
+                    x-text="showEnterpriseDetails ? 'Hide details' : 'Details'"></button>
+            <div x-show="showEnterpriseDetails" class="mt-3 space-y-3">
+              <div class="grid gap-3 md:grid-cols-2">
+                <div class="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5">
+                  <p class="text-[10px] uppercase tracking-wide text-slate-400">Platform Source</p>
+                  <p class="mt-1 text-sm font-medium text-slate-800 break-all" x-text="enterpriseActiveSourceName || 'No active platform package'"></p>
+                </div>
+                <div class="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5">
+                  <p class="text-[10px] uppercase tracking-wide text-slate-400">Uploaded Source</p>
+                  <p class="mt-1 text-sm font-medium text-slate-800 break-all" x-text="enterpriseUserSourceName || 'None uploaded'"></p>
+                </div>
               </div>
               <div class="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5">
-                <p class="text-[10px] uppercase tracking-wide text-slate-400">Uploaded Source</p>
-                <p class="mt-1 text-sm font-medium text-slate-800 break-all" x-text="enterpriseUserSourceName || 'None uploaded'"></p>
+                <p class="text-[10px] uppercase tracking-wide text-slate-400">Instance Path on Server</p>
+                <p class="mt-1 text-sm font-mono text-slate-700 break-all" x-text="enterpriseRemotePath || 'Will be created during activation'"></p>
               </div>
-            </div>
-            <div class="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5">
-              <p class="text-[10px] uppercase tracking-wide text-slate-400">Instance Path on Server</p>
-              <p class="mt-1 text-sm font-mono text-slate-700 break-all" x-text="enterpriseRemotePath || 'Will be created during activation'"></p>
-            </div>
-            <div class="flex flex-wrap gap-2">
-              <button type="button"
-                      x-show="(enterpriseEnabled || enterpriseStatusCode === 'ERROR') && enterpriseSourceAvailable && enterpriseStatusCode !== 'PENDING'"
-                      @click="activateEnterprise()"
-                      :disabled="enterpriseBusy || instanceActionsLocked()"
-                      class="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                      x-text="enterpriseStatusCode === 'ERROR' ? 'Retry Activation' : 'Re-sync Enterprise'">
-              </button>
-              <a href="/deployments/create/?section=enterprise"
-                 class="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
-                Manage Sources
-              </a>
+              <div class="flex flex-wrap gap-2">
+                <button type="button"
+                        x-show="(enterpriseEnabled || enterpriseStatusCode === 'ERROR') && enterpriseSourceAvailable && enterpriseStatusCode !== 'PENDING'"
+                        @click="activateEnterprise()"
+                        :disabled="enterpriseBusy || instanceActionsLocked()"
+                        class="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                        x-text="enterpriseStatusCode === 'ERROR' ? 'Retry Activation' : 'Re-sync Enterprise'">
+                </button>
+                <a href="/deployments/create/?section=enterprise"
+                   class="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50">
+                  Manage Sources
+                </a>
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
+      </div>
     </div><!-- /settings tab -->
         </div>
       </section>
@@ -2131,6 +2609,7 @@ function instanceConsole(instanceId) {
     activeTab: 'history',
     toolbarTabs: [
       { id: 'history', label: 'History', target: 'history' },
+      { id: 'git',     label: 'Git',     target: 'git' },
       { id: 'shell', label: 'Shell', target: 'operations' },
       { id: 'monitor', label: 'Monitor', target: 'overview' },
       { id: 'logs', label: 'Logs', target: 'logs' },
@@ -2141,6 +2620,7 @@ function instanceConsole(instanceId) {
     tabs: [
       { id: 'overview',    label: 'Overview' },
       { id: 'addons',      label: 'Addons' },
+      { id: 'git',         label: 'Git' },
       { id: 'jobs',        label: 'Jobs' },
       { id: 'logs',        label: 'Live Logs' },
       { id: 'history',     label: 'History' },
@@ -2244,6 +2724,16 @@ function instanceConsole(instanceId) {
     enterpriseToggleOn: false,
     showEnterpriseDetails: false,
 
+    // Core auto-update
+    autoUpdateCore: {% if odoo_instance.auto_update_core %}true{% else %}false{% endif %},
+    autoUpdateCoreBusy: false,
+
+    // Pending commits (Git tab)
+    pendingCommits: [],
+    pendingCommitsLoading: false,
+    pendingCommitsCount: 0,
+    showPendingCommits: false,
+
     // Backups
     backups: [],
     backupsLoading: false,
@@ -2251,6 +2741,12 @@ function instanceConsole(instanceId) {
     backupBusy: false,
     backupMsg: '',
     backupMsgOk: true,
+    activeBackupSubTab: 'backups',
+    // Restore modal
+    backupRestoreModal: false,
+    backupRestoreTarget: null,
+    backupRestoreConfirming: false,
+    backupRestoreWorking: false,
     // Schedules
     backupSchedules: [],
     backupSchedulesLoading: false,
@@ -2334,6 +2830,7 @@ function instanceConsole(instanceId) {
       if (tabId === 'jobs') this.loadJobs();
       if (tabId === 'history') this.loadHistory();
       if (tabId === 'addons') this.loadRepos();
+      if (tabId === 'git') { this.loadRepos().then(() => { if (this.linkedRepo) this.loadPendingCommits(); }); }
       if (tabId === 'operations') this.loadCommands();
       if (tabId === 'settings') this.loadRepos();
       if (tabId === 'logs') {
@@ -2510,6 +3007,105 @@ function instanceConsole(instanceId) {
       this.openStagingModal();
     },
 
+    manualUpdateLabel(repo) {
+      if (!repo) return 'Update';
+      if (this.repoIsWorking(repo)) return 'Working…';
+      const s = (repo.status || '').toUpperCase();
+      if (s === 'DISCONNECTED') return 'Reconnect & Update';
+      if (s === 'ERROR') return 'Retry & Update';
+      return 'Update';
+    },
+
+    async manualUpdateRepo(repo) {
+      if (!repo) return;
+      if (this.instanceActionsLocked()) return;
+      if (this.repoIsWorking(repo)) return;
+
+      this.repoMessage = null;
+      const needsReconnect = repo.status === 'DISCONNECTED' || repo.status === 'ERROR';
+
+      if (needsReconnect) {
+        this.repoMessage = 'Checking connection…';
+        this.repoMessageOk = true;
+        try {
+          const statusRes = await fetch(
+            `/deployments/odoo/instances/${this.instanceId}/repos/${repo.id}/status/`,
+            { method: 'POST', headers: { 'X-CSRFToken': this.getCsrf() } }
+          );
+          const statusData = await statusRes.json();
+          if (!statusRes.ok) {
+            this.repoMessageOk = false;
+            this.repoMessage = statusData.error || 'Could not reconnect to repository.';
+            return;
+          }
+          this.replaceRepoRecord(statusData);
+          if (statusData.status === 'ERROR') {
+            this.repoMessageOk = false;
+            this.repoMessage = statusData.last_error || 'Repository is still unreachable.';
+            return;
+          }
+          this.repoMessage = 'Reconnected. Queuing update…';
+        } catch (err) {
+          this.repoMessageOk = false;
+          this.repoMessage = err?.message || 'Connection check failed.';
+          return;
+        }
+      }
+
+      try {
+        const res = await fetch(
+          `/deployments/odoo/instances/${this.instanceId}/repos/${repo.id}/sync/`,
+          { method: 'POST', headers: { 'X-CSRFToken': this.getCsrf() } }
+        );
+        const data = await res.json();
+        if (res.ok) {
+          this.repoMessageOk = true;
+          this.repoMessage = 'Update queued.';
+          this.pendingRepoIds = [...(this.pendingRepoIds || []), String(repo.id)];
+          this.loadJobs();
+        } else {
+          this.repoMessageOk = false;
+          this.repoMessage = data.error || 'Could not queue update.';
+        }
+      } catch (err) {
+        this.repoMessageOk = false;
+        this.repoMessage = err?.message || 'Update failed.';
+      }
+    },
+
+    async toggleCoreAutoUpdate() {
+      this.autoUpdateCoreBusy = true;
+      try {
+        const res = await fetch(`/deployments/odoo/instances/${this.instanceId}/toggle-core-auto-update/`, {
+          method: 'POST',
+          headers: { 'X-CSRFToken': this.getCsrf() },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          this.autoUpdateCore = data.auto_update_core;
+        }
+      } finally {
+        this.autoUpdateCoreBusy = false;
+      }
+    },
+
+    async loadPendingCommits() {
+      if (!this.linkedRepo || !this.linkedRepo.local_path) return;
+      this.pendingCommitsLoading = true;
+      try {
+        const res = await fetch(
+          `/deployments/odoo/instances/${this.instanceId}/repos/${this.linkedRepo.id}/pending-commits/`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          this.pendingCommits = data.commits || [];
+          this.pendingCommitsCount = data.count || 0;
+        }
+      } finally {
+        this.pendingCommitsLoading = false;
+      }
+    },
+
     async toggleAutoUpdate() {
       if (!this.linkedRepo) return;
       const repoId = this.linkedRepo.id;
@@ -2618,7 +3214,9 @@ function instanceConsole(instanceId) {
             this.instanceSslStatus = msg.summary.ssl_status;
           }
           if (msg.type === 'repo.update' || msg.type === 'repo.synced' || msg.type === 'repo.removed' || msg.type === 'instance.addons_synced') {
-            this.loadRepos(false);
+            this.loadRepos(false).then(() => {
+              if (this.activeTab === 'git' && this.linkedRepo) this.loadPendingCommits();
+            });
           }
           if (msg.type === 'instance.addons_synced') {
             this.addonsRootPath = msg.addons_root_path || this.addonsRootPath;
@@ -3284,9 +3882,10 @@ function instanceConsole(instanceId) {
       this.githubUploadFileName = '';
       this.resetGithubUploadProgress();
       if (this.$refs.inlineUploadZipInput) this.$refs.inlineUploadZipInput.value = '';
-      this.setToolbarTab('settings');
+      if (this.$refs.gitUploadZipInput) this.$refs.gitUploadZipInput.value = '';
+      this.setToolbarTab('git');
       this.$nextTick(() => {
-        document.getElementById(`github-upload-inline-${repo.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        document.getElementById('git-module-upload-panel')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       });
     },
 
@@ -3554,7 +4153,7 @@ function instanceConsole(instanceId) {
           this.clearGithubUpload();
           this.loadRepos();
           this.loadJobs();
-          this.setToolbarTab('settings');
+          if (this.activeTab !== 'git') this.setToolbarTab('git');
         }
       } catch (err) {
         this.repoMessageOk = false;
@@ -4504,6 +5103,42 @@ function instanceConsole(instanceId) {
       store.busy        = false;
       store.open        = true;
       store.loadServers();
+    },
+
+    openBackupRestoreModal(bk) {
+      this.backupRestoreTarget = bk;
+      this.backupRestoreConfirming = false;
+      this.backupRestoreWorking = false;
+      this.backupRestoreModal = true;
+    },
+
+    async confirmRestoreBackup() {
+      if (!this.backupRestoreTarget) return;
+      this.backupRestoreWorking = true;
+      try {
+        const res = await fetch(
+          `/api/backups/instances/${this.instanceId}/restore/${this.backupRestoreTarget.id}/`,
+          { method: 'POST', headers: { 'X-CSRFToken': this.getCsrf() } }
+        );
+        const data = await res.json();
+        this.backupRestoreModal = false;
+        this.backupRestoreConfirming = false;
+        this.backupMsgOk = res.ok;
+        this.backupMsg   = res.ok
+          ? 'Restore started. Monitor progress in the Jobs tab.'
+          : (data.error || 'Restore request failed.');
+        if (res.ok) { this.loadJobs(); this.setToolbarTab('upgrade-tools'); }
+      } catch (err) {
+        this.backupMsgOk = false;
+        this.backupMsg   = 'Network error: ' + err.message;
+        this.backupRestoreModal = false;
+      } finally {
+        this.backupRestoreWorking = false;
+      }
+    },
+
+    downloadBackup(bk) {
+      window.location.href = `/api/backups/instances/${this.instanceId}/download/${bk.id}/`;
     },
 
     // ── Operations ──

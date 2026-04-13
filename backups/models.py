@@ -43,6 +43,11 @@ class OdooInstanceBackup(models.Model):
     size_bytes = models.BigIntegerField(default=0)
     # Task execution log
     log = models.TextField(blank=True)
+    # Git snapshot metadata captured at backup time
+    branch   = models.CharField(max_length=255, blank=True, default="")
+    revision = models.CharField(max_length=64, blank=True, default="",
+                                help_text="Git commit SHA at the time of backup")
+    odoo_version = models.CharField(max_length=20, blank=True, default="")
     # Optional human-readable label set by the user
     note = models.CharField(max_length=255, blank=True, default="")
     created_by = models.ForeignKey(

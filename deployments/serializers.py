@@ -263,6 +263,8 @@ class OdooInstanceSerializer(serializers.ModelSerializer):
             "enterprise_remote_path",
             "enterprise_last_synced_at",
             "enterprise_error",
+            "auto_update_core",
+            "core_update_channel",
             "server",
             "created_at",
             "updated_at",

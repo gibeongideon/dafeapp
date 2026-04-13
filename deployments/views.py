@@ -2751,6 +2751,68 @@ class OdooInstanceGitRepoDeleteAPIView(LoginRequiredMixin, View):
         return JsonResponse({"ok": True, "job_id": job.id})
 
 
+class OdooInstanceToggleCoreAutoUpdateAPIView(LoginRequiredMixin, View):
+    """POST /deployments/odoo/instances/<id>/toggle-core-auto-update/"""
+
+    def post(self, request, instance_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        instance = get_object_or_404(OdooInstance, pk=instance_id, organization=org)
+        instance.auto_update_core = not instance.auto_update_core
+        instance.save(update_fields=["auto_update_core", "updated_at"])
+        return JsonResponse({"auto_update_core": instance.auto_update_core})
+
+
+class OdooInstanceRepoPendingCommitsAPIView(LoginRequiredMixin, View):
+    """GET /deployments/odoo/instances/<id>/repos/<repo_id>/pending-commits/
+    Returns commits on the tracked branch that haven't been pulled yet.
+    """
+
+    def get(self, request, instance_id, repo_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        repo = get_object_or_404(
+            OdooInstanceGitRepo,
+            pk=repo_id,
+            instance_id=instance_id,
+            instance__organization=org,
+        )
+        if not repo.local_path:
+            return JsonResponse({"commits": [], "count": 0})
+
+        server = repo.instance.server
+        from deployments.tasks import _ssh_run  # noqa: PLC0415
+
+        base_commit = repo.last_pulled_commit or "HEAD"
+        fmt = r"%H|%s|%an|%aI"
+        cmd = (
+            f"git -C {repo.local_path} fetch --quiet 2>/dev/null; "
+            f"git -C {repo.local_path} log {base_commit}..origin/{repo.branch}"
+            f" --format='{fmt}' 2>/dev/null || true"
+        )
+        try:
+            rc, stdout = _ssh_run(server, cmd, timeout=30)
+        except Exception as exc:
+            return JsonResponse({"error": f"Could not retrieve git log: {exc}"}, status=502)
+
+        commits = []
+        for line in (stdout or "").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split("|", 3)
+            if len(parts) == 4:
+                commits.append({
+                    "sha": parts[0][:40],
+                    "message": parts[1][:200],
+                    "author": parts[2][:120],
+                    "timestamp": parts[3],
+                })
+        return JsonResponse({"commits": commits, "count": len(commits)})
+
+
 class GitRepositoryCredentialListCreateAPIView(LoginRequiredMixin, View):
     def get(self, request):
         org = getattr(request, "organization", None)
@@ -3249,6 +3311,18 @@ class GitHubWebhookAPIView(View):
         commit_message = (head_commit.get("message") or "")[:500]
         pusher_name = ((payload.get("pusher") or {}).get("name") or "")[:255]
 
+        # Collect all pushed commits for history display
+        raw_commits = payload.get("commits") or []
+        commits_data = [
+            {
+                "sha": (c.get("id") or "")[:64],
+                "message": (c.get("message") or "").split("\n")[0][:200],
+                "author": ((c.get("author") or {}).get("name") or "")[:120],
+                "timestamp": c.get("timestamp") or "",
+            }
+            for c in raw_commits[:50]
+        ]
+
         repos = (
             OdooInstanceGitRepo.objects.select_related("instance", "instance__organization")
             .filter(
@@ -3289,6 +3363,7 @@ class GitHubWebhookAPIView(View):
             status=GitHubWebhookEvent.Status.PROCESSED,
             matched_repo_ids=matched_repo_ids,
             queued_repo_ids=queued_repo_ids,
+            commits_data=commits_data,
         )
 
         # Refresh staging TTL for any staging instance whose repo was just queued for update
@@ -3812,7 +3887,13 @@ class OdooInstanceHistoryAPIView(LoginRequiredMixin, View):
                     matched_repos.append(f"{repo.repo_name}:{repo.branch}")
             repo_label = ", ".join(matched_repos[:2]) if matched_repos else event.repository
             sha = (event.head_commit_sha or "")[:8] or "—"
-            title = event.head_commit_message or f"GitHub push on {event.branch}"
+            commits_count = len(event.commits_data) if event.commits_data else (1 if event.head_commit_sha else 0)
+            if commits_count > 1:
+                title = f"{commits_count} commits pushed to {event.branch or 'unknown branch'}"
+            elif commits_count == 1:
+                title = event.head_commit_message or f"1 commit pushed to {event.branch}"
+            else:
+                title = event.head_commit_message or f"GitHub push on {event.branch}"
             details = f"{repo_label} · {event.branch or 'unknown branch'} · {sha}"
             timeline.append(
                 {
@@ -3821,6 +3902,8 @@ class OdooInstanceHistoryAPIView(LoginRequiredMixin, View):
                     "event_label": "GitHub",
                     "title": title,
                     "details": details,
+                    "commits_count": commits_count,
+                    "commits_data": event.commits_data or [],
                     "status": event.status,
                     "timestamp": event.received_at.isoformat(),
                     "actor": event.pusher_name or "GitHub",

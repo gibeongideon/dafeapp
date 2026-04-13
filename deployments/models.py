@@ -466,6 +466,8 @@ class OdooInstance(models.Model):
     addons_last_sync_at = models.DateTimeField(null=True, blank=True)
     # Admin user login credentials (set during provisioning, used for relay login)
     odoo_admin_password = models.CharField(max_length=128, blank=True, default="")
+    auto_update_core = models.BooleanField(default=False)
+    core_update_channel = models.CharField(max_length=20, default="stable", blank=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True,
@@ -756,6 +758,7 @@ class GitHubWebhookEvent(models.Model):
     ignore_reason = models.CharField(max_length=255, blank=True)
     matched_repo_ids = models.JSONField(default=list)   # list[int] of OdooInstanceGitRepo ids matched
     queued_repo_ids = models.JSONField(default=list)    # list[int] of OdooInstanceGitRepo ids queued
+    commits_data = models.JSONField(default=list, blank=True)  # [{sha, message, author, timestamp}, ...]
     received_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -799,6 +802,7 @@ class DeploymentJob(models.Model):
         BACKUP_INSTANCE          = "BACKUP_INSTANCE",          "Backup Instance"
         RESTORE_INSTANCE         = "RESTORE_INSTANCE",         "Restore Instance"
         DELETE_SERVER            = "DELETE_SERVER",            "Delete Server"
+        AUTO_UPDATE_CORE         = "AUTO_UPDATE_CORE",         "Auto-Update Odoo Core"
 
     class Status(models.TextChoices):
         QUEUED = "QUEUED", "Queued"

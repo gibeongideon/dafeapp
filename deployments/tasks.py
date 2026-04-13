@@ -4537,6 +4537,26 @@ def sync_instance_repo_status(repo_id: int):
     server = repo.instance.server
     if not repo.local_path:
         return
+
+    # Check if the .git directory exists before running any git commands.
+    # If the directory is missing it means the repo has never been cloned (or
+    # was deleted).  Set DISCONNECTED (not ERROR) so the frontend proceeds to
+    # call /sync/ which will trigger a fresh clone via update_instance_repo.
+    dir_check_cmd = f"test -d {shlex.quote(repo.local_path)}/.git && echo OK || echo MISSING"
+    chk_code, chk_out = _ssh_run(server, dir_check_cmd, timeout=15)
+    if chk_code != 0:
+        # SSH itself failed to connect
+        repo.status = OdooInstanceGitRepo.Status.ERROR
+        repo.last_error = chk_out or "SSH connection failed."
+        repo.save(update_fields=["last_error", "status", "updated_at"])
+        return
+    if (chk_out or "").strip() == "MISSING":
+        # Directory absent — mark DISCONNECTED so /sync/ will re-clone
+        repo.status = OdooInstanceGitRepo.Status.DISCONNECTED
+        repo.last_error = "Repository directory not found on server. Click Update to re-clone."
+        repo.save(update_fields=["last_error", "status", "updated_at"])
+        return
+
     git_setup = ""
     remote_key_path = ""
     if repo.auth_type == OdooInstanceGitRepo.AuthType.SSH_KEY:
@@ -5638,3 +5658,125 @@ def cleanup_expired_staging_instances(self):
         count += 1
 
     logger.info("cleanup_expired_staging_instances: queued %d deletions", count)
+
+
+# ---------------------------------------------------------------------------
+# Core Odoo auto-update (nightly channel)
+# ---------------------------------------------------------------------------
+
+@shared_task(bind=True, name="deployments.tasks.check_and_update_core_odoo", soft_time_limit=3600)
+def check_and_update_core_odoo(self, instance_id, job_id=None):
+    """Pull the latest Odoo core updates for an instance.
+
+    Docker mode: docker pull <image> + recreate container.
+    Bare-metal mode: apt-get upgrade odoo + systemctl restart.
+    """
+    from deployments.models import DeploymentJob, OdooInstance, OdooServer  # noqa: PLC0415
+
+    instance = OdooInstance.objects.select_related("server").filter(pk=instance_id).first()
+    if not instance:
+        logger.warning("check_and_update_core_odoo: instance %s not found", instance_id)
+        return
+
+    if not instance.auto_update_core:
+        logger.info("check_and_update_core_odoo: auto_update_core disabled for instance %s", instance_id)
+        return
+    if instance.status != OdooInstance.Status.RUNNING:
+        logger.info(
+            "check_and_update_core_odoo: instance %s not RUNNING (status=%s), skipping",
+            instance_id,
+            instance.status,
+        )
+        return
+
+    job = None
+    if job_id:
+        job = DeploymentJob.objects.filter(pk=job_id).first()
+
+    def _log(msg):
+        logger.info("check_and_update_core_odoo[%s]: %s", instance_id, msg)
+        if job:
+            job.log = (job.log or "") + msg + "\n"
+            job.save(update_fields=["log", "updated_at"])
+
+    if job:
+        job.status = DeploymentJob.Status.RUNNING
+        job.started_at = timezone.now()
+        job.save(update_fields=["status", "started_at", "updated_at"])
+
+    server = instance.server
+    is_docker = (getattr(server, "deployment_mode", None) == "DOCKER")
+
+    try:
+        if is_docker:
+            # Docker: pull latest image tag then recreate container
+            odoo_version = getattr(instance, "odoo_version", "17")
+            image = f"odoo:{odoo_version}"
+            _log(f"Pulling Docker image: {image}")
+            rc, out = _ssh_run(server, f"docker pull {image}", timeout=600)
+            _log(out)
+            if rc != 0:
+                raise RuntimeError(f"docker pull failed (rc={rc})")
+            container = instance.container_name or f"odoo_{instance.db_name}"
+            _log(f"Recreating container: {container}")
+            rc, out = _ssh_run(
+                server,
+                f"docker compose -f /opt/odoo/{instance.db_name}/docker-compose.instance.yml up -d --force-recreate",
+                timeout=300,
+            )
+            _log(out)
+            if rc != 0:
+                raise RuntimeError(f"docker compose recreate failed (rc={rc})")
+        else:
+            # Bare-metal: apt-get upgrade + systemctl restart
+            _log("Updating Odoo package (nightly channel)…")
+            rc, out = _ssh_run(
+                server,
+                "DEBIAN_FRONTEND=noninteractive apt-get update -qq && "
+                "apt-get install -y --only-upgrade odoo 2>&1",
+                timeout=600,
+            )
+            _log(out)
+            if rc != 0:
+                raise RuntimeError(f"apt-get upgrade odoo failed (rc={rc})")
+            service = instance.systemd_service or f"odoo-{instance.db_name}"
+            _log(f"Restarting service: {service}")
+            rc, out = _ssh_run(server, f"systemctl restart {service}", timeout=120)
+            _log(out)
+            if rc != 0:
+                raise RuntimeError(f"systemctl restart failed (rc={rc})")
+
+        _log("Core Odoo update completed successfully.")
+        if job:
+            job.status = DeploymentJob.Status.DONE
+            job.finished_at = timezone.now()
+            job.save(update_fields=["status", "finished_at", "log", "updated_at"])
+
+    except Exception as exc:
+        _log(f"ERROR: {exc}")
+        if job:
+            job.status = DeploymentJob.Status.FAILED
+            job.finished_at = timezone.now()
+            job.save(update_fields=["status", "finished_at", "log", "updated_at"])
+        raise
+
+
+@shared_task(name="deployments.tasks.auto_check_core_updates")
+def auto_check_core_updates():
+    """Periodic beat task: trigger core Odoo update for all instances with auto_update_core=True."""
+    from deployments.models import DeploymentJob, OdooInstance  # noqa: PLC0415
+
+    instances = OdooInstance.objects.select_related("server", "organization").filter(
+        auto_update_core=True,
+        status=OdooInstance.Status.RUNNING,
+    )
+    count = 0
+    for instance in instances:
+        job = DeploymentJob.objects.create(
+            organization=instance.organization,
+            job_type=DeploymentJob.JobType.AUTO_UPDATE_CORE,
+            odoo_instance=instance,
+        )
+        check_and_update_core_odoo.delay(instance.id, job.id)
+        count += 1
+    logger.info("auto_check_core_updates: dispatched %d core update tasks", count)
