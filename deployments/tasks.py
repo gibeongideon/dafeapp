@@ -2025,7 +2025,15 @@ def _reconcile_assignment_domain(
         return True, "No domain configured."
 
     messages: list[str] = []
-    if instance.server.deployment_mode == OdooServer.DeploymentMode.BARE_METAL:
+
+    # For already-ACTIVE assignments skip the Ansible re-application steps.
+    # The periodic reconcile task includes ACTIVE domains (to probe health) but
+    # re-running Traefik playbooks can transiently fail and flip SSL → FAILED,
+    # undoing a working setup.  When an assignment is already ACTIVE we only
+    # need to verify it is still reachable via the probe below.
+    already_active = assignment.status == DomainAssignment.Status.ACTIVE
+
+    if instance.server.deployment_mode == OdooServer.DeploymentMode.BARE_METAL and not already_active:
         ok, route_log = _ensure_bare_traefik_gateway(instance.server)
         if not ok:
             if assignment.is_primary:
@@ -2051,11 +2059,16 @@ def _reconcile_assignment_domain(
         if dns_message and "disabled" not in dns_message.lower():
             messages.append(dns_message)
     except Exception as exc:
-        if assignment.is_primary:
-            _mark_instance_domain_failed(instance, assignment, str(exc))
+        if already_active:
+            # Don't demote an already-working domain on a transient DNS API failure.
+            logger.warning("DNS upsert failed for active assignment %s (domain %s): %s", assignment.id, domain, exc)
+            messages.append(f"DNS update skipped (will retry): {exc}")
         else:
-            _save_assignment_state(assignment, status=DomainAssignment.Status.FAILED, last_error=str(exc), last_synced_at=now)
-        return False, str(exc)
+            if assignment.is_primary:
+                _mark_instance_domain_failed(instance, assignment, str(exc))
+            else:
+                _save_assignment_state(assignment, status=DomainAssignment.Status.FAILED, last_error=str(exc), last_synced_at=now)
+            return False, str(exc)
 
     if skip_probe:
         if assignment.is_primary:

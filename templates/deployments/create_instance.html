@@ -656,9 +656,9 @@
                 <div class="flex items-center justify-between gap-3">
                   <span class="text-gray-400">Domain</span>
                   {% if oi.domain %}
-                  <span class="truncate text-right font-mono text-[11px] text-gray-800">{{ oi.domain }}</span>
+                  <a href="{{ oi.preferred_access_url }}" target="_blank" rel="noopener noreferrer" class="truncate text-right font-mono text-[11px] text-indigo-600 hover:text-indigo-800 hover:underline">{{ oi.domain }}</a>
                   {% elif oi.preferred_access_url %}
-                  <span class="truncate text-right font-mono text-[11px] text-gray-500">{{ oi.preferred_access_url }}</span>
+                  <a href="{{ oi.preferred_access_url }}" target="_blank" rel="noopener noreferrer" class="truncate text-right font-mono text-[11px] text-blue-500 hover:text-blue-700 hover:underline">{{ oi.preferred_access_url }}</a>
                   {% else %}
                   <span class="text-gray-400">Pending</span>
                   {% endif %}
@@ -733,6 +733,7 @@
                       data-instance-id="{{ oi.id }}"
                       data-instance-name="{{ oi.name }}"
                       data-instance-domain="{{ oi.domain|default:'' }}"
+                      data-platform-domain="{{ oi.domain|default:'' }}"
                       data-server-mode="{{ oi.server.deployment_mode }}"
                       data-domain-status="{{ oi.domain_status }}"
                       data-ssl-status="{{ oi.ssl_status }}"
@@ -967,6 +968,7 @@
                           data-instance-id="{{ oi.id }}"
                           data-instance-name="{{ oi.name }}"
                           data-instance-domain="{{ oi.domain|default:'' }}"
+                          data-platform-domain="{{ oi.domain|default:'' }}"
                           data-server-mode="{{ oi.server.deployment_mode }}"
                           data-domain-status="{{ oi.domain_status }}"
                           data-ssl-status="{{ oi.ssl_status }}"
@@ -1984,8 +1986,19 @@ chmod 600 ~/.ssh/authorized_keys</pre>
         <div id="domain-status-box" class="rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2.5">
           <p id="domain-status-summary" class="text-xs text-indigo-700">No domain is attached yet.</p>
         </div>
-        <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">Domain</label>
+
+        <!-- Platform / default domain (shown in "add custom domain" mode) -->
+        <div id="domain-platform-section" class="hidden rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
+          <p class="text-[10px] uppercase tracking-[0.12em] text-gray-400 mb-1">Default Domain</p>
+          <div class="flex items-center justify-between gap-2">
+            <a id="domain-platform-link" href="#" target="_blank" rel="noopener noreferrer"
+               class="font-mono text-xs text-indigo-600 hover:text-indigo-800 hover:underline truncate"></a>
+            <span id="domain-platform-status" class="shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-500"></span>
+          </div>
+        </div>
+
+        <div id="domain-custom-input-section">
+          <label id="domain-input-label" class="block text-xs font-medium text-gray-600 mb-1">Custom Domain</label>
           <input id="domain-name-input" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg font-mono" placeholder="app.example.com" />
         </div>
         <p id="domain-help-text" class="text-[11px] text-gray-500">
@@ -2442,6 +2455,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
             data-instance-id="${assignment.instance_id}"
             data-instance-name="${escapeHtml(assignment.instance_name || "")}"
             data-instance-domain="${escapeHtml(assignment.domain || "")}"
+            data-platform-domain="${escapeHtml((linkedInstance && linkedInstance.domain) || "")}"
             data-server-mode="${escapeHtml(serverMode || "")}"
             data-domain-status="${escapeHtml(assignment.domain_status || assignment.status || "")}"
             data-ssl-status="${escapeHtml(assignment.ssl_status || "")}"
@@ -2482,6 +2496,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
                 data-instance-id="${instance.id}"
                 data-instance-name="${escapeHtml(instance.name || "")}"
                 data-instance-domain=""
+                data-platform-domain="${escapeHtml(instance.domain || "")}"
                 data-server-mode="${escapeHtml((instance.server && instance.server.deployment_mode) || "")}"
                 data-domain-status="${escapeHtml(instance.domain_status || "")}"
                 data-ssl-status="${escapeHtml(instance.ssl_status || "")}"
@@ -2808,7 +2823,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
         <div class="space-y-4 px-5 py-4">
           <div class="grid gap-3 rounded-2xl border border-gray-200 bg-gray-50 px-3 py-3 text-xs text-gray-600">
             <div class="flex items-center justify-between gap-3"><span class="text-gray-400">Server</span><span class="truncate text-right text-gray-800">${escapeHtml(server.name || "Unknown server")}</span></div>
-            <div class="flex items-center justify-between gap-3"><span class="text-gray-400">Domain</span>${domainText ? `<span class="truncate text-right font-mono text-[11px] text-gray-800">${escapeHtml(domainText)}</span>` : preferredAccessUrl ? `<span class="truncate text-right font-mono text-[11px] text-gray-500">${escapeHtml(preferredAccessUrl)}</span>` : `<span class="text-gray-400">Pending</span>`}</div>
+            <div class="flex items-center justify-between gap-3"><span class="text-gray-400">Domain</span>${domainText ? `<a href="${escapeHtml(preferredAccessUrl || `https://${domainText}`)}" target="_blank" rel="noopener noreferrer" class="truncate text-right font-mono text-[11px] text-indigo-600 hover:text-indigo-800 hover:underline">${escapeHtml(domainText)}</a>` : preferredAccessUrl ? `<a href="${escapeHtml(preferredAccessUrl)}" target="_blank" rel="noopener noreferrer" class="truncate text-right font-mono text-[11px] text-blue-500 hover:text-blue-700 hover:underline">${escapeHtml(preferredAccessUrl)}</a>` : `<span class="text-gray-400">Pending</span>`}</div>
             <div class="flex items-center justify-between gap-3"><span class="text-gray-400">Odoo Version</span><span class="text-gray-800">Odoo ${escapeHtml(server.odoo_version || "—")}</span></div>
             <div class="flex items-center justify-between gap-3"><span class="text-gray-400">Edition</span><span class="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${editionBadgeClass}">${editionLabel}</span></div>
           </div>
@@ -2842,6 +2857,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
                   data-instance-id="${iid}"
                   data-instance-name="${escapeHtml(instance.name || "")}"
                   data-instance-domain="${escapeHtml(instance.domain || "")}"
+                  data-platform-domain="${escapeHtml(instance.domain || "")}"
                   data-server-mode="${escapeHtml(server.deployment_mode || "")}"
                   data-domain-status="${escapeHtml(instance.domain_status || "")}"
                   data-ssl-status="${escapeHtml(instance.ssl_status || "")}"
@@ -3928,6 +3944,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
     instanceId,
     instanceName,
     domain = "",
+    platformDomain = "",
     serverMode = "BARE_METAL",
     domainStatus = "",
     sslStatus = "",
@@ -3950,20 +3967,58 @@ chmod 600 ~/.ssh/authorized_keys</pre>
       assignment_status: assignmentStatus,
     });
     $("domain-instance-name").textContent = instanceName || "";
-    $("domain-name-input").value = domain || "";
-    $("domain-status-summary").textContent = domainStatusSummary(domainStatus, sslStatus, domain);
+
+    // In "add custom domain" mode (isPrimary=false), show the platform default domain
+    // at the top of the modal so the user can see it while entering a custom domain.
+    const platformSection = $("domain-platform-section");
+    const platformLink = $("domain-platform-link");
+    const platformStatusEl = $("domain-platform-status");
+    const inputLabel = $("domain-input-label");
+    const inputSection = $("domain-custom-input-section");
+
+    if (!isPrimary && platformDomain) {
+      const pdUrl = `https://${platformDomain}`;
+      platformLink.textContent = platformDomain;
+      platformLink.href = pdUrl;
+      // Status badge for platform domain
+      const sslMap = {
+        ACTIVE: ["bg-green-100 text-green-700", "Active"],
+        PENDING: ["bg-amber-100 text-amber-700", "Pending"],
+        FAILED: ["bg-red-100 text-red-700", "Failed"],
+        NOT_CONFIGURED: ["bg-gray-100 text-gray-500", "Not configured"],
+      };
+      const [badgeClass, badgeLabel] = sslMap[sslStatus] || sslMap["NOT_CONFIGURED"];
+      platformStatusEl.className = `shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${badgeClass}`;
+      platformStatusEl.textContent = badgeLabel;
+      show(platformSection);
+      // Update status box to reflect platform domain state
+      $("domain-status-summary").textContent = domainStatusSummary(domainStatus, sslStatus, platformDomain);
+      // The input is now for a new custom domain — clear it & update label
+      $("domain-name-input").value = "";
+      if (inputLabel) inputLabel.textContent = "Custom Domain";
+      show(inputSection);
+    } else {
+      hide(platformSection);
+      $("domain-name-input").value = domain || "";
+      $("domain-status-summary").textContent = domainStatusSummary(domainStatus, sslStatus, domain);
+      if (inputLabel) inputLabel.textContent = isPrimary ? "Domain" : "Custom Domain";
+    }
+
     $("domain-help-text").textContent = activeDomainIsPrimary
       ? "This is the default DafeApp domain for the instance. You can reprovision it, but not detach it."
-      : "Attach or remove an extra custom hostname that points to this instance from your own DNS provider.";
+      : "Attach an extra custom hostname that points to this instance. Your DNS must have an A record pointing to the server IP.";
     $("domain-name-input").disabled = !!activeDomainLockReason || activeDomainIsPrimary;
-    if (domain) {
+
+    const hasDomain = isPrimary ? !!domain : !!activeDomainCurrentValue;
+    if (hasDomain) {
       if (activeDomainIsPrimary) hide($("domain-detach-btn"));
       else show($("domain-detach-btn"));
       show($("domain-retry-btn"));
       $("domain-save-btn").textContent = activeDomainIsPrimary ? "Keep Primary Domain" : "Update Domain";
     } else {
       hide($("domain-detach-btn"));
-      hide($("domain-retry-btn"));
+      if (activeDomainIsPrimary && domain) show($("domain-retry-btn"));
+      else hide($("domain-retry-btn"));
       $("domain-save-btn").textContent = "Attach Domain";
     }
     setLockedButtonState($("domain-save-btn"), !!activeDomainLockReason || activeDomainIsPrimary, activeDomainLockReason);
@@ -4642,14 +4697,16 @@ chmod 600 ~/.ssh/authorized_keys</pre>
   document.addEventListener("click", async (e) => {
     const domainBtn = e.target.closest(".manage-domain-btn");
     if (domainBtn) {
+      const isPrimary = domainBtn.dataset.isPrimary === "true";
       openDomainModal({
         instanceId: domainBtn.dataset.instanceId,
         instanceName: domainBtn.dataset.instanceName,
         domain: domainBtn.dataset.instanceDomain || "",
+        platformDomain: domainBtn.dataset.platformDomain || domainBtn.dataset.instanceDomain || "",
         serverMode: domainBtn.dataset.serverMode || "BARE_METAL",
         domainStatus: domainBtn.dataset.domainStatus || "",
         sslStatus: domainBtn.dataset.sslStatus || "",
-        isPrimary: domainBtn.dataset.isPrimary === "true",
+        isPrimary,
         instanceStatus: domainBtn.dataset.instanceStatus || "",
         serverStatus: domainBtn.dataset.serverStatus || "",
         enterpriseStatus: domainBtn.dataset.enterpriseStatus || "",
