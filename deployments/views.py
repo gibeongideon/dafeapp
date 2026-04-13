@@ -1369,9 +1369,11 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
         server_tab = (self.request.GET.get("server_tab") or "").strip().lower()
         if server_tab not in {"dashboard", "monitoring", "instances", "postgres", "ssh", "settings"}:
             server_tab = "dashboard"
-        instance_view_mode = (self.request.GET.get("instance_view") or "kanban").strip().lower()
+        # Default to list view on the all-instances page; kanban elsewhere.
+        _default_view = "list" if (section == "instances" and not server_id) else "kanban"
+        instance_view_mode = (self.request.GET.get("instance_view") or _default_view).strip().lower()
         if instance_view_mode not in {"kanban", "list"}:
-            instance_view_mode = "kanban"
+            instance_view_mode = _default_view
         instance_page_number = (self.request.GET.get("page") or "1").strip()
         accounts = CloudAccount.objects.filter(organization=org, is_verified=True)
         ctx["accounts"] = accounts

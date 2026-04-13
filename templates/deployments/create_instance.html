@@ -27,10 +27,7 @@
         <span class="text-gray-500">{{ selected_server.active_instance_count }}/{{ selected_server.max_instances }} instances</span>
       </div>
       {% elif show_instances_view %}
-      <h2 class="text-2xl font-semibold text-gray-900">All instances</h2>
-      <p class="text-sm text-gray-500">
-        Browse every instance in the organization from one shared board.
-      </p>
+      <h2 class="text-2xl font-semibold text-gray-900">Instances</h2>
       {% else %}
       <h2 class="text-2xl font-semibold text-gray-900">Servers</h2>
       {% endif %}
@@ -372,11 +369,47 @@
   {% endif %}
 
   <!-- Server Kanban -->
+  {% if show_instances_view %}
+  <!-- ── Odoo-style instances toolbar ───────────────────────────────────── -->
+  <div id="instances" class="flex flex-wrap items-center gap-3">
+    <!-- Search -->
+    <div class="relative flex-1 min-w-[180px] max-w-sm">
+      <svg class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/>
+      </svg>
+      <input id="instance-search-input" type="search" placeholder="Search instances…"
+             class="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg bg-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-gray-300" />
+    </div>
+    <!-- Group by -->
+    <div class="flex items-center gap-2 shrink-0">
+      <span class="text-xs text-gray-400 whitespace-nowrap">Group by</span>
+      <select id="instance-group-select"
+              class="text-xs border border-gray-200 rounded-lg px-2.5 py-2 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-200 cursor-pointer">
+        <option value="" selected>None</option>
+        <option value="server">Server</option>
+        <option value="date">Created</option>
+      </select>
+    </div>
+    <!-- Total count + view toggle -->
+    <div class="flex items-center gap-3 ml-auto shrink-0">
+      <span id="instance-count-label" class="text-xs text-gray-400">{{ instance_total_count }} instance{{ instance_total_count|pluralize }}</span>
+      <div class="inline-flex items-center rounded-lg border border-gray-200 bg-white p-1 text-xs">
+        <button type="button"
+                class="view-mode-btn px-3 py-1.5 rounded-md {% if instance_view_mode == 'kanban' %}bg-gray-900 text-white{% else %}text-gray-600 hover:bg-gray-50{% endif %}"
+                data-target="instances" data-mode="kanban">Kanban</button>
+        <button type="button"
+                class="view-mode-btn px-3 py-1.5 rounded-md {% if instance_view_mode == 'list' %}bg-gray-900 text-white{% else %}text-gray-600 hover:bg-gray-50{% endif %}"
+                data-target="instances" data-mode="list">List</button>
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <!-- ── Standard instances/servers section header ──────────────────────── -->
   <div id="instances" class="{% if selected_server and server_dashboard_tab != 'instances' %}hidden {% endif %}flex items-center justify-between gap-3">
-    <p class="text-xs uppercase tracking-wide text-gray-400">{% if selected_server %}Instances{% elif show_instances_view %}Instances{% else %}Servers{% endif %}</p>
-    {% if show_instances_view or selected_server %}
+    <p class="text-xs uppercase tracking-wide text-gray-400">{% if selected_server %}Instances{% else %}Servers{% endif %}</p>
+    {% if selected_server %}
     <div class="flex items-center gap-2">
-      {% if selected_server and server_dashboard_tab != 'dashboard' %}
+      {% if server_dashboard_tab != 'dashboard' %}
       <button id="new-instance-btn"
               type="button"
               class="open-instance-modal inline-flex items-center px-3 py-1.5 text-xs font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700 transition-colors"
@@ -391,86 +424,48 @@
         + New Instance
       </button>
       {% endif %}
-    <div class="inline-flex items-center rounded-lg border border-gray-200 bg-white p-1 text-xs">
-      <button type="button"
-              class="view-mode-btn px-3 py-1.5 rounded-md {% if instance_view_mode == 'kanban' %}bg-gray-900 text-white{% else %}text-gray-600 hover:bg-gray-50{% endif %}"
-              data-target="instances"
-              data-mode="kanban">
-        Kanban
-      </button>
-      <button type="button"
-              class="view-mode-btn px-3 py-1.5 rounded-md {% if instance_view_mode == 'list' %}bg-gray-900 text-white{% else %}text-gray-600 hover:bg-gray-50{% endif %}"
-              data-target="instances"
-              data-mode="list">
-        List
-      </button>
-    </div>
+      <div class="inline-flex items-center rounded-lg border border-gray-200 bg-white p-1 text-xs">
+        <button type="button"
+                class="view-mode-btn px-3 py-1.5 rounded-md {% if instance_view_mode == 'kanban' %}bg-gray-900 text-white{% else %}text-gray-600 hover:bg-gray-50{% endif %}"
+                data-target="instances" data-mode="kanban">Kanban</button>
+        <button type="button"
+                class="view-mode-btn px-3 py-1.5 rounded-md {% if instance_view_mode == 'list' %}bg-gray-900 text-white{% else %}text-gray-600 hover:bg-gray-50{% endif %}"
+                data-target="instances" data-mode="list">List</button>
+      </div>
     </div>
     {% else %}
-    <div class="inline-flex items-center rounded-lg border border-gray-200 bg-white p-1 text-xs">
-      <button type="button" class="view-mode-btn px-3 py-1.5 rounded-md bg-gray-900 text-white" data-target="{% if selected_server %}instance-card-grid{% else %}server-kanban{% endif %}" data-mode="kanban">Kanban</button>
-      <button type="button" class="view-mode-btn px-3 py-1.5 rounded-md text-gray-600 hover:bg-gray-50" data-target="{% if selected_server %}instance-card-grid{% else %}server-kanban{% endif %}" data-mode="list">List</button>
+    <!-- ── Odoo-style servers toolbar ──────────────────────────────────────── -->
+    <div class="flex flex-1 items-center gap-2 min-w-0">
+      <div class="relative flex-1 max-w-sm">
+        <svg class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/>
+        </svg>
+        <input id="server-search-input" type="search" placeholder="Search servers…"
+               class="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg bg-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-gray-300" />
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        <span class="text-xs text-gray-400 whitespace-nowrap">Group by</span>
+        <select id="server-group-select"
+                class="text-xs border border-gray-200 rounded-lg px-2.5 py-2 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-200 cursor-pointer">
+          <option value="" selected>None</option>
+          <option value="type">Server type</option>
+          <option value="date">Created</option>
+        </select>
+      </div>
+    </div>
+    <div class="flex items-center gap-3 shrink-0">
+      <span id="server-count-label" class="text-xs text-gray-400">{{ odoo_servers|length }} server{{ odoo_servers|length|pluralize }}</span>
+      <div class="inline-flex items-center rounded-lg border border-gray-200 bg-white p-1 text-xs">
+        <button type="button" class="view-mode-btn px-3 py-1.5 rounded-md bg-gray-900 text-white" data-target="server-kanban" data-mode="kanban">Kanban</button>
+        <button type="button" class="view-mode-btn px-3 py-1.5 rounded-md text-gray-600 hover:bg-gray-50" data-target="server-kanban" data-mode="list">List</button>
+      </div>
     </div>
     {% endif %}
   </div>
+  {% endif %}
 
   {% if selected_server or show_instances_view %}
-  <div class="{% if selected_server %}space-y-4{% else %}grid gap-5 xl:grid-cols-[240px_minmax(0,1fr)] items-start{% endif %}">
-    {% if not selected_server %}
-    <aside class="xl:sticky xl:top-6 space-y-4">
-      <section class="rounded-xl border border-gray-200 bg-white p-3">
-        <div class="flex items-end justify-between gap-3">
-          <div>
-            <p class="text-[10px] font-medium uppercase tracking-[0.18em] text-gray-400">Servers</p>
-            <h3 class="mt-1 text-sm font-medium text-gray-800">Pick a host</h3>
-          </div>
-          <span class="text-[11px] text-gray-400">{{ odoo_servers|length }} total</span>
-        </div>
-        <div class="mt-3 space-y-1 max-h-[38rem] overflow-y-auto pr-1">
-          <a href="{{ all_instances_url }}"
-             class="group block rounded-lg px-3 py-2.5 transition-colors
-               {% if not selected_server %}bg-gray-100 text-gray-900{% else %}text-gray-700 hover:bg-gray-50{% endif %}">
-            <div class="flex items-start justify-between gap-3">
-              <div class="min-w-0">
-                <p class="truncate text-sm font-medium {% if not selected_server %}text-gray-900{% else %}text-gray-800{% endif %}">All servers</p>
-                <p class="mt-0.5 text-[11px] text-gray-500">Cross-server view</p>
-              </div>
-              <span class="mt-1 inline-flex h-2 w-2 shrink-0 rounded-full {% if not selected_server %}bg-gray-500{% else %}bg-gray-300{% endif %}"></span>
-            </div>
-            <div class="mt-3 flex items-center justify-between gap-3 text-[11px]">
-              <span class="text-gray-500">{{ instance_total_count }} total</span>
-              <span class="text-gray-500">Browse all</span>
-            </div>
-          </a>
-          {% for s in odoo_servers %}
-          <a href="{% url 'deployments:create-instance' %}?section=instances&server_id={{ s.id }}{% if instance_view_mode == 'list' %}&instance_view=list{% endif %}#instances"
-             class="group block rounded-lg px-3 py-2.5 transition-colors
-               {% if selected_server and s.id == selected_server.id %}bg-gray-100 text-gray-900{% else %}text-gray-700 hover:bg-gray-50{% endif %}">
-            <div class="flex items-start justify-between gap-3">
-              <div class="min-w-0">
-                <p class="truncate text-sm font-medium {% if selected_server and s.id == selected_server.id %}text-gray-900{% else %}text-gray-800{% endif %}">{{ s.name }}</p>
-                <p class="mt-0.5 truncate text-[11px] text-gray-500">
-                  {% if s.infrastructure and s.infrastructure.infra_type == 'PYOS' %}PYOS · existing server{% else %}Odoo {{ s.odoo_version }} · {{ s.region }}{% endif %}
-                </p>
-              </div>
-              <span class="mt-1 inline-flex h-2 w-2 shrink-0 rounded-full
-                {% if s.status == 'FAILED' %}bg-red-400
-                {% elif s.status == 'PROVISIONED' %}bg-emerald-400
-                {% elif s.status == 'PENDING' or s.status == 'CONNECTING' or s.status == 'CONFIGURING' or s.status == 'PROVISIONING' %}bg-amber-400
-                {% else %}bg-gray-300{% endif %}"></span>
-            </div>
-            <div class="mt-3 flex items-center justify-between gap-3 text-[11px]">
-              <span class="text-gray-500">{{ s.active_instance_count }}/{{ s.max_instances }} instances</span>
-              <span class="text-gray-500">
-                {% if s.status == 'PROVISIONED' %}Ready{% elif s.status == 'FAILED' %}Failed{% else %}{{ s.get_status_display }}{% endif %}
-              </span>
-            </div>
-          </a>
-          {% endfor %}
-        </div>
-      </section>
-    </aside>
-    {% endif %}
+  <div class="space-y-4">
 
     <div class="space-y-4">
       {% if selected_server %}
@@ -500,14 +495,6 @@
             Settings
           </a>
       </div>
-      {% else %}
-      <section class="bg-white border border-gray-200 rounded-3xl p-5 shadow-sm">
-        <div class="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-6 py-10 text-center">
-          <p class="text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-400">Instances</p>
-          <h3 class="mt-3 text-xl font-semibold text-gray-900">All instances</h3>
-          <p class="mt-2 text-sm text-gray-500">Showing {{ instance_page_start }}-{{ instance_page_end }} of {{ instance_filter_total }} instances.</p>
-        </div>
-      </section>
       {% endif %}
 
       {% if selected_server and server_dashboard_tab == 'dashboard' %}
@@ -801,10 +788,12 @@
       </div>
 
       <div id="instance-list-panel" class="{% if instance_view_mode != 'list' %}hidden {% endif %}bg-white border border-gray-200 rounded-xl overflow-hidden">
+        {% if not show_instances_view %}
         <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
           <h3 class="text-sm font-semibold text-gray-900">Odoo Instances</h3>
           <p class="text-xs text-gray-400">Bare-metal: IP:PORT · Docker: HTTPS domain</p>
         </div>
+        {% endif %}
         <table class="w-full text-sm">
           <thead>
             <tr class="bg-gray-50 border-b border-gray-100">
@@ -818,7 +807,14 @@
           </thead>
           <tbody id="instance-tbody" class="divide-y divide-gray-100">
             {% for oi in visible_instances %}
-            <tr id="instance-row-{{ oi.id }}">
+            <tr id="instance-row-{{ oi.id }}"
+                data-server-name="{{ oi.server.name|escapejs }}"
+                data-server-id="{{ oi.server.id }}"
+                data-created-at="{{ oi.created_at|date:'Y-m' }}"
+                data-created-label="{{ oi.created_at|date:'F Y' }}"
+                data-instance-name="{{ oi.name|lower|escapejs }}"
+                data-db-name="{{ oi.db_name|lower|escapejs }}"
+                data-domain="{{ oi.domain|lower|default:''|escapejs }}">
               <td class="px-5 py-3">
                 <div class="flex items-center gap-1.5 font-medium text-gray-900">
                   {{ oi.name }}
@@ -1028,7 +1024,7 @@
 
       {% if instance_page_obj.paginator.num_pages > 1 %}
       <div class="flex flex-col gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-        <p class="text-sm text-gray-500">Showing {{ instance_page_start }}-{{ instance_page_end }} of {{ instance_filter_total }} instances.</p>
+        {% if not show_instances_view %}<p class="text-sm text-gray-500">Showing {{ instance_page_start }}-{{ instance_page_end }} of {{ instance_filter_total }} instances.</p>{% endif %}
         <div class="flex flex-wrap items-center gap-2">
           {% if instance_prev_url %}
           <a href="{{ instance_prev_url }}" class="inline-flex items-center rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">Previous</a>
@@ -1051,7 +1047,15 @@
   {% else %}
   <div id="server-kanban" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
     {% for s in odoo_servers %}
-    <article id="server-card-{{ s.id }}" data-server-status="{{ s.status|upper }}" class="bg-white border border-gray-200 rounded-xl p-4">
+    <article id="server-card-{{ s.id }}"
+             data-server-status="{{ s.status|upper }}"
+             data-server-name="{{ s.name|lower|escapejs }}"
+             data-server-ip="{{ s.ip_address|default:''|escapejs }}"
+             data-server-type="{% if s.deployment_mode == 'DOCKER' %}docker{% else %}bare_metal{% endif %}"
+             data-server-type-label="{% if s.deployment_mode == 'DOCKER' %}Docker{% else %}Bare-metal{% endif %}"
+             data-created-at="{{ s.created_at|date:'Y-m' }}"
+             data-created-label="{{ s.created_at|date:'F Y' }}"
+             class="bg-white border border-gray-200 rounded-xl p-4">
       <div class="flex items-start justify-between gap-3">
         <div class="flex items-center gap-2">
           {% if s.cloud_account and s.cloud_account.provider == "DIGITALOCEAN" %}
@@ -3003,6 +3007,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
       renderInstanceCards(instances);
       removeMissingInstanceRows(seenIds);
       syncLiveInstancePolling(instances);
+      if (isInstancesView) instancesGroupRender();
     } catch (err) {
       // Keep the websocket as the main live channel; the poll is just refresh safety.
     }
@@ -3298,6 +3303,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
       syncLiveServerPolling(servers);
       syncDisconnectedServerRetry(servers);
       syncPageActionLocks();
+      if (isServersView) serversGroupRender();
     } catch (err) {
       // Silent: the page still works with websocket updates and manual refresh.
     }
@@ -3716,6 +3722,190 @@ chmod 600 ~/.ssh/authorized_keys</pre>
   {% for oi in odoo_instances %}{% if oi.status == 'CONFIGURING' %}
   (function(){ const ul = document.getElementById("instance-progress-{{ oi.id }}"); if (ul) connectInstanceProgress({{ oi.id }}, ul); })();
   {% endif %}{% endfor %}
+
+  // ─── Odoo-style instances view: search + group-by ────────────────────────
+  const isInstancesView = {{ show_instances_view|yesno:"true,false" }};
+
+  function instancesGroupRender() {
+    if (!isInstancesView) return;
+    const tbody = $("instance-tbody");
+    if (!tbody) return;
+
+    const searchVal = ($("instance-search-input")?.value || "").trim().toLowerCase();
+    const groupBy = $("instance-group-select")?.value || "";
+
+    // Collect all real instance rows (skip group headers we may have inserted)
+    const allRows = Array.from(tbody.querySelectorAll("tr[id^='instance-row-']"));
+
+    // Filter by search
+    const visible = allRows.filter((row) => {
+      if (!searchVal) return true;
+      const name   = (row.dataset.instanceName || "").toLowerCase();
+      const db     = (row.dataset.dbName || "").toLowerCase();
+      const domain = (row.dataset.domain || "").toLowerCase();
+      const server = (row.dataset.serverName || "").toLowerCase();
+      return name.includes(searchVal) || db.includes(searchVal) || domain.includes(searchVal) || server.includes(searchVal);
+    });
+    const hiddenIds = new Set(allRows.filter((r) => !visible.includes(r)).map((r) => r.id));
+
+    // Hide non-matching rows
+    allRows.forEach((row) => {
+      row.style.display = hiddenIds.has(row.id) ? "none" : "";
+    });
+
+    // Remove old group header rows
+    tbody.querySelectorAll("tr.instance-group-header").forEach((r) => r.remove());
+
+    // Update count label
+    const countLabel = $("instance-count-label");
+    if (countLabel) countLabel.textContent = `${visible.length} instance${visible.length !== 1 ? "s" : ""}${searchVal ? " found" : ""}`;
+
+    if (!groupBy || visible.length === 0) return;
+
+    // Group visible rows
+    const groups = new Map(); // key → {label, rows[]}
+    visible.forEach((row) => {
+      let key, label;
+      if (groupBy === "server") {
+        key   = row.dataset.serverId || "unknown";
+        label = row.dataset.serverName || "Unknown server";
+      } else {
+        key   = row.dataset.createdAt || "unknown";
+        label = row.dataset.createdLabel || "Unknown date";
+      }
+      if (!groups.has(key)) groups.set(key, { label, rows: [] });
+      groups.get(key).rows.push(row);
+    });
+
+    // Build group header rows and reorder tbody: header → rows (collapsed by default)
+    const parent = tbody;
+    groups.forEach(({ label, rows }) => {
+      const headerRow = document.createElement("tr");
+      headerRow.className = "instance-group-header select-none cursor-pointer";
+      headerRow.innerHTML = `
+        <td colspan="6" class="px-4 py-2.5 bg-gray-50 border-y border-gray-100">
+          <div class="flex items-center gap-2">
+            <svg class="instance-group-chevron w-3.5 h-3.5 text-gray-400 transition-transform duration-150 -rotate-90" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+            </svg>
+            <span class="text-xs font-semibold text-gray-700">${escapeHtml(label)}</span>
+            <span class="ml-1 text-[11px] text-gray-400">${rows.length} instance${rows.length !== 1 ? "s" : ""}</span>
+          </div>
+        </td>`;
+
+      // Append header then rows to the end of tbody (establishes order)
+      parent.appendChild(headerRow);
+      rows.forEach((r) => parent.appendChild(r));
+
+      // Collapse rows by default
+      rows.forEach((r) => { r.style.display = "none"; });
+
+      // Toggle on header click
+      headerRow.addEventListener("click", () => {
+        const chevron = headerRow.querySelector(".instance-group-chevron");
+        const isCollapsed = rows[0]?.style.display === "none";
+        rows.forEach((r) => { r.style.display = isCollapsed ? "" : "none"; });
+        if (chevron) {
+          chevron.classList.toggle("-rotate-90", !isCollapsed);
+        }
+      });
+    });
+  }
+
+  // ─── Servers view: search + group-by ─────────────────────────────────────
+  const isServersView = !{{ show_instances_view|yesno:"true,false" }} && !{{ selected_server.id|default:0 }};
+
+  function serversGroupRender() {
+    const kanban = $("server-kanban");
+    if (!kanban) return;
+
+    const searchVal = ($("server-search-input")?.value || "").trim().toLowerCase();
+    const groupBy = $("server-group-select")?.value || "";
+
+    // Collect all real server cards (not group-section wrappers)
+    const allCards = Array.from(document.querySelectorAll("#server-kanban article[id^='server-card-']"));
+
+    // Remove old group sections (move their cards back to kanban first)
+    kanban.querySelectorAll(".server-group-section").forEach((sec) => {
+      sec.querySelectorAll("article[id^='server-card-']").forEach((card) => kanban.appendChild(card));
+      sec.remove();
+    });
+
+    // Restore kanban grid layout
+    kanban.classList.add("grid-cols-1", "md:grid-cols-2", "xl:grid-cols-3");
+    kanban.classList.remove("flex", "flex-col");
+
+    // Filter by search
+    const visible = allCards.filter((card) => {
+      if (!searchVal) return true;
+      const name   = (card.dataset.serverName || "").toLowerCase();
+      const type   = (card.dataset.serverTypeLabel || "").toLowerCase();
+      const ip     = (card.dataset.serverIp || "").toLowerCase();
+      return name.includes(searchVal) || type.includes(searchVal) || ip.includes(searchVal);
+    });
+
+    allCards.forEach((card) => { card.style.display = visible.includes(card) ? "" : "none"; });
+
+    // Update count
+    const countLabel = $("server-count-label");
+    if (countLabel) countLabel.textContent = `${visible.length} server${visible.length !== 1 ? "s" : ""}${searchVal ? " found" : ""}`;
+
+    if (!groupBy || visible.length === 0) return;
+
+    // Build groups
+    const groups = new Map();
+    visible.forEach((card) => {
+      let key, label;
+      if (groupBy === "type") {
+        key   = card.dataset.serverType || "unknown";
+        label = card.dataset.serverTypeLabel || "Unknown";
+      } else {
+        key   = card.dataset.createdAt || "unknown";
+        label = card.dataset.createdLabel || "Unknown date";
+      }
+      if (!groups.has(key)) groups.set(key, { label, cards: [] });
+      groups.get(key).cards.push(card);
+    });
+
+    // Switch kanban to stacked layout for grouped view
+    kanban.classList.remove("md:grid-cols-2", "xl:grid-cols-3");
+    kanban.classList.add("flex", "flex-col");
+    allCards.forEach((card) => { card.style.display = "none"; });
+
+    groups.forEach(({ label, cards }) => {
+      const section = document.createElement("div");
+      section.className = "server-group-section space-y-3";
+
+      const header = document.createElement("div");
+      header.className = "flex items-center gap-2 px-1 cursor-pointer select-none group/ghdr";
+      header.innerHTML = `
+        <svg class="server-group-chevron w-3.5 h-3.5 text-gray-400 transition-transform duration-150 -rotate-90 shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+        </svg>
+        <span class="text-xs font-semibold text-gray-700 group-hover/ghdr:text-gray-900">${escapeHtml(label)}</span>
+        <span class="text-[11px] text-gray-400">${cards.length} server${cards.length !== 1 ? "s" : ""}</span>
+        <div class="flex-1 h-px bg-gray-100 ml-1"></div>`;
+
+      const innerGrid = document.createElement("div");
+      innerGrid.className = "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 hidden";
+
+      cards.forEach((card) => {
+        card.style.display = "";
+        innerGrid.appendChild(card);
+      });
+
+      header.addEventListener("click", () => {
+        const chevron = header.querySelector(".server-group-chevron");
+        const collapsed = innerGrid.classList.contains("hidden");
+        innerGrid.classList.toggle("hidden", !collapsed);
+        if (chevron) chevron.classList.toggle("-rotate-90", !collapsed);
+      });
+
+      section.appendChild(header);
+      section.appendChild(innerGrid);
+      kanban.appendChild(section);
+    });
+  }
 
   // ─── state ───────────────────────────────────────────────────────────────
   let mode = null;          // "cloud" | "pyos"
@@ -4960,6 +5150,23 @@ chmod 600 ~/.ssh/authorized_keys</pre>
 
   // init
   if (pickCloud && pickPyos && cloudPanel && pyosPanel) showCloud();
+
+  // ── Instances view: wire search + group-by ──────────────────────────────
+  if (isInstancesView) {
+    // Run grouping on initial load (default: group by server)
+    instancesGroupRender();
+
+    $("instance-search-input")?.addEventListener("input", () => instancesGroupRender());
+    $("instance-group-select")?.addEventListener("change", () => instancesGroupRender());
+  }
+
+  // ── Servers view: wire search + group-by ────────────────────────────────
+  if (isServersView) {
+    serversGroupRender();
+
+    $("server-search-input")?.addEventListener("input", () => serversGroupRender());
+    $("server-group-select")?.addEventListener("change", () => serversGroupRender());
+  }
 })();
 </script>
 {% endblock %}
