@@ -6,88 +6,20 @@
 {% block page_title %}{{ odoo_instance.name }} · Console{% endblock %}
 
 {% block content %}
-<div class="mx-auto max-w-[96rem]" x-data="instanceConsole({{ odoo_instance.id }})">
-  <div class="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+<div class="w-full max-w-none" x-data="instanceConsole({{ odoo_instance.id }})">
+  <div class="overflow-hidden rounded-none border border-slate-200 bg-white shadow-none">
     <div class="grid min-h-[calc(100vh-14rem)] lg:grid-cols-[18rem_minmax(0,1fr)]">
-      <!-- ── Staging Create Modal ── -->
-      <div x-show="showStagingModal"
-           class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 px-4"
-           x-cloak>
-        <div class="w-full max-w-md rounded-2xl bg-white shadow-2xl p-6 space-y-5">
-          <div class="flex items-center justify-between">
-            <h3 class="text-base font-semibold text-gray-900">Create Staging Environment</h3>
-            <button type="button" @click="showStagingModal = false" class="text-gray-400 hover:text-gray-600">
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-              </svg>
-            </button>
-          </div>
-          <div class="space-y-4">
-            <div>
-              <label class="block text-xs font-medium text-gray-700 mb-1">Git Repo</label>
-              <select x-model="stagingForm.repoId"
-                      @change="loadStagingBranches()"
-                      class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none">
-                <option value="">— Select a repo —</option>
-                <template x-for="repo in repos" :key="repo.id">
-                  <option :value="repo.id" x-text="repo.repo_name"></option>
-                </template>
-              </select>
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-gray-700 mb-1">Branch</label>
-              <div x-show="stagingBranchesLoading" class="text-xs text-amber-600">Loading branches…</div>
-              <select x-show="!stagingBranchesLoading && stagingBranchList.length"
-                      x-model="stagingForm.branch"
-                      class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none">
-                <option value="">— Select a branch —</option>
-                <template x-for="b in stagingBranchList" :key="b">
-                  <option :value="b" x-text="b"></option>
-                </template>
-              </select>
-              <input x-show="!stagingBranchesLoading && !stagingBranchList.length"
-                     type="text"
-                     x-model="stagingForm.branch"
-                     placeholder="e.g. feature/my-branch"
-                     class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none">
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-gray-700 mb-1">TTL (days)</label>
-              <input type="number" x-model.number="stagingForm.ttlDays" min="1" max="30"
-                     class="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:outline-none">
-              <p class="mt-1 text-[11px] text-gray-400">Auto-deleted after this many days of inactivity.</p>
-            </div>
-            <div x-show="stagingModalMsg"
-                 :class="stagingModalOk ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'"
-                 class="rounded-lg border px-3 py-2 text-xs"
-                 x-text="stagingModalMsg"></div>
-          </div>
-          <div class="flex justify-end gap-3 pt-1">
-            <button type="button" @click="showStagingModal = false"
-                    class="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
-              Cancel
-            </button>
-            <button type="button"
-                    @click="submitCreateStaging()"
-                    :disabled="stagingCreating || !stagingForm.repoId || !stagingForm.branch"
-                    class="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed">
-              <span x-text="stagingCreating ? 'Creating…' : 'Create Staging'"></span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <aside class="border-b border-slate-200 bg-white lg:border-b-0 lg:border-r flex flex-col">
+      <aside class="border-b border-slate-200 bg-slate-50 text-slate-700 lg:border-b-0 lg:border-r lg:border-r-slate-200 flex flex-col">
 
         <!-- ── Instance header ── -->
-        <div class="border-b border-slate-100 px-4 pt-4 pb-3">
+        <div class="border-b border-slate-200 px-4 pt-5 pb-4">
           {% if is_staging %}
           <div class="mb-2 inline-flex items-center rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-700">
             Staging{% if staging_source %} · {{ staging_source.name }}{% endif %}
           </div>
           {% endif %}
           <h2 class="text-sm font-semibold leading-snug text-slate-900">{{ odoo_instance.name }}</h2>
-          <p class="mt-0.5 text-[11px] text-slate-400">{{ odoo_instance.db_name }} · Odoo {{ odoo_server.odoo_version }}</p>
+          <p class="mt-0.5 text-[11px] text-slate-500">{{ odoo_instance.db_name }} · Odoo {{ odoo_server.odoo_version }}</p>
           <div class="mt-2 flex flex-wrap items-center gap-1.5">
             <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em]"
                   :class="{
@@ -105,17 +37,18 @@
             </span>
           </div>
           <div class="mt-2 grid grid-cols-2 gap-1.5 text-[11px]">
-            <div class="rounded-md border border-slate-100 bg-slate-50 px-2.5 py-1.5">
+            <div class="rounded-md border border-slate-200 bg-white px-2.5 py-1.5">
               <p class="text-[9px] uppercase tracking-[0.16em] text-slate-400">Server</p>
               <p class="mt-0.5 font-medium text-slate-700 truncate">{{ odoo_server.name }}</p>
             </div>
-            <div class="rounded-md border border-slate-100 bg-slate-50 px-2.5 py-1.5">
+            <div class="rounded-md border border-slate-200 bg-white px-2.5 py-1.5">
               <p class="text-[9px] uppercase tracking-[0.16em] text-slate-400">Access</p>
               <p class="mt-0.5 font-medium text-slate-700 truncate">{% if odoo_instance.domain %}{{ odoo_instance.domain }}{% else %}:{{ odoo_instance.http_port }}{% endif %}</p>
             </div>
           </div>
-          <button @click="openUserLoginModal()"
-                  class="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100">
+          <a href="{{ odoo_instance.preferred_access_url|default:'#' }}"
+             {% if odoo_instance.preferred_access_url %}target="_blank" rel="noopener noreferrer"{% endif %}
+             class="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100">
             <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"/>
             </svg>
@@ -135,16 +68,16 @@
                       x-show="linkedRepo"
                       :disabled="!linkedRepo || instanceActionsLocked() || repoIsWorking(linkedRepo)"
                       title="Change production branch"
-                      class="flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 text-[13px] leading-none text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30">
+                      class="flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 text-[13px] leading-none text-slate-400 transition hover:bg-white hover:text-slate-700 disabled:opacity-30">
                 +
               </button>
             </div>
             <a :href="environmentHref(productionEnvironment())"
-               class="flex items-center gap-2.5 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2.5 transition hover:border-emerald-200 hover:bg-emerald-100/70">
-              <span class="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500"></span>
+               class="flex items-center gap-2.5 rounded-lg border border-cyan-200 bg-white px-3 py-2.5 transition hover:border-cyan-300 hover:bg-cyan-50/60">
+              <span class="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500"></span>
               <div class="min-w-0">
                 <p class="truncate text-xs font-semibold text-slate-800" x-text="productionEnvironment().branch || 'main'"></p>
-                <p class="mt-0.5 text-[10px] text-emerald-600">Live branch</p>
+                <p class="mt-0.5 text-[10px] text-cyan-600">Live branch</p>
               </div>
             </a>
           </div>
@@ -157,14 +90,100 @@
               <button type="button"
                       @click="openStagingModal()"
                       title="Create staging environment"
-                      class="flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 text-[13px] leading-none text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">
+                      class="flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 text-[13px] leading-none text-slate-400 transition hover:bg-white hover:text-slate-700">
                 +
               </button>
               {% endif %}
             </div>
 
+            {% if not is_staging %}
+            <div x-show="showStagingModal"
+                 x-cloak
+                 x-transition:enter="transition ease-out duration-200"
+                 x-transition:enter-start="opacity-0 -translate-y-2"
+                 x-transition:enter-end="opacity-100 translate-y-0"
+                 x-transition:leave="transition ease-in duration-150"
+                 x-transition:leave-start="opacity-100 translate-y-0"
+                 x-transition:leave-end="opacity-0 -translate-y-2"
+                 class="mb-2 overflow-hidden rounded-xl border border-amber-200 bg-white shadow-sm">
+              <div class="space-y-3 p-3">
+                <div class="flex items-start justify-between gap-3">
+                  <div>
+                    <p class="text-xs font-semibold text-slate-900">Create staging copy from production</p>
+                    <p class="mt-0.5 text-[11px] text-slate-500">Seeds staging from the latest production backup, then applies the selected GitHub branch.</p>
+                  </div>
+                  <button type="button"
+                          @click="showStagingModal = false"
+                          class="rounded-md border border-slate-200 px-2 py-1 text-[10px] font-semibold text-slate-500 transition hover:bg-slate-50 hover:text-slate-700">
+                    Close
+                  </button>
+                </div>
+
+                <div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                  <p class="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Production Source</p>
+                  <p class="mt-1 text-xs font-medium text-slate-700" x-text="linkedRepo ? `${linkedRepo.repo_name} · ${primaryBranchName()}` : 'No linked repo yet'"></p>
+                </div>
+
+                <div x-show="linkedRepoBranchesLoading" class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
+                  Loading linked GitHub branches…
+                </div>
+
+                <div x-show="!linkedRepo && !linkedRepoBranchesLoading" class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
+                  Link a GitHub repo first to create a staging copy from production.
+                </div>
+
+                <div x-show="linkedRepo && !linkedRepoBranchesLoading && stagingBranchList.length > 0" class="space-y-2">
+                  <label class="block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Choose Staging Branch</label>
+                  <div class="flex max-h-44 flex-wrap gap-2 overflow-y-auto pr-1">
+                    <template x-for="branch in stagingBranchList" :key="branch">
+                      <button type="button"
+                              @click="stagingForm.branch = branch"
+                              :class="stagingForm.branch === branch ? 'border-cyan-300 bg-cyan-50 text-cyan-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'"
+                              class="rounded-full border px-3 py-1 text-xs font-medium transition"
+                              x-text="branch">
+                      </button>
+                    </template>
+                  </div>
+                </div>
+
+                <div x-show="linkedRepo && !linkedRepoBranchesLoading && stagingBranchList.length === 0" class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
+                  No additional linked GitHub branches are available for staging yet.
+                </div>
+
+                <div>
+                  <label class="mb-1 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">TTL (days)</label>
+                  <input type="number"
+                         x-model.number="stagingForm.ttlDays"
+                         min="1"
+                         max="30"
+                         class="block w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-cyan-400 focus:outline-none">
+                  <p class="mt-1 text-[11px] text-slate-400">Auto-delete after this many days of inactivity.</p>
+                </div>
+
+                <div x-show="stagingModalMsg"
+                     :class="stagingModalOk ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-700'"
+                     class="rounded-lg border px-3 py-2 text-[11px]"
+                     x-text="stagingModalMsg"></div>
+
+                <div class="flex justify-end gap-2">
+                  <button type="button"
+                          @click="showStagingModal = false"
+                          class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-50">
+                    Cancel
+                  </button>
+                  <button type="button"
+                          @click="submitCreateStaging()"
+                          :disabled="stagingCreating || !linkedRepo || !stagingForm.branch"
+                          class="rounded-lg bg-amber-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50">
+                    <span x-text="stagingCreating ? 'Creating Copy…' : 'Create Staging Copy'"></span>
+                  </button>
+                </div>
+              </div>
+            </div>
+            {% endif %}
+
             {% if is_staging %}
-            <div class="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2.5">
+            <div class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
               <p class="text-xs font-medium text-amber-800">This is a staging instance</p>
               {% if staging_source %}
               <p class="mt-0.5 text-[10px] text-amber-600">Source: {{ staging_source.name }}</p>
@@ -181,7 +200,7 @@
             </template>
             <div class="space-y-1.5">
               <template x-for="env in stagingEnvironments" :key="env.id">
-                <div class="flex items-center justify-between gap-2 rounded-lg border border-slate-100 bg-white px-3 py-2 transition hover:border-amber-200 hover:bg-amber-50/40">
+                <div class="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 transition hover:border-amber-200 hover:bg-amber-50/40">
                   <div class="min-w-0">
                     <p class="truncate text-xs font-medium text-slate-700" x-text="env.branch"></p>
                     <span class="text-[10px]"
@@ -201,7 +220,7 @@
                     </a>
                     <button type="button"
                             @click="deleteStagingEnv(env.id)"
-                            class="rounded-md border border-red-100 bg-white px-2 py-0.5 text-[10px] font-medium text-red-500 hover:bg-red-50">
+                            class="rounded-md border border-red-200 bg-white px-2 py-0.5 text-[10px] font-medium text-red-500 hover:bg-red-50">
                       ×
                     </button>
                   </div>
@@ -219,7 +238,7 @@
                       @click="loadLinkedRepoBranches()"
                       :disabled="!linkedRepo"
                       title="Refresh branches"
-                      class="flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 text-[11px] leading-none text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30">
+                      class="flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 text-[11px] leading-none text-slate-400 transition hover:bg-white hover:text-slate-700 disabled:opacity-30">
                 ↻
               </button>
             </div>
@@ -228,8 +247,8 @@
             <div x-show="!linkedRepoBranchesLoading && linkedRepo && developmentEnvironments().length === 0" class="px-1 py-1 text-[11px] text-slate-400">No other branches yet.</div>
             <div class="space-y-1">
               <template x-for="env in developmentEnvironments()" :key="env.slug">
-                <div class="group flex items-center gap-2 rounded-lg border border-slate-100 bg-white px-3 py-2 transition hover:border-slate-200">
-                  <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-sky-400"></span>
+                <div class="group flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 transition hover:border-slate-300 hover:bg-slate-50">
+                  <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-red-400"></span>
                   <p class="min-w-0 flex-1 truncate text-xs font-medium text-slate-700" x-text="env.branch"></p>
                   <div class="flex shrink-0 items-center gap-1 opacity-0 transition group-hover:opacity-100">
                     <button type="button"
@@ -255,11 +274,11 @@
         </div>
 
         <!-- ── Settings footer ── -->
-        <div class="border-t border-slate-100 px-3 py-3">
+        <div class="border-t border-slate-200 px-3 py-3">
           <button type="button"
                   @click="setToolbarTab('settings')"
                   class="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition"
-                  :class="toolbarTab === 'settings' ? 'bg-slate-100 text-slate-900' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'">
+                  :class="toolbarTab === 'settings' ? 'bg-white text-slate-900 border border-slate-200' : 'text-slate-500 hover:bg-white hover:text-slate-700'">
             <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
@@ -270,46 +289,21 @@
 
       </aside>
 
-      <section class="min-w-0 bg-slate-50">
-        <div class="border-b border-slate-200 bg-white px-5 py-5 sm:px-6">
+      <section class="min-w-0 bg-white">
+        <div class="border-b border-slate-200 bg-slate-50 px-5 py-5 sm:px-6">
           <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
             <div class="space-y-2">
-              <div class="flex flex-wrap items-center gap-3">
-                <h3 class="text-2xl font-semibold tracking-tight text-slate-950">{{ odoo_instance.name }} Dashboard</h3>
-                <span class="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">
-                  {{ odoo_server.get_deployment_mode_display }}
-                </span>
-              </div>
-              <p class="max-w-3xl text-sm text-slate-500">
-                Bigger instance view for branches, runtime tools, and deployment controls. The environment links below can stay dummy while we wire the full branch-to-instance flow.
-              </p>
-              <div class="flex flex-wrap items-center gap-3 text-xs text-slate-500">
-                <span>Latest module:</span>
-                <span class="rounded-full bg-slate-100 px-3 py-1 font-medium text-slate-700" x-text="latestUpdatedModuleName()"></span>
-                <span>Primary branch:</span>
-                <span class="rounded-full bg-slate-100 px-3 py-1 font-medium text-slate-700" x-text="productionEnvironment().branch"></span>
-              </div>
+              <h3 class="text-2xl font-semibold tracking-tight text-slate-900">{{ odoo_instance.name }} Workspace</h3>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-              <button @click="openUserLoginModal()"
-                      class="inline-flex items-center gap-2 justify-center rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800">
-                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"/>
-                </svg>
-                Login as User
-              </button>
-              {% if odoo_instance.preferred_access_url %}
-              <a href="{{ odoo_instance.preferred_access_url }}" target="_blank" rel="noopener noreferrer"
-                 class="inline-flex items-center gap-1.5 justify-center rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50">
-                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
-                </svg>
-                Open
+              <a href="{{ odoo_instance.preferred_access_url|default:'#' }}"
+                 {% if odoo_instance.preferred_access_url %}target="_blank" rel="noopener noreferrer"{% endif %}
+                 class="inline-flex items-center justify-center rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800">
+                Open Live App
               </a>
-              {% endif %}
               <button @click="runHealthCheck()"
                       :disabled="healthLoading"
-                      class="inline-flex items-center gap-1.5 rounded-2xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">
+                      class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-50">
                 <svg x-show="!healthLoading" class="h-4 w-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
@@ -324,16 +318,16 @@
           </div>
         </div>
 
-        <div class="border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
-          <div class="flex flex-wrap items-center gap-2">
+        <div class="border-b border-slate-200 bg-white px-4 sm:px-6">
+          <div class="flex flex-wrap items-center gap-6 md:gap-8">
             <template x-for="tool in toolbarTabs" :key="tool.id">
               <button type="button"
                       @click="setToolbarTab(tool.id)"
-                      :class="toolbarTab === tool.id ? 'bg-slate-950 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'"
-                      class="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition">
+                      :class="toolbarTab === tool.id ? 'border-cyan-500 text-slate-950' : 'border-transparent text-slate-600 hover:text-slate-900'"
+                      class="inline-flex items-center gap-2 border-b-[3px] px-0 py-3.5 text-[12px] font-semibold uppercase tracking-[0.16em] transition">
                 <span x-text="tool.label"></span>
                 <span x-show="tool.id === 'upgrade-tools' && runningJobCount > 0"
-                      class="rounded-full bg-white/15 px-2 py-0.5 text-[11px] font-semibold"
+                      class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-800"
                       x-text="runningJobCount"></span>
               </button>
             </template>
@@ -1247,40 +1241,49 @@
 
       <div x-show="!historyLoading && history.length === 0"
            class="text-sm text-gray-400 py-6 text-center border border-dashed border-gray-200 rounded-lg">
-        No snapshots yet.
+        No history yet.
       </div>
 
       <div x-show="!historyLoading && history.length > 0" class="overflow-x-auto">
         <table class="w-full text-sm">
           <thead>
             <tr class="text-xs text-gray-500 border-b border-gray-100">
-              <th class="text-left py-2 pr-4 font-medium">#</th>
-              <th class="text-left py-2 pr-4 font-medium">Version</th>
-              <th class="text-left py-2 pr-4 font-medium">Port / Container</th>
-              <th class="text-left py-2 pr-4 font-medium">Domain</th>
+              <th class="text-left py-2 pr-4 font-medium">Type</th>
+              <th class="text-left py-2 pr-4 font-medium">Line</th>
               <th class="text-left py-2 pr-4 font-medium">Status</th>
-              <th class="text-left py-2 pr-4 font-medium">Deployed</th>
+              <th class="text-left py-2 pr-4 font-medium">Time</th>
+              <th class="text-left py-2 pr-4 font-medium">Login</th>
               <th class="text-left py-2 font-medium">Action</th>
             </tr>
           </thead>
           <tbody>
-            <template x-for="(snap, idx) in history" :key="snap.id">
+            <template x-for="item in history" :key="item.id">
               <tr class="border-b border-gray-50 hover:bg-gray-50">
-                <td class="py-2 pr-4 text-gray-400 text-xs" x-text="history.length - idx"></td>
-                <td class="py-2 pr-4 text-gray-800 font-medium" x-text="'Odoo ' + snap.odoo_version"></td>
-                <td class="py-2 pr-4 text-gray-600" x-text="snap.http_port"></td>
-                <td class="py-2 pr-4 text-gray-600 max-w-[140px] truncate" x-text="snap.domain || '—'"></td>
                 <td class="py-2 pr-4">
-                  <span class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-600"
-                        x-text="snap.status"></span>
+                  <span class="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold"
+                        :class="historyTypeClass(item)"
+                        x-text="item.event_label"></span>
                 </td>
-                <td class="py-2 pr-4 text-gray-500 text-xs" x-text="fmtDate(snap.deployed_at)"></td>
-                <td class="py-2">
-                  <button @click="rollback(snap.id)"
-                          :disabled="rollbackLoading === snap.id || instanceActionsLocked()"
+                <td class="py-2 pr-4">
+                  <div class="max-w-[34rem]">
+                    <p class="font-medium text-gray-900" x-text="item.title"></p>
+                    <p class="mt-0.5 text-xs text-gray-500" x-text="item.details"></p>
+                  </div>
+                </td>
+                <td class="py-2 pr-4">
+                  <span class="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold"
+                        :class="historyStatusClass(item)"
+                        x-text="item.status || '—'"></span>
+                </td>
+                <td class="py-2 pr-4 text-gray-500 text-xs whitespace-nowrap" x-text="fmtDate(item.timestamp)"></td>
+                <td class="py-2 pr-4 text-xs font-medium text-gray-600 whitespace-nowrap" x-text="item.actor || 'System'"></td>
+                <td class="py-2 text-xs">
+                  <button x-show="item.can_rollback"
+                          @click="rollback(item.history_id)"
+                          :disabled="rollbackLoading === item.history_id || instanceActionsLocked()"
                           :title="instanceActionLockReason()"
-                          class="text-xs text-blue-600 hover:underline font-medium disabled:opacity-50"
-                          x-text="rollbackLoading === snap.id ? 'Rolling back…' : 'Rollback'">
+                          class="text-blue-600 hover:underline font-medium disabled:opacity-50"
+                          x-text="rollbackLoading === item.history_id ? 'Rolling back…' : 'Rollback'">
                   </button>
                 </td>
               </tr>
@@ -1297,7 +1300,7 @@
     </div>
 
     <!-- ── Tab: Backups ── -->
-    <div x-show="activeTab === 'backups'" x-init="$watch('activeTab', v => { if (v === 'backups') { loadBackups(); loadBackupSchedules(); } }); if (activeTab === 'backups') { loadBackups(); loadBackupSchedules(); }" class="space-y-5 p-5">
+    <div x-show="activeTab === 'backups'" x-init="$watch('activeTab', v => { if (v === 'backups') loadBackups() })" class="space-y-5 p-5">
 
       <!-- Header -->
       <div class="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -1309,16 +1312,21 @@
               <span class="font-mono">/backups/dafeapp/{{ odoo_instance.db_name }}/</span>
             </p>
           </div>
-          <button type="button"
-                  @click="createBackup()"
-                  :disabled="backupBusy || instanceActionsLocked()"
-                  :title="instanceActionLockReason() || ''"
-                  class="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50 transition-colors">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
-            </svg>
-            <span x-text="backupBusy ? 'Working…' : 'Create Backup'"></span>
-          </button>
+          <div class="flex flex-wrap items-center gap-3">
+            <button type="button"
+                    @click="createBackup()"
+                    :disabled="backupBusy || instanceActionsLocked()"
+                    :title="instanceActionLockReason() || ''"
+                    class="inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50">
+              <span x-text="backupBusy ? 'Creating Backup…' : 'Create Backup'"></span>
+            </button>
+            <button type="button"
+                    @click="openLatestBackupRestore()"
+                    :disabled="backupBusy || !latestCompletedBackup()"
+                    class="inline-flex items-center rounded-md border border-[#d8c9d8] bg-[#d8c9d8] px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-[#cfbdd0] disabled:cursor-not-allowed disabled:opacity-50">
+              Restore To New Instance
+            </button>
+          </div>
         </div>
 
         <!-- Scheduled Backups -->
@@ -1487,41 +1495,36 @@
           </div>
         </div>
 
-        <!-- Status message -->
         <div x-show="backupMsg"
              :class="backupMsgOk ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700'"
-             class="mt-3 rounded-xl border px-4 py-2.5 text-sm"
+             class="mt-3 rounded-lg border px-4 py-2.5 text-sm"
              x-text="backupMsg"></div>
       </div>
 
-      <!-- Backup list -->
-      <div class="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-
-        <!-- Loading state -->
-        <div x-show="backupsLoading" class="flex items-center gap-3 p-6 text-sm text-slate-500">
-          <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
-          </svg>
-          Loading backups…
-        </div>
-
-        <!-- Empty state -->
-        <div x-show="!backupsLoading && backups.length === 0"
-             class="px-6 py-10 text-center text-sm text-slate-400">
-          No backups yet. Click <span class="font-semibold">Create Backup</span> to take the first snapshot.
-        </div>
-
-        <!-- Backup rows -->
-        <template x-if="!backupsLoading && backups.length > 0">
-          <div>
-            <div class="px-5 py-3 border-b border-slate-100 grid grid-cols-12 gap-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-              <span class="col-span-4">Created</span>
-              <span class="col-span-2">Type</span>
-              <span class="col-span-2">Size</span>
-              <span class="col-span-2">Status</span>
-              <span class="col-span-2 text-right">Actions</span>
-            </div>
+      <div class="overflow-x-auto bg-white">
+        <table class="min-w-full text-left text-sm text-slate-700">
+          <thead>
+            <tr class="border-b border-slate-200 text-[12px] font-semibold text-slate-700">
+              <th class="px-4 py-3 sm:px-6">Time (UTC)</th>
+              <th class="px-4 py-3">Database name</th>
+              <th class="px-4 py-3">Branch</th>
+              <th class="px-4 py-3">Version</th>
+              <th class="px-4 py-3">Comment</th>
+              <th class="px-4 py-3">Revision</th>
+              <th class="px-4 py-3 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr x-show="backupsLoading">
+              <td colspan="7" class="px-4 py-8 text-center text-sm text-slate-400 sm:px-6">
+                Loading backups…
+              </td>
+            </tr>
+            <tr x-show="!backupsLoading && backups.length === 0">
+              <td colspan="7" class="px-4 py-10 text-center text-sm text-slate-400 sm:px-6">
+                No backups yet. Create the first snapshot to start this history.
+              </td>
+            </tr>
             <template x-for="bk in backups" :key="bk.id">
               <div class="px-5 py-4 border-b border-slate-50 last:border-0 grid grid-cols-12 gap-3 items-center text-sm">
                 <!-- Created -->
@@ -1548,12 +1551,7 @@
                   x-text="bk.status"></span>
                 </div>
                 <!-- Actions -->
-                <div class="col-span-2 flex flex-wrap justify-end gap-2">
-                  <a x-show="bk.status === 'DONE'"
-                     :href="backupDownloadUrl(bk.id)"
-                     class="inline-flex items-center rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-700 hover:bg-sky-100">
-                    Download ZIP
-                  </a>
+                <div class="col-span-2 flex justify-end gap-2">
                   <button type="button"
                           x-show="bk.status === 'DONE'"
                           @click="restoreBackup(bk.id, bk.created_at)"
@@ -1571,10 +1569,9 @@
                 </div>
               </div>
             </template>
-          </div>
-        </template>
+          </tbody>
+        </table>
       </div>
-
     </div>
 
     <!-- ── Tab: Operations ── -->
@@ -2130,8 +2127,8 @@
 function instanceConsole(instanceId) {
   return {
     instanceId,
-    toolbarTab: 'monitor',
-    activeTab: 'overview',
+    toolbarTab: 'history',
+    activeTab: 'history',
     toolbarTabs: [
       { id: 'history', label: 'History', target: 'history' },
       { id: 'shell', label: 'Shell', target: 'operations' },
@@ -2250,6 +2247,7 @@ function instanceConsole(instanceId) {
     // Backups
     backups: [],
     backupsLoading: false,
+    backupsPollTimer: null,
     backupBusy: false,
     backupMsg: '',
     backupMsgOk: true,
@@ -2313,13 +2311,18 @@ function instanceConsole(instanceId) {
       this.applyInitialRouteState();
       this.syncEnterpriseToggle();
       this.connectWS();
+      if (this.activeTab === 'history') this.loadHistory();
       this.loadJobs();
       this.loadRepos().then(() => {
         if (this.linkedRepo) this.loadLinkedRepoBranches();
       });
       this.loadCredentials().then(() => this.resumeGitHubFlowFromRedirect());
       if (this.activeTab === 'logs') this.startRuntimeLogPolling();
-      window.addEventListener('pagehide', () => this.stopRuntimeLogPolling());
+      if (this.activeTab === 'backups') this.startBackupsPolling(true);
+      window.addEventListener('pagehide', () => {
+        this.stopRuntimeLogPolling();
+        this.stopBackupsPolling();
+      });
     },
 
     get linkedRepo() {
@@ -2337,6 +2340,11 @@ function instanceConsole(instanceId) {
         this.startRuntimeLogPolling();
       } else {
         this.stopRuntimeLogPolling();
+      }
+      if (tabId === 'backups') {
+        this.startBackupsPolling(true);
+      } else {
+        this.stopBackupsPolling();
       }
     },
 
@@ -2395,32 +2403,42 @@ function instanceConsole(instanceId) {
       return 'No module updates yet';
     },
 
+    stagingBranchOptions() {
+      const productionBranch = this.primaryBranchName();
+      const existingBranches = new Set((this.stagingEnvironments || []).map(env => env.branch).filter(Boolean));
+      return (this.linkedRepoBranches || []).filter((branch) => {
+        if (!branch) return false;
+        if (branch === productionBranch) return false;
+        if (existingBranches.has(branch) && branch !== this.stagingForm.branch) return false;
+        return true;
+      });
+    },
+
     openStagingModal() {
-      this.stagingForm = { repoId: this.repos[0]?.id || '', branch: '', ttlDays: 7 };
-      this.stagingBranchList = [];
+      const repo = this.linkedRepo;
+      if (!repo) {
+        this.stagingOk = false;
+        this.stagingMsg = 'Link a GitHub repo first to create a staging copy.';
+        return;
+      }
+      this.showStagingModal = !this.showStagingModal;
+      this.stagingForm = { repoId: repo.id, branch: this.stagingForm.branch || '', ttlDays: this.stagingForm.ttlDays || 7 };
+      this.stagingBranchList = this.stagingBranchOptions();
       this.stagingModalMsg = null;
-      this.showStagingModal = true;
-      if (this.stagingForm.repoId) this.loadStagingBranches();
+      if (!this.showStagingModal) return;
+      this.loadLinkedRepoBranches().then(() => {
+        this.stagingBranchList = this.stagingBranchOptions();
+        if (!this.stagingForm.branch && this.stagingBranchList.length) {
+          this.stagingForm.branch = this.stagingBranchList[0];
+        }
+      });
     },
 
     async loadStagingBranches() {
-      const repo = this.repos.find(r => String(r.id) === String(this.stagingForm.repoId));
-      if (!repo) { this.stagingBranchList = []; return; }
-      // Try to fetch from GitHub if credential is available
-      const credId = repo.credential;
-      if (!credId) { this.stagingBranchList = []; return; }
-      this.stagingBranchesLoading = true;
-      try {
-        const params = new URLSearchParams({ credential_id: credId });
-        const fullName = repo.git_url?.match(/github\.com[/:]([^/]+\/[^/.]+)/)?.[1];
-        if (fullName) params.set('repo_full_name', fullName);
-        const res = await fetch(`/deployments/github/branches/?${params}`);
-        const data = await res.json().catch(() => ({}));
-        this.stagingBranchList = (data.results || []).map(b => b.name || b).filter(Boolean);
-      } catch (_) {
-        this.stagingBranchList = [];
-      } finally {
-        this.stagingBranchesLoading = false;
+      await this.loadLinkedRepoBranches();
+      this.stagingBranchList = this.stagingBranchOptions();
+      if (!this.stagingForm.branch && this.stagingBranchList.length) {
+        this.stagingForm.branch = this.stagingBranchList[0];
       }
     },
 
@@ -2441,10 +2459,10 @@ function instanceConsole(instanceId) {
         const data = await res.json().catch(() => ({}));
         if (res.ok) {
           this.stagingModalOk = true;
-          this.stagingModalMsg = 'Staging environment queued. It will appear below when provisioned.';
+          this.stagingModalMsg = 'Staging copy queued. It will appear below when provisioned.';
           this.stagingOk = true;
-          this.stagingMsg = `Staging for "${this.stagingForm.branch}" is being provisioned — check the Jobs tab.`;
-          setTimeout(() => { this.showStagingModal = false; this.loadStagingEnvs(); }, 1500);
+          this.stagingMsg = `Creating a production copy on branch "${this.stagingForm.branch}" — check the Jobs tab for progress.`;
+          setTimeout(() => { this.showStagingModal = false; this.loadStagingEnvs(); this.loadJobs(); }, 1500);
         } else {
           this.stagingModalOk = false;
           this.stagingModalMsg = data.error || 'Failed to create staging environment.';
@@ -2489,7 +2507,6 @@ function instanceConsole(instanceId) {
     },
 
     createStagingClone() {
-      // Legacy placeholder — replaced by openStagingModal
       this.openStagingModal();
     },
 
@@ -2941,6 +2958,12 @@ function instanceConsole(instanceId) {
       } catch (_) {
         this.linkedRepoBranches = [];
       } finally {
+        if (this.showStagingModal) {
+          this.stagingBranchList = this.stagingBranchOptions();
+          if (!this.stagingForm.branch && this.stagingBranchList.length) {
+            this.stagingForm.branch = this.stagingBranchList[0];
+          }
+        }
         this.linkedRepoBranchesLoading = false;
       }
     },
@@ -2975,9 +2998,10 @@ function instanceConsole(instanceId) {
       const repo = this.linkedRepo;
       if (!repo) return;
       this.stagingForm = { repoId: repo.id, branch, ttlDays: 7 };
-      this.stagingBranchList = this.linkedRepoBranches;
+      this.stagingBranchList = this.stagingBranchOptions();
       this.stagingModalMsg = null;
       this.showStagingModal = true;
+      this.loadLinkedRepoBranches();
     },
 
     async loadCredentials() {
@@ -4131,13 +4155,90 @@ function instanceConsole(instanceId) {
       }
     },
 
-    // ── User login modal ──
-    openUserLoginModal() {
-      Alpine.store('userLogin').open_(this.instanceId);
+    // ── Backups ──
+    twoDigit(value) {
+      return String(value).padStart(2, '0');
     },
 
-    // ── Backups ──
+    formatBackupUtcDate(iso) {
+      if (!iso) return '—';
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return '—';
+      return `${d.getUTCFullYear()}-${this.twoDigit(d.getUTCMonth() + 1)}-${this.twoDigit(d.getUTCDate())} ${this.twoDigit(d.getUTCHours())}:${this.twoDigit(d.getUTCMinutes())}:${this.twoDigit(d.getUTCSeconds())}`;
+    },
+
+    instanceVersionLabel() {
+      const version = '{{ odoo_server.odoo_version|escapejs }}';
+      if (!version) return '—';
+      return version.includes('.') ? version : `${version}.0`;
+    },
+
+    backupsHavePendingWork() {
+      return (this.backups || []).some((bk) => ['RUNNING', 'PENDING'].includes((bk.status || '').toUpperCase()))
+        || this.runningJobCount > 0;
+    },
+
+    startBackupsPolling(forceRefresh = false) {
+      if (!this.backupsPollTimer) {
+        this.backupsPollTimer = setInterval(() => this.loadBackups(), 7000);
+      }
+      if (forceRefresh || !this.backups.length) {
+        this.loadBackups();
+      }
+    },
+
+    stopBackupsPolling() {
+      if (this.backupsPollTimer) {
+        clearInterval(this.backupsPollTimer);
+        this.backupsPollTimer = null;
+      }
+    },
+
+    latestCompletedBackup() {
+      return (this.backups || []).find((bk) => (bk.status || '').toUpperCase() === 'DONE') || null;
+    },
+
+    openLatestBackupRestore() {
+      const latest = this.latestCompletedBackup();
+      if (!latest) {
+        this.backupMsgOk = false;
+        this.backupMsg = 'Create or wait for a completed backup before restoring into a new instance.';
+        return;
+      }
+      this.openRestoreToNewModal(latest);
+    },
+
+    backupCommentLabel(bk) {
+      const status = (bk?.status || '').toUpperCase();
+      const note = (bk?.note || '').trim();
+      if (note) return note;
+      if (status === 'RUNNING' || status === 'PENDING') return 'Backup in progress';
+      if (status === 'FAILED') return 'Backup failed';
+      if ((bk?.backup_type || '').toUpperCase() === 'DB_ONLY') return 'Database-only backup';
+      return bk?.created_by_email ? 'Manual full backup' : 'Automatic full backup';
+    },
+
+    backupCommentClass(bk) {
+      const status = (bk?.status || '').toUpperCase();
+      if (status === 'RUNNING' || status === 'PENDING') return 'bg-blue-100 text-blue-700';
+      if (status === 'FAILED') return 'bg-red-100 text-red-700';
+      return 'bg-slate-200 text-slate-600';
+    },
+
+    backupRevisionLabel() {
+      const commit = this.linkedRepo?.last_pulled_commit || this.linkedRepo?.last_remote_commit || '';
+      return commit ? commit.slice(0, 8) : '—';
+    },
+
+    backupRevisionUrl() {
+      const commit = this.linkedRepo?.last_pulled_commit || this.linkedRepo?.last_remote_commit || '';
+      const fullName = this.githubRepoFullName(this.linkedRepo);
+      if (!commit || !fullName) return '';
+      return `https://github.com/${fullName}/commit/${commit}`;
+    },
+
     async loadBackups() {
+      if (this.backupsLoading) return;
       this.backupsLoading = true;
       try {
         const res  = await fetch(`/api/backups/instances/${this.instanceId}/`);

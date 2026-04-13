@@ -5426,7 +5426,15 @@ def _staging_next_available_port(server: OdooServer) -> int | None:
 
 
 @shared_task(bind=True, max_retries=0)
-def create_staging_instance(self, source_instance_id: int, repo_id: int, branch: str, job_id: int | None = None):
+def create_staging_instance(
+    self,
+    source_instance_id: int,
+    repo_id: int,
+    branch: str,
+    ttl_days: int = 7,
+    auto_delete: bool = True,
+    job_id: int | None = None,
+):
     """
     Create a staging Odoo Docker instance from a source instance and a git branch.
     The staging instance is a regular OdooInstance tagged via StagingEnvironment.
@@ -5456,6 +5464,8 @@ def create_staging_instance(self, source_instance_id: int, repo_id: int, branch:
             raise RuntimeError("Staging environments are only supported on Docker servers.")
         if not server.ip_address:
             raise RuntimeError("Server has no IP address; cannot create staging instance.")
+
+        ttl_days = max(1, min(int(ttl_days or 7), 30))
 
         # Build naming
         branch_slug = slugify_branch(branch)
@@ -5489,6 +5499,33 @@ def create_staging_instance(self, source_instance_id: int, repo_id: int, branch:
         _broadcast_log_line(ws_group, f"=== Creating staging instance for branch '{branch}' ===")
         _broadcast_log_line(ws_group, f"db_name={db_name}  port={port}  domain={platform_domain or '(none)'}")
 
+        from backups.models import OdooInstanceBackup
+        from backups.tasks import backup_odoo_instance, restore_backup_to_new_instance
+
+        source_backup = (
+            OdooInstanceBackup.objects.filter(
+                instance=source_instance,
+                status=OdooInstanceBackup.Status.DONE,
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        if not source_backup:
+            _broadcast_log_line(ws_group, "=== No completed production backup found; creating one now ===")
+            backup_odoo_instance(source_instance.id, None)
+            source_backup = (
+                OdooInstanceBackup.objects.filter(
+                    instance=source_instance,
+                    status=OdooInstanceBackup.Status.DONE,
+                )
+                .order_by("-created_at")
+                .first()
+            )
+        if not source_backup:
+            raise RuntimeError("Could not create a production backup for staging.")
+
+        _broadcast_log_line(ws_group, f"=== Using production backup #{source_backup.id} to seed staging ===")
+
         # Create OdooInstance
         staging_inst = OdooInstance.objects.create(
             organization=source_instance.organization,
@@ -5517,8 +5554,8 @@ def create_staging_instance(self, source_instance_id: int, repo_id: int, branch:
             source_instance=source_instance,
             source_repo=source_repo,
             branch=branch,
-            auto_delete_enabled=True,
-            ttl_days=7,
+            auto_delete_enabled=auto_delete,
+            ttl_days=ttl_days,
             created_by=source_instance.created_by,
         )
 
@@ -5526,13 +5563,14 @@ def create_staging_instance(self, source_instance_id: int, repo_id: int, branch:
         if platform_domain:
             _ensure_domain_assignment(staging_inst, platform_domain)
 
-        # Provision the Docker container (full Ansible run)
-        _run_docker_instance_create(staging_inst, server, job_id, self.request.id)
+        # Provision + restore production data into the staging instance
+        _broadcast_log_line(ws_group, "=== Restoring production copy into staging ===")
+        restore_backup_to_new_instance(staging_inst.id, source_backup.id, None)
 
         # If provisioning succeeded, clone the source repo onto the staging instance
         staging_inst.refresh_from_db()
         if staging_inst.status == OdooInstance.Status.RUNNING:
-            _broadcast_log_line(ws_group, f"=== Cloning repo '{source_repo.repo_name}' at branch '{branch}' ===")
+            _broadcast_log_line(ws_group, f"=== Applying staging code from '{source_repo.repo_name}:{branch}' ===")
             staging_repo = OdooInstanceGitRepo.objects.create(
                 instance=staging_inst,
                 credential=source_repo.credential,
@@ -5549,6 +5587,8 @@ def create_staging_instance(self, source_instance_id: int, repo_id: int, branch:
             _dispatch(clone_instance_repo, staging_repo.id)
             staging_env.last_activity_at = timezone.now()
             staging_env.save(update_fields=["last_activity_at", "updated_at"])
+        else:
+            raise RuntimeError("Staging instance provisioning or restore did not complete successfully.")
 
         _broadcast_log_line(ws_group, "=== Staging instance creation complete ===")
 

@@ -31,6 +31,7 @@ from django.views.generic import TemplateView
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 
+from backups.models import OdooInstanceBackup
 from cloud.forms import PyOSSSHSettingsForm
 from cloud.models import CloudAccount, PyOSSSHSettings
 from cloud.providers import get_provider
@@ -117,6 +118,35 @@ def _dispatch(task, *args):
     except Exception:
         logger.warning("Celery broker unavailable; running task synchronously.", exc_info=True)
         task(*args)
+
+
+def _timeline_actor_label(user) -> str:
+    if not user:
+        return "System"
+    full_name = user.get_full_name().strip()
+    return full_name or getattr(user, "email", "") or getattr(user, "username", "") or "System"
+
+
+def _timeline_last_log_line(log: str) -> str:
+    for line in reversed((log or "").splitlines()):
+        line = line.strip()
+        if line:
+            return line[:220]
+    return ""
+
+
+def _timeline_job_title(job: DeploymentJob) -> str:
+    labels = {
+        DeploymentJob.JobType.RESTORE_INSTANCE: "Restore",
+        DeploymentJob.JobType.ROLLBACK_INSTANCE: "Rollback",
+        DeploymentJob.JobType.UPDATE_INSTANCE_REPO: "GitHub Sync",
+        DeploymentJob.JobType.ROLLBACK_INSTANCE_REPO: "Repo Rollback",
+        DeploymentJob.JobType.CHECKOUT_INSTANCE_REPO_BRANCH: "Branch Switch",
+        DeploymentJob.JobType.CLONE_INSTANCE_REPO: "Repo Clone",
+        DeploymentJob.JobType.AUTO_SYNC_INSTANCE_REPOS: "GitHub Auto Sync",
+        DeploymentJob.JobType.BACKUP_INSTANCE: "Backup Job",
+    }
+    return labels.get(job.job_type, job.get_job_type_display())
 
 
 def _request_data(request):
@@ -3677,8 +3707,130 @@ class OdooInstanceHistoryAPIView(LoginRequiredMixin, View):
         if not org:
             return JsonResponse({"error": "No active organization."}, status=400)
         instance = get_object_or_404(OdooInstance, pk=instance_id, organization=org)
-        qs = OdooInstanceHistory.objects.filter(instance=instance).order_by("-deployed_at")
-        return JsonResponse({"results": OdooInstanceHistorySerializer(qs, many=True).data})
+        repo_qs = list(
+            OdooInstanceGitRepo.objects.filter(instance=instance).only(
+                "id", "repo_name", "branch", "git_url"
+            )
+        )
+        repo_ids = {repo.id for repo in repo_qs}
+        repo_map = {repo.id: repo for repo in repo_qs}
+
+        timeline = []
+
+        snapshots = (
+            OdooInstanceHistory.objects.filter(instance=instance)
+            .select_related("deployed_by")
+            .order_by("-deployed_at")[:50]
+        )
+        for snap in snapshots:
+            access_label = snap.domain or f":{snap.http_port}"
+            timeline.append(
+                {
+                    "id": f"snapshot-{snap.id}",
+                    "event_type": "snapshot",
+                    "event_label": "Deployment",
+                    "title": snap.note or "Deployment snapshot saved.",
+                    "details": f"Odoo {snap.odoo_version}.0 · {access_label} · {snap.status}",
+                    "status": snap.status,
+                    "timestamp": snap.deployed_at.isoformat(),
+                    "actor": _timeline_actor_label(snap.deployed_by),
+                    "history_id": snap.id,
+                    "can_rollback": True,
+                }
+            )
+
+        backups = (
+            OdooInstanceBackup.objects.filter(instance=instance)
+            .select_related("created_by")
+            .order_by("-created_at")[:50]
+        )
+        for backup in backups:
+            backup_note = (backup.note or "").strip()
+            title = backup_note or (
+                "Backup created successfully."
+                if backup.status == OdooInstanceBackup.Status.DONE
+                else "Backup in progress."
+                if backup.status in (OdooInstanceBackup.Status.RUNNING, OdooInstanceBackup.Status.PENDING)
+                else "Backup failed."
+            )
+            details = f"{backup.get_backup_type_display()} · {backup.size_display if backup.size_bytes else 'size pending'}"
+            timeline.append(
+                {
+                    "id": f"backup-{backup.id}",
+                    "event_type": "backup",
+                    "event_label": "Backup",
+                    "title": title,
+                    "details": details,
+                    "status": backup.status,
+                    "timestamp": backup.created_at.isoformat(),
+                    "actor": _timeline_actor_label(backup.created_by),
+                    "history_id": None,
+                    "can_rollback": False,
+                }
+            )
+
+        history_job_types = (
+            DeploymentJob.JobType.RESTORE_INSTANCE,
+            DeploymentJob.JobType.ROLLBACK_INSTANCE,
+            DeploymentJob.JobType.UPDATE_INSTANCE_REPO,
+            DeploymentJob.JobType.ROLLBACK_INSTANCE_REPO,
+            DeploymentJob.JobType.CHECKOUT_INSTANCE_REPO_BRANCH,
+            DeploymentJob.JobType.CLONE_INSTANCE_REPO,
+            DeploymentJob.JobType.AUTO_SYNC_INSTANCE_REPOS,
+        )
+        jobs = (
+            DeploymentJob.objects.filter(organization=org, odoo_instance=instance, job_type__in=history_job_types)
+            .select_related("created_by")
+            .order_by("-created_at")[:75]
+        )
+        for job in jobs:
+            details = _timeline_last_log_line(job.log) or job.get_job_type_display()
+            timeline.append(
+                {
+                    "id": f"job-{job.id}",
+                    "event_type": "job",
+                    "event_label": _timeline_job_title(job),
+                    "title": _timeline_job_title(job),
+                    "details": details,
+                    "status": job.status,
+                    "timestamp": (job.finished_at or job.created_at).isoformat(),
+                    "actor": _timeline_actor_label(job.created_by),
+                    "history_id": None,
+                    "can_rollback": False,
+                }
+            )
+
+        webhook_events = list(GitHubWebhookEvent.objects.order_by("-received_at")[:200])
+        for event in webhook_events:
+            matched_ids = set((event.matched_repo_ids or []) + (event.queued_repo_ids or []))
+            if repo_ids and not matched_ids.intersection(repo_ids):
+                continue
+            matched_repos = []
+            for repo_id in event.queued_repo_ids or event.matched_repo_ids or []:
+                repo = repo_map.get(repo_id)
+                if repo:
+                    matched_repos.append(f"{repo.repo_name}:{repo.branch}")
+            repo_label = ", ".join(matched_repos[:2]) if matched_repos else event.repository
+            sha = (event.head_commit_sha or "")[:8] or "—"
+            title = event.head_commit_message or f"GitHub push on {event.branch}"
+            details = f"{repo_label} · {event.branch or 'unknown branch'} · {sha}"
+            timeline.append(
+                {
+                    "id": f"github-{event.id}",
+                    "event_type": "github",
+                    "event_label": "GitHub",
+                    "title": title,
+                    "details": details,
+                    "status": event.status,
+                    "timestamp": event.received_at.isoformat(),
+                    "actor": event.pusher_name or "GitHub",
+                    "history_id": None,
+                    "can_rollback": False,
+                }
+            )
+
+        timeline.sort(key=lambda item: item["timestamp"], reverse=True)
+        return JsonResponse({"results": timeline[:150]})
 
 
 class OdooInstanceRollbackAPIView(LoginRequiredMixin, View):
@@ -3971,7 +4123,7 @@ class StagingEnvironmentCreateAPIView(LoginRequiredMixin, View):
             odoo_server=instance.server,
             created_by=request.user,
         )
-        _dispatch(create_staging_instance, instance.id, source_repo.id, branch, job.id)
+        _dispatch(create_staging_instance, instance.id, source_repo.id, branch, ttl_days, auto_delete, job.id)
         return JsonResponse({"ok": True, "job_id": job.id}, status=202)
 
 
