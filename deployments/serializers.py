@@ -175,6 +175,7 @@ class OdooInstanceSerializer(serializers.ModelSerializer):
     all_domain_urls = serializers.SerializerMethodField()
     enterprise_source_name = serializers.SerializerMethodField()
     is_staging = serializers.SerializerMethodField()
+    git_repo_url = serializers.SerializerMethodField()
 
     def get_access_url(self, obj):
         return obj.access_url
@@ -220,6 +221,10 @@ class OdooInstanceSerializer(serializers.ModelSerializer):
 
     def get_is_staging(self, obj):
         return hasattr(obj, "staging_environment")
+
+    def get_git_repo_url(self, obj):
+        repo = obj.git_repos.filter(is_enabled=True).order_by("display_order", "id").first()
+        return repo.git_url if repo else ""
 
     class Meta:
         model = OdooInstance
@@ -269,6 +274,7 @@ class OdooInstanceSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "is_staging",
+            "git_repo_url",
         ]
 
 

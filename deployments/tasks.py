@@ -1950,10 +1950,12 @@ def _upsert_managed_dns_record(instance: OdooInstance, assignment: DomainAssignm
 
 
 def _delete_managed_dns_record(assignment: DomainAssignment | None) -> tuple[bool, str]:
-    if assignment is None or not assignment.dns_record_id:
+    if assignment is None:
         return True, "No managed DNS record to remove."
 
-    record = assignment.dns_record
+    # PLATFORM records store the Cloudflare record id directly on the assignment
+    # (dns_record FK is intentionally null for platform records — must check this
+    # BEFORE the dns_record_id guard below).
     if assignment.source == DomainAssignment.Source.PLATFORM:
         if not assignment.provider_record_id:
             return True, "No platform DNS record to remove."
@@ -1969,6 +1971,11 @@ def _delete_managed_dns_record(assignment: DomainAssignment | None) -> tuple[boo
         assignment.save(update_fields=["provider_record_id", "dns_record", "is_managed", "last_synced_at", "updated_at"])
         return True, f"Platform DNS record removed for {assignment.domain}."
 
+    # CUSTOM / managed-zone records track the Cloudflare record via DnsRecord FK
+    if not assignment.dns_record_id:
+        return True, "No managed DNS record to remove."
+
+    record = assignment.dns_record
     if not record:
         return True, "No managed DNS record to remove."
 

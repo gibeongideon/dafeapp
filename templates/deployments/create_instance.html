@@ -726,9 +726,9 @@
             </div>
 
             <div class="grid grid-cols-3 border-t border-gray-100 bg-white">
-              {% if oi.status != 'DELETED' %}
+              <!-- Domain button -->
               <button type="button"
-                      class="manage-domain-btn inline-flex h-12 items-center justify-center border-r border-gray-100 text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900"
+                      class="manage-domain-btn inline-flex h-12 items-center justify-center gap-1.5 border-r border-gray-100 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900"
                       title="Add or manage domains"
                       data-instance-id="{{ oi.id }}"
                       data-instance-name="{{ oi.name }}"
@@ -739,41 +739,57 @@
                       data-instance-status="{{ oi.status }}"
                       data-server-status="{{ oi.server.status }}"
                       data-enterprise-status="{{ oi.enterprise_status }}">
-                Add Domain
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/>
+                </svg>
+                Domain
               </button>
-              {% else %}
-              <button type="button"
-                      class="manage-domain-btn inline-flex h-12 items-center justify-center border-r border-gray-100 text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900"
-                      title="Add or manage domains"
-                      data-instance-id="{{ oi.id }}"
-                      data-instance-name="{{ oi.name }}"
-                      data-instance-domain="{{ oi.domain|default:'' }}"
-                      data-server-mode="{{ oi.server.deployment_mode }}"
-                      data-domain-status="{{ oi.domain_status }}"
-                      data-ssl-status="{{ oi.ssl_status }}"
-                      data-instance-status="{{ oi.status }}"
-                      data-server-status="{{ oi.server.status }}"
-                      data-enterprise-status="{{ oi.enterprise_status }}">
-                Add Domain
-              </button>
-              {% endif %}
-              <a href="{% url 'deployments_ui:odoo-instance-console' oi.id %}?tab=addons"
-                 class="inline-flex h-12 items-center justify-center border-r border-gray-100 text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900"
-                 title="Addons">
+
+              <!-- Code / GitHub button -->
+              {% with repo=oi.git_repos.first %}
+              {% if repo and repo.git_url %}
+              <a href="{{ repo.git_url }}"
+                 target="_blank" rel="noopener noreferrer"
+                 class="inline-flex h-12 items-center justify-center gap-1.5 border-r border-gray-100 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900"
+                 title="View repository on GitHub: {{ repo.repo_name }}">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+                </svg>
                 Code
               </a>
-              {% if oi.domain or oi.preferred_access_url and oi.status != 'DELETED' %}
-              <a href="{{ oi.preferred_access_url }}"
+              {% else %}
+              <a href="{% url 'deployments_ui:odoo-instance-console' oi.id %}?tab=git"
+                 class="inline-flex h-12 items-center justify-center gap-1.5 border-r border-gray-100 text-xs font-medium text-gray-400 transition-colors hover:bg-gray-50 hover:text-gray-700"
+                 title="Link a GitHub repository">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+                </svg>
+                Link Repo
+              </a>
+              {% endif %}
+              {% endwith %}
+
+              <!-- Open / dashboard button -->
+              {% with open_url=oi.preferred_access_url %}
+              {% if open_url and oi.status != 'DELETED' %}
+              <a href="{{ open_url }}/web"
                  target="_blank" rel="noopener noreferrer"
-                 class="inline-flex h-12 items-center justify-center text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900"
-                 title="Open domain">
+                 class="inline-flex h-12 items-center justify-center gap-1.5 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900"
+                 title="Open Odoo dashboard">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                </svg>
                 Open
               </a>
               {% else %}
-              <span class="inline-flex h-12 items-center justify-center text-gray-300" title="Domain not ready yet">
+              <span class="inline-flex h-12 items-center justify-center gap-1.5 text-xs font-medium text-gray-300 cursor-not-allowed" title="Instance not ready">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                </svg>
                 Open
               </span>
               {% endif %}
+              {% endwith %}
             </div>
           </article>
         {% empty %}
@@ -911,6 +927,41 @@
                      class="inline-flex items-center px-3 py-1.5 text-xs font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-700 transition-colors">
                     Manage
                   </a>
+                  <!-- GitHub / Code button -->
+                  {% with repo=oi.git_repos.first %}
+                  {% if repo and repo.git_url %}
+                  <a href="{{ repo.git_url }}"
+                     target="_blank" rel="noopener noreferrer"
+                     title="View repository: {{ repo.repo_name }}"
+                     class="inline-flex items-center gap-1 px-2 py-1.5 text-xs font-medium text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+                    </svg>
+                  </a>
+                  {% else %}
+                  <a href="{% url 'deployments_ui:odoo-instance-console' oi.id %}?tab=git"
+                     title="Link a GitHub repository"
+                     class="inline-flex items-center gap-1 px-2 py-1.5 text-xs font-medium text-gray-400 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+                    </svg>
+                  </a>
+                  {% endif %}
+                  {% endwith %}
+                  <!-- Open dashboard button -->
+                  {% with open_url=oi.preferred_access_url %}
+                  {% if open_url and oi.status == 'RUNNING' %}
+                  <a href="{{ open_url }}/web"
+                     target="_blank" rel="noopener noreferrer"
+                     title="Open Odoo dashboard"
+                     class="inline-flex items-center gap-1 px-2 py-1.5 text-xs font-medium text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-50 transition-colors">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                    </svg>
+                    Open
+                  </a>
+                  {% endif %}
+                  {% endwith %}
                   <button type="button"
                           class="manage-domain-btn px-2 py-1.5 text-xs font-medium text-indigo-700 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors"
                           data-instance-id="{{ oi.id }}"
@@ -2799,12 +2850,25 @@ chmod 600 ~/.ssh/authorized_keys</pre>
                   data-enterprise-status="${escapeHtml(instance.enterprise_status || "")}">
             <span>Add Domain</span>
           </button>` : `<span class="inline-flex h-14 items-center justify-center border-r border-gray-100 text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-300">Add Domain</span>`}
-          <a href="/deployments/odoo/instances/${iid}/?tab=addons" class="inline-flex h-14 items-center justify-center border-r border-gray-100 text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900" title="Addons">
-            Code
-          </a>
+          ${instance.git_repo_url
+            ? `<a href="${escapeHtml(instance.git_repo_url)}" target="_blank" rel="noopener noreferrer"
+                  class="inline-flex h-14 items-center justify-center gap-1.5 border-r border-gray-100 text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900"
+                  title="View repository on GitHub">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+                <span class="text-[10px] font-semibold uppercase tracking-[0.16em]">Code</span>
+              </a>`
+            : `<a href="/deployments/odoo/instances/${iid}/?tab=git"
+                  class="inline-flex h-14 items-center justify-center gap-1.5 border-r border-gray-100 text-gray-400 transition-colors hover:bg-gray-50 hover:text-gray-700"
+                  title="Link a GitHub repository">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+                <span class="text-[10px] font-semibold uppercase tracking-[0.16em]">Link</span>
+              </a>`}
           ${openUrl && status !== "DELETED"
-            ? `<a href="${escapeHtml(openUrl)}" target="_blank" rel="noopener noreferrer" class="inline-flex h-14 items-center justify-center bg-gray-950 text-[11px] font-semibold uppercase tracking-[0.2em] text-white transition-colors hover:bg-gray-800" title="Open domain">Open</a>`
-            : `<span class="inline-flex h-14 items-center justify-center bg-gray-100 text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-300" title="Domain not ready yet">Open</span>`}
+            ? `<a href="${escapeHtml(openUrl)}/web" target="_blank" rel="noopener noreferrer" class="inline-flex h-14 items-center justify-center gap-1.5 bg-gray-950 text-[11px] font-semibold uppercase tracking-[0.2em] text-white transition-colors hover:bg-gray-800" title="Open Odoo dashboard">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                Open
+              </a>`
+            : `<span class="inline-flex h-14 items-center justify-center bg-gray-100 text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-300" title="Instance not ready">Open</span>`}
         </div>
       </article>`;
   }
@@ -4616,11 +4680,44 @@ chmod 600 ~/.ssh/authorized_keys</pre>
 
     const deleteInstanceBtn = e.target.closest(".delete-instance-btn");
     if (deleteInstanceBtn) {
-      showConfirm(
-        "Delete Instance",
-        `Permanently delete "${deleteInstanceBtn.dataset.instanceName}"? This drops the database and cannot be undone.`,
-        `/api/deployments/odoo/instances/${deleteInstanceBtn.dataset.instanceId}/delete/`
-      );
+      const iid = deleteInstanceBtn.dataset.instanceId;
+      const name = deleteInstanceBtn.dataset.instanceName || `#${iid}`;
+      if (!confirm(`Permanently delete "${name}"? This drops the database and cannot be undone.`)) return;
+
+      deleteInstanceBtn.disabled = true;
+      deleteInstanceBtn.textContent = "Deleting…";
+
+      const resp = await postForm(`/api/deployments/odoo/instances/${iid}/delete/`, {});
+
+      if (resp.ok || resp.status === 400 || resp.status === 404) {
+        // Remove from both card view and list view
+        const card = document.getElementById(`instance-card-${iid}`);
+        const row  = document.getElementById(`instance-row-${iid}`);
+        const progressRow = document.getElementById(`instance-progress-row-${iid}`);
+        if (card) card.remove();
+        if (row) row.remove();
+        if (progressRow) progressRow.remove();
+        // Fallback: remove closest wrapping element
+        if (!card && !row) {
+          const el = deleteInstanceBtn.closest("article, tr, li");
+          if (el) el.remove();
+        }
+        // Best-effort: refresh server card instance count
+        const serverCard = deleteInstanceBtn.closest("article[id^='server-card-']");
+        if (serverCard) {
+          const sid = serverCard.id.replace("server-card-", "");
+          try {
+            const sr = await fetch(`/api/deployments/odoo/servers/${sid}/`);
+            if (sr.ok) updateServerCardFromApi(await sr.json());
+          } catch (_) { /* best-effort */ }
+        }
+      } else {
+        deleteInstanceBtn.disabled = false;
+        deleteInstanceBtn.textContent = "Delete";
+        const errMsg = (resp.data && (resp.data.error || resp.data.message))
+          || `Delete failed (HTTP ${resp.status}).`;
+        alert(errMsg);
+      }
       return;
     }
 
@@ -4759,12 +4856,13 @@ chmod 600 ~/.ssh/authorized_keys</pre>
       archiveBtn.disabled = true;
       archiveBtn.textContent = "Archiving…";
       const resp = await postForm(`/api/deployments/odoo/servers/${sid}/archive/`, {});
-      if (resp.ok) {
+      if (resp.ok || resp.status === 400 || resp.status === 404) {
+        // Remove from UI whether it worked or the server is already gone/inaccessible
         removeServerCard(sid);
       } else {
         archiveBtn.disabled = false;
         archiveBtn.textContent = "Archive";
-        alert(resp.data.error || "Archive failed.");
+        alert((resp.data && (resp.data.error || resp.data.message)) || `Archive failed (HTTP ${resp.status}).`);
       }
       return;
     }
