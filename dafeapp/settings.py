@@ -189,7 +189,7 @@ STAGING_AUTO_CREATE_ON_PUSH = env.bool("STAGING_AUTO_CREATE_ON_PUSH", default=Fa
 
 TRAEFIK_DYNAMIC_CONFIG_DIR = env("TRAEFIK_DYNAMIC_CONFIG_DIR", default="/etc/traefik/dynamic")
 TRAEFIK_ACME_STORAGE = env("TRAEFIK_ACME_STORAGE", default="/var/lib/traefik/acme.json")
-TRAEFIK_ACME_EMAIL = env("TRAEFIK_ACME_EMAIL", default=env("ODOO_ADMIN_EMAIL", default="odoo@example.com"))
+TRAEFIK_ACME_EMAIL = env("TRAEFIK_ACME_EMAIL", default=env("ODOO_ADMIN_EMAIL", default="dafe.apps@gmail.com"))
 TRAEFIK_LOG_LEVEL = env("TRAEFIK_LOG_LEVEL", default="INFO")
 TRAEFIK_VERSION = env("TRAEFIK_VERSION", default="3.1.2")
 TRAEFIK_DEFAULT_TLS_MODE = env("TRAEFIK_DEFAULT_TLS_MODE", default="LETS_ENCRYPT")
