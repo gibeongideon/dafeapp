@@ -1914,8 +1914,8 @@
 function instanceConsole(instanceId) {
   return {
     instanceId,
-    toolbarTab: 'monitor',
-    activeTab: 'overview',
+    toolbarTab: 'history',
+    activeTab: 'history',
     toolbarTabs: [
       { id: 'history', label: 'History', target: 'history' },
       { id: 'shell', label: 'Shell', target: 'operations' },
@@ -2080,6 +2080,7 @@ function instanceConsole(instanceId) {
       this.applyInitialRouteState();
       this.syncEnterpriseToggle();
       this.connectWS();
+      if (this.activeTab === 'history') this.loadHistory();
       this.loadJobs();
       this.loadRepos().then(() => {
         if (this.linkedRepo) this.loadLinkedRepoBranches();
@@ -2171,32 +2172,42 @@ function instanceConsole(instanceId) {
       return 'No module updates yet';
     },
 
+    stagingBranchOptions() {
+      const productionBranch = this.primaryBranchName();
+      const existingBranches = new Set((this.stagingEnvironments || []).map(env => env.branch).filter(Boolean));
+      return (this.linkedRepoBranches || []).filter((branch) => {
+        if (!branch) return false;
+        if (branch === productionBranch) return false;
+        if (existingBranches.has(branch) && branch !== this.stagingForm.branch) return false;
+        return true;
+      });
+    },
+
     openStagingModal() {
-      this.stagingForm = { repoId: this.repos[0]?.id || '', branch: '', ttlDays: 7 };
-      this.stagingBranchList = [];
+      const repo = this.linkedRepo;
+      if (!repo) {
+        this.stagingOk = false;
+        this.stagingMsg = 'Link a GitHub repo first to create a staging copy.';
+        return;
+      }
+      this.showStagingModal = !this.showStagingModal;
+      this.stagingForm = { repoId: repo.id, branch: this.stagingForm.branch || '', ttlDays: this.stagingForm.ttlDays || 7 };
+      this.stagingBranchList = this.stagingBranchOptions();
       this.stagingModalMsg = null;
-      this.showStagingModal = true;
-      if (this.stagingForm.repoId) this.loadStagingBranches();
+      if (!this.showStagingModal) return;
+      this.loadLinkedRepoBranches().then(() => {
+        this.stagingBranchList = this.stagingBranchOptions();
+        if (!this.stagingForm.branch && this.stagingBranchList.length) {
+          this.stagingForm.branch = this.stagingBranchList[0];
+        }
+      });
     },
 
     async loadStagingBranches() {
-      const repo = this.repos.find(r => String(r.id) === String(this.stagingForm.repoId));
-      if (!repo) { this.stagingBranchList = []; return; }
-      // Try to fetch from GitHub if credential is available
-      const credId = repo.credential;
-      if (!credId) { this.stagingBranchList = []; return; }
-      this.stagingBranchesLoading = true;
-      try {
-        const params = new URLSearchParams({ credential_id: credId });
-        const fullName = repo.git_url?.match(/github\.com[/:]([^/]+\/[^/.]+)/)?.[1];
-        if (fullName) params.set('repo_full_name', fullName);
-        const res = await fetch(`/deployments/github/branches/?${params}`);
-        const data = await res.json().catch(() => ({}));
-        this.stagingBranchList = (data.results || []).map(b => b.name || b).filter(Boolean);
-      } catch (_) {
-        this.stagingBranchList = [];
-      } finally {
-        this.stagingBranchesLoading = false;
+      await this.loadLinkedRepoBranches();
+      this.stagingBranchList = this.stagingBranchOptions();
+      if (!this.stagingForm.branch && this.stagingBranchList.length) {
+        this.stagingForm.branch = this.stagingBranchList[0];
       }
     },
 
@@ -2217,10 +2228,10 @@ function instanceConsole(instanceId) {
         const data = await res.json().catch(() => ({}));
         if (res.ok) {
           this.stagingModalOk = true;
-          this.stagingModalMsg = 'Staging environment queued. It will appear below when provisioned.';
+          this.stagingModalMsg = 'Staging copy queued. It will appear below when provisioned.';
           this.stagingOk = true;
-          this.stagingMsg = `Staging for "${this.stagingForm.branch}" is being provisioned — check the Jobs tab.`;
-          setTimeout(() => { this.showStagingModal = false; this.loadStagingEnvs(); }, 1500);
+          this.stagingMsg = `Creating a production copy on branch "${this.stagingForm.branch}" — check the Jobs tab for progress.`;
+          setTimeout(() => { this.showStagingModal = false; this.loadStagingEnvs(); this.loadJobs(); }, 1500);
         } else {
           this.stagingModalOk = false;
           this.stagingModalMsg = data.error || 'Failed to create staging environment.';
@@ -2265,7 +2276,6 @@ function instanceConsole(instanceId) {
     },
 
     createStagingClone() {
-      // Legacy placeholder — replaced by openStagingModal
       this.openStagingModal();
     },
 
@@ -2717,6 +2727,12 @@ function instanceConsole(instanceId) {
       } catch (_) {
         this.linkedRepoBranches = [];
       } finally {
+        if (this.showStagingModal) {
+          this.stagingBranchList = this.stagingBranchOptions();
+          if (!this.stagingForm.branch && this.stagingBranchList.length) {
+            this.stagingForm.branch = this.stagingBranchList[0];
+          }
+        }
         this.linkedRepoBranchesLoading = false;
       }
     },
@@ -2751,9 +2767,10 @@ function instanceConsole(instanceId) {
       const repo = this.linkedRepo;
       if (!repo) return;
       this.stagingForm = { repoId: repo.id, branch, ttlDays: 7 };
-      this.stagingBranchList = this.linkedRepoBranches;
+      this.stagingBranchList = this.stagingBranchOptions();
       this.stagingModalMsg = null;
       this.showStagingModal = true;
+      this.loadLinkedRepoBranches();
     },
 
     async loadCredentials() {

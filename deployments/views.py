@@ -4111,7 +4111,7 @@ class StagingEnvironmentCreateAPIView(LoginRequiredMixin, View):
             odoo_server=instance.server,
             created_by=request.user,
         )
-        _dispatch(create_staging_instance, instance.id, source_repo.id, branch, job.id)
+        _dispatch(create_staging_instance, instance.id, source_repo.id, branch, ttl_days, auto_delete, job.id)
         return JsonResponse({"ok": True, "job_id": job.id}, status=202)
 
 
