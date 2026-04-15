@@ -1,29 +1,44 @@
 http:
   routers:
-    {{ route_name }}:
+{% if traefik_tls_mode != 'DISABLED' %}
+    {{ route_name }}-http:
       rule: Host(`{{ domain }}`)
-{% if traefik_tls_mode == 'DISABLED' %}
       entryPoints:
         - web
-{% else %}
+      middlewares:
+        - {{ route_name }}-https-redirect
+      service: {{ route_name }}
+    {{ route_name }}:
+      rule: Host(`{{ domain }}`)
       entryPoints:
         - websecure
       tls:
         certResolver: letsencrypt
-{% endif %}
       service: {{ route_name }}
     {{ route_name }}-websocket:
       rule: Host(`{{ domain }}`) && PathPrefix(`/websocket`)
-{% if traefik_tls_mode == 'DISABLED' %}
-      entryPoints:
-        - web
-{% else %}
       entryPoints:
         - websecure
       tls:
         certResolver: letsencrypt
-{% endif %}
       service: {{ route_name }}
+  middlewares:
+    {{ route_name }}-https-redirect:
+      redirectScheme:
+        scheme: https
+        permanent: true
+{% else %}
+    {{ route_name }}:
+      rule: Host(`{{ domain }}`)
+      entryPoints:
+        - web
+      service: {{ route_name }}
+    {{ route_name }}-websocket:
+      rule: Host(`{{ domain }}`) && PathPrefix(`/websocket`)
+      entryPoints:
+        - web
+      service: {{ route_name }}
+{% endif %}
   services:
     {{ route_name }}:
       loadBalancer:

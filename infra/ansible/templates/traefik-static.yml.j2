@@ -9,12 +9,6 @@ entryPoints:
   web:
     address: ":80"
 {% if traefik_tls_mode != 'DISABLED' %}
-    http:
-      redirections:
-        entryPoint:
-          to: websecure
-          scheme: https
-          permanent: true
   websecure:
     address: ":443"
 {% endif %}
