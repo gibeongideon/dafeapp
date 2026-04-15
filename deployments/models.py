@@ -273,6 +273,8 @@ class OdooServer(models.Model):
     provider_server_id = models.CharField(max_length=120, blank=True, default="")
     ip_address = models.GenericIPAddressField(null=True, blank=True)
     dns_domain = models.CharField(max_length=255, blank=True, default="")
+    platform_domain = models.CharField(max_length=255, blank=True, default="")
+    platform_domain_record_id = models.CharField(max_length=120, blank=True, default="")
     managed_dns_enabled = models.BooleanField(default=False)
     managed_dns_zone = models.ForeignKey(
         "dns.DnsZone",

@@ -62,6 +62,7 @@ from deployments.domain_utils import (
     platform_domains_enabled,
     platform_dns_default_proxied,
     platform_dns_is_configured,
+    platform_dns_provider_service,
 )
 from deployments.serializers import (
     DeploymentJobSerializer,
@@ -1729,6 +1730,28 @@ class OdooServerCreateAPIView(LoginRequiredMixin, View):
                 host,
                 odoo_version,
             )
+            # Optionally create a platform subdomain (e.g. myserver.dafeapp.com) for this server.
+            # IP is immediately available for PYOS servers, so the CF record can be created now.
+            pyos_domain_label = normalize_platform_domain_label(payload.get("platform_domain_label") or "")
+            if pyos_domain_label and is_platform_domain_label_valid(pyos_domain_label) and platform_dns_is_configured():
+                pdomain = platform_domain_for_label(pyos_domain_label)
+                if pdomain and not OdooServer.objects.filter(platform_domain=pdomain).exclude(pk=server.pk).exists():
+                    try:
+                        _prov = platform_dns_provider_service()
+                        _pres = _prov.upsert_record(
+                            getattr(settings, "PLATFORM_DNS_ZONE_ID", "").strip(),
+                            record_type="A",
+                            name=pdomain,
+                            content=str(server.ip_address),
+                            proxied=platform_dns_default_proxied(),
+                            ttl=1,
+                        )
+                        server.platform_domain = pdomain
+                        server.platform_domain_record_id = str(_pres.get("id") or "")
+                        server.save(update_fields=["platform_domain", "platform_domain_record_id", "updated_at"])
+                        logger.info("PYOS server %s platform domain set to %s", server.id, pdomain)
+                    except Exception as _pexc:
+                        logger.warning("Failed to create platform domain for PYOS server %s: %s", server.id, _pexc)
             if deployment_mode == OdooServer.DeploymentMode.DOCKER:
                 _dispatch(configure_docker_host, server.id)
             else:
@@ -2128,6 +2151,111 @@ class OdooServerReprovisionAPIView(LoginRequiredMixin, View):
             server.id, server.deployment_mode, request.user,
         )
         return JsonResponse({"ok": True, "message": "Re-provisioning started.", "task_id": str(getattr(job, "id", ""))})
+
+
+class OdooServerPlatformDomainAPIView(LoginRequiredMixin, View):
+    """POST   /odoo/servers/<server_id>/platform-domain/ — set or change the server's DafeApp subdomain.
+       DELETE /odoo/servers/<server_id>/platform-domain/ — remove it and delete the Cloudflare record."""
+
+    def _get_server(self, request, server_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return None, JsonResponse({"error": "No active organization."}, status=400)
+        if request.org_role not in ("SUPER_ADMIN", "ADMIN", "MANAGER"):
+            return None, JsonResponse({"error": "Permission denied."}, status=403)
+        server = get_object_or_404(OdooServer, pk=server_id, organization=org, is_active=True)
+        return server, None
+
+    def post(self, request, server_id):
+        server, err = self._get_server(request, server_id)
+        if err:
+            return err
+
+        if not platform_dns_is_configured():
+            return JsonResponse({"error": "Platform DNS is not configured."}, status=400)
+        if not server.ip_address:
+            return JsonResponse(
+                {"error": "Server has no IP address yet. Wait for provisioning to complete before setting a domain."},
+                status=400,
+            )
+
+        payload = _request_data(request)
+        label = normalize_platform_domain_label(payload.get("label") or "")
+        if not label or not is_platform_domain_label_valid(label):
+            return JsonResponse(
+                {
+                    "error": (
+                        "label must be 6-63 characters, use only lowercase letters, numbers, or hyphens, "
+                        "and cannot start or end with a hyphen."
+                    )
+                },
+                status=400,
+            )
+
+        new_domain = platform_domain_for_label(label)
+        if not new_domain:
+            return JsonResponse({"error": "Platform base domain is not configured."}, status=400)
+
+        # Reject if another server already owns this domain
+        if OdooServer.objects.filter(platform_domain=new_domain).exclude(pk=server.pk).exists():
+            return JsonResponse({"error": "That domain is already in use by another server."}, status=400)
+
+        zone_id = getattr(settings, "PLATFORM_DNS_ZONE_ID", "").strip()
+        provider = platform_dns_provider_service()
+
+        # Delete the previous Cloudflare record if one exists
+        if server.platform_domain_record_id:
+            try:
+                provider.delete_record(zone_id, server.platform_domain_record_id)
+                logger.info("Deleted old platform domain CF record %s for server %s", server.platform_domain_record_id, server.id)
+            except Exception as exc:
+                logger.warning("Could not delete old platform domain record for server %s: %s", server.id, exc)
+
+        # Create the new A record
+        try:
+            result = provider.upsert_record(
+                zone_id,
+                record_type="A",
+                name=new_domain,
+                content=str(server.ip_address),
+                proxied=platform_dns_default_proxied(),
+                ttl=1,
+            )
+        except Exception as exc:
+            return JsonResponse({"error": f"Cloudflare error: {exc}"}, status=502)
+
+        server.platform_domain = new_domain
+        server.platform_domain_record_id = str(result.get("id") or "")
+        server.save(update_fields=["platform_domain", "platform_domain_record_id", "updated_at"])
+        logger.info(
+            "Server %s platform domain set to %s (CF record id: %s)",
+            server.id, new_domain, server.platform_domain_record_id,
+        )
+        return JsonResponse(OdooServerSerializer(server).data)
+
+    def delete(self, request, server_id):
+        server, err = self._get_server(request, server_id)
+        if err:
+            return err
+
+        if not server.platform_domain:
+            return JsonResponse({"error": "This server has no platform domain set."}, status=400)
+
+        if server.platform_domain_record_id and platform_dns_is_configured():
+            zone_id = getattr(settings, "PLATFORM_DNS_ZONE_ID", "").strip()
+            try:
+                provider = platform_dns_provider_service()
+                provider.delete_record(zone_id, server.platform_domain_record_id)
+                logger.info("Deleted platform domain CF record %s for server %s", server.platform_domain_record_id, server.id)
+            except Exception as exc:
+                logger.warning("Could not delete platform domain CF record for server %s: %s", server.id, exc)
+
+        old_domain = server.platform_domain
+        server.platform_domain = ""
+        server.platform_domain_record_id = ""
+        server.save(update_fields=["platform_domain", "platform_domain_record_id", "updated_at"])
+        logger.info("Server %s platform domain %s removed", server.id, old_domain)
+        return JsonResponse({"ok": True, "message": f"Platform domain {old_domain} removed."})
 
 
 class OdooServerCancelProvisionAPIView(LoginRequiredMixin, View):

@@ -133,6 +133,8 @@ class OdooServerSerializer(serializers.ModelSerializer):
             "provider_server_id",
             "ip_address",
             "dns_domain",
+            "platform_domain",
+            "platform_domain_record_id",
             "managed_dns_enabled",
             "managed_dns_zone",
             "managed_dns_zone_name",
