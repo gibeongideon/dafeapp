@@ -2096,6 +2096,15 @@ def _reconcile_assignment_domain(
     ok, ssl_active, probe_message = _probe_domain_access(instance, domain)
     tls_configured = _effective_tls_mode(instance.server) != OdooServer.TLSMode.DISABLED
     if ok:
+        # Cert not yet valid on a TLS-enabled bare-metal server: keep assignment PENDING
+        # so the gateway + route are re-applied on the next reconciliation cycle until
+        # Let's Encrypt issues the certificate.  Also clear the gateway cache so the
+        # playbook runs unconditionally (it will restart Traefik if config changed, which
+        # wipes ACME backoff state and triggers a fresh certificate request).
+        cert_pending = tls_configured and not ssl_active and instance.server.deployment_mode == OdooServer.DeploymentMode.BARE_METAL
+        if cert_pending:
+            cache.delete(f"deployments:server:{instance.server.id}:traefik-gateway-ready")
+
         if assignment.is_primary:
             if ssl_active:
                 computed_ssl_status = OdooInstance.SSLStatus.ACTIVE
@@ -2115,8 +2124,8 @@ def _reconcile_assignment_domain(
             )
         _save_assignment_state(
             assignment,
-            status=DomainAssignment.Status.ACTIVE,
-            last_error="",
+            status=DomainAssignment.Status.PENDING if cert_pending else DomainAssignment.Status.ACTIVE,
+            last_error="" if ssl_active else probe_message,
             last_synced_at=now,
         )
         messages.append(probe_message)

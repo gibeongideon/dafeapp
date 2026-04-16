@@ -16,11 +16,31 @@
     traefik_download_path: "/tmp/traefik-{{ traefik_version }}.tar.gz"
 
   handlers:
+    # All three handlers listen to the same event and run in definition order.
+    # Result: whenever Traefik's static config or systemd unit changes,
+    # acme.json is wiped first (clearing ACME backoff / stale state),
+    # then a fresh empty file is created, then Traefik restarts.
+    - name: clear acme storage
+      file:
+        path: "{{ traefik_acme_storage }}"
+        state: absent
+      listen: traefik config changed
+
+    - name: recreate acme storage
+      file:
+        path: "{{ traefik_acme_storage }}"
+        state: touch
+        owner: root
+        group: root
+        mode: "0600"
+      listen: traefik config changed
+
     - name: restart traefik
       systemd:
         name: traefik
         state: restarted
         daemon_reload: true
+      listen: traefik config changed
 
   tasks:
     - name: Ensure Traefik configuration directories exist
@@ -50,13 +70,6 @@
           - traefik
         mode: "0755"
 
-    - name: Clear ACME storage to force fresh certificate requests
-      file:
-        path: "{{ traefik_acme_storage }}"
-        state: absent
-      when: traefik_acme_reset
-      notify: restart traefik
-
     - name: Ensure ACME storage file exists
       file:
         path: "{{ traefik_acme_storage }}"
@@ -72,7 +85,7 @@
         owner: root
         group: root
         mode: "0644"
-      notify: restart traefik
+      notify: traefik config changed
 
     - name: Install Traefik systemd unit
       copy:
@@ -94,7 +107,15 @@
 
           [Install]
           WantedBy=multi-user.target
-      notify: restart traefik
+      notify: traefik config changed
+
+    # Force ACME reset even when config is unchanged (e.g. manual Refresh from UI).
+    - name: Force-clear ACME storage on explicit reset request
+      file:
+        path: "{{ traefik_acme_storage }}"
+        state: absent
+      when: traefik_acme_reset
+      notify: traefik config changed
 
     - name: Stop and disable nginx if running (nginx conflicts with Traefik on port 80/443)
       systemd:
