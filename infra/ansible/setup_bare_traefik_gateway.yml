@@ -75,6 +75,9 @@
           ExecStart=/usr/local/bin/traefik --configFile={{ traefik_static_config }}
           Restart=always
           RestartSec=5
+          {% if traefik_cf_api_token is defined and traefik_cf_api_token %}
+          Environment="CF_DNS_API_TOKEN={{ traefik_cf_api_token }}"
+          {% endif %}
 
           [Install]
           WantedBy=multi-user.target

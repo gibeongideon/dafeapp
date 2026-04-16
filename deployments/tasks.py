@@ -1784,6 +1784,7 @@ def _ensure_bare_traefik_gateway(server: OdooServer) -> tuple[bool, str]:
     if not Path(playbook).exists():
         return False, f"Bare-metal Traefik playbook not found: {playbook}"
 
+    cf_token = getattr(settings, "PLATFORM_DNS_API_TOKEN", "").strip()
     extra_vars = {
         "traefik_dynamic_dir": _traefik_dynamic_dir(),
         "traefik_tls_mode": _effective_tls_mode(server),
@@ -1792,6 +1793,8 @@ def _ensure_bare_traefik_gateway(server: OdooServer) -> tuple[bool, str]:
         "traefik_log_level": getattr(settings, "TRAEFIK_LOG_LEVEL", "INFO"),
         "traefik_version": getattr(settings, "TRAEFIK_VERSION", "3.1.2"),
     }
+    if cf_token:
+        extra_vars["traefik_cf_api_token"] = cf_token
     ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
     try:
         ok, log_blob = _run_ansible_playbook(
@@ -4976,10 +4979,13 @@ def _configure_docker_host_inner(self, server_id: int, job_id: int | None = None
         server.docker_postgres_password = pg_password
         server.save(update_fields=["docker_postgres_password"])
 
+    cf_token = getattr(settings, "PLATFORM_DNS_API_TOKEN", "").strip()
     extra_vars = {
         "acme_email": acme_email,
         "postgres_password": pg_password,
     }
+    if cf_token:
+        extra_vars["cf_api_token"] = cf_token
 
     _broadcast_server(server.id, "Running Docker host setup playbook…", server.status)
     ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)

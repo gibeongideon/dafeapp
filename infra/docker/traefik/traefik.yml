@@ -16,8 +16,11 @@ certificatesResolvers:
     acme:
       email: "${ACME_EMAIL}"
       storage: /letsencrypt/acme.json
-      httpChallenge:
-        entryPoint: web
+      dnsChallenge:
+        provider: cloudflare
+        resolvers:
+          - "1.1.1.1:53"
+          - "8.8.8.8:53"
 
 providers:
   docker:
