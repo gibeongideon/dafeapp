@@ -3482,73 +3482,78 @@ def _odoo_server_ssh_target(server: OdooServer) -> tuple[str | None, int]:
     return None, 22
 
 
-def _probe_server_ssh(server: OdooServer, timeout: int = 15) -> tuple[bool, str]:
-    """Validate SSH reachability using ansible-playbook with a minimal gather-facts play."""
+_METRICS_CMD = (
+    "python3 -c \""
+    "import subprocess,time;"
+    "r1=open('/proc/stat').readline().split();time.sleep(0.3);r2=open('/proc/stat').readline().split();"
+    "i1,t1=int(r1[4]),sum(int(x) for x in r1[1:]);"
+    "i2,t2=int(r2[4]),sum(int(x) for x in r2[1:]);"
+    "cpu=round((1-(i2-i1)/(t2-t1))*100,1) if t2!=t1 else 0.0;"
+    "m=open('/proc/meminfo').read();"
+    "mt=int(next(l for l in m.split(chr(10)) if 'MemTotal' in l).split()[1]);"
+    "mf=int(next(l for l in m.split(chr(10)) if 'MemAvailable' in l).split()[1]);"
+    "mem=round((mt-mf)/mt*100,1);"
+    "d=subprocess.run(['df','/'],capture_output=True,text=True).stdout.split(chr(10))[1].split();"
+    "disk=int(d[4].rstrip('%'));"
+    "c=subprocess.run(['ss','-tn'],capture_output=True,text=True).stdout.strip().split(chr(10));"
+    "conn=max(0,len(c)-1);"
+    "print(f'{cpu},{mem},{disk},{conn}')\""
+)
+
+
+def _probe_server_ssh(server: OdooServer, timeout: int = 10) -> tuple[bool, str]:
+    """
+    Validate connectivity by fetching live metrics (CPU/mem/disk/conn) via Paramiko SSH.
+    If the metrics command succeeds the server is reachable; any exception means it is not.
+    A successful probe also warms the metrics cache used by OdooServerMetricsAPIView.
+    """
     host, port = _odoo_server_ssh_target(server)
     if not host:
         return False, "No host/IP to probe — server has no SSH target yet."
 
-    ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
-    if not (ssh_key or ssh_password):
-        return False, f"No SSH credentials available for {host}:{port}."
-
-    effective_user = ssh_user or os.getenv("ANSIBLE_SSH_USER", "root").strip()
-    message = ""
-    tmp_playbook = None
+    client = tmp_key = None
     try:
-        tmp_playbook = tempfile.NamedTemporaryFile(mode="w", suffix=".yml", delete=False)
-        tmp_playbook.write(
-            "- hosts: all\n"
-            "  gather_facts: true\n"
-            "  tasks:\n"
-            "    - name: Connectivity OK\n"
-            "      ansible.builtin.debug:\n"
-            "        msg: reachability-ok\n"
-        )
-        tmp_playbook.close()
+        ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
+        if not (ssh_key or ssh_password):
+            return False, f"No SSH credentials available for {host}:{port}."
 
-        args = [
-            "ansible-playbook",
-            tmp_playbook.name,
-            "-i",
-            f"{host},",
-            "--user",
-            effective_user,
-            "--ssh-extra-args",
-            f"-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout={timeout}",
-            "-e",
-            f"ansible_port={port}",
-        ]
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        connect_kwargs: dict = {
+            "hostname": host,
+            "port": port,
+            "username": ssh_user or os.getenv("ANSIBLE_SSH_USER", "root").strip(),
+            "timeout": timeout,
+            "banner_timeout": timeout,
+        }
         if ssh_key:
-            args.extend(["--private-key", ssh_key])
-        if ssh_password and not ssh_key:
-            args.extend(["-e", f"ansible_ssh_pass={ssh_password}"])
-            args.extend(["-e", f"ansible_password={ssh_password}"])
+            connect_kwargs["key_filename"] = ssh_key
+        elif ssh_password:
+            connect_kwargs["password"] = ssh_password
+        client.connect(**connect_kwargs)
 
-        code, out, err = _run_cmd(
-            args,
-            Path(settings.BASE_DIR),
-            extra_env={"ANSIBLE_HOST_KEY_CHECKING": "False"},
-        )
-        log_blob = _append_text(out.strip(), err.strip())
-        if code == 0:
-            return True, f"SSH validation succeeded for {host}:{port}."
-        message = _extract_ansible_unreachable_message(log_blob)
-        if not message:
-            non_empty = [line.strip() for line in log_blob.splitlines() if line.strip()]
-            message = non_empty[-1] if non_empty else f"SSH validation failed for {host}:{port}."
-        return False, message
-    except FileNotFoundError:
-        return False, "Ansible command not found for reachability check."
+        _, stdout, _ = client.exec_command(_METRICS_CMD, timeout=timeout)
+        out = stdout.read().decode().strip()
+        parts = out.split(",")
+        if len(parts) == 4:
+            from django.core.cache import cache as _cache
+            metrics = {
+                "cpu": float(parts[0]),
+                "memory": float(parts[1]),
+                "disk": int(parts[2]),
+                "connections": int(parts[3]),
+            }
+            _cache.set(f"server_metrics_{server.pk}", metrics, timeout=300)
+        return True, f"Connected — CPU {parts[0]}% Mem {parts[1]}% Disk {parts[2]}% Conn {parts[3]}" if len(parts) == 4 else f"SSH connected to {host}:{port}."
     except Exception as exc:
-        return False, f"SSH validation failed for {host}:{port}: {exc}"
+        return False, f"Cannot reach {host}:{port} — {exc}"
     finally:
+        if client:
+            with suppress(Exception):
+                client.close()
         if tmp_key:
             with suppress(OSError):
                 os.unlink(tmp_key)
-        if tmp_playbook:
-            with suppress(OSError):
-                os.unlink(tmp_playbook.name)
 
 
 def _persist_server_reachability(

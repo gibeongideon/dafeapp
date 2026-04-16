@@ -2021,24 +2021,7 @@ class OdooServerCheckConnectivityView(LoginRequiredMixin, View):
         return JsonResponse(payload)
 
 
-# Metrics SSH command: samples CPU over 0.3s, reads /proc/meminfo, df /, ss active connections.
-_METRICS_CMD = (
-    "python3 -c \""
-    "import subprocess,time;"
-    "r1=open('/proc/stat').readline().split();time.sleep(0.3);r2=open('/proc/stat').readline().split();"
-    "i1,t1=int(r1[4]),sum(int(x) for x in r1[1:]);"
-    "i2,t2=int(r2[4]),sum(int(x) for x in r2[1:]);"
-    "cpu=round((1-(i2-i1)/(t2-t1))*100,1) if t2!=t1 else 0.0;"
-    "m=open('/proc/meminfo').read();"
-    "mt=int(next(l for l in m.split(chr(10)) if 'MemTotal' in l).split()[1]);"
-    "mf=int(next(l for l in m.split(chr(10)) if 'MemAvailable' in l).split()[1]);"
-    "mem=round((mt-mf)/mt*100,1);"
-    "d=subprocess.run(['df','/'],capture_output=True,text=True).stdout.split(chr(10))[1].split();"
-    "disk=int(d[4].rstrip('%'));"
-    "c=subprocess.run(['ss','-tn'],capture_output=True,text=True).stdout.strip().split(chr(10));"
-    "conn=max(0,len(c)-1);"
-    "print(f'{cpu},{mem},{disk},{conn}')\""
-)
+from deployments.tasks import _METRICS_CMD
 
 
 class OdooServerMetricsAPIView(LoginRequiredMixin, View):
