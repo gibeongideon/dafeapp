@@ -14,6 +14,13 @@
     traefik_download_url: "https://github.com/traefik/traefik/releases/download/v{{ traefik_version }}/traefik_v{{ traefik_version }}_linux_amd64.tar.gz"
     traefik_download_path: "/tmp/traefik-{{ traefik_version }}.tar.gz"
 
+  handlers:
+    - name: restart traefik
+      systemd:
+        name: traefik
+        state: restarted
+        daemon_reload: true
+
   tasks:
     - name: Ensure Traefik configuration directories exist
       file:
@@ -57,6 +64,7 @@
         owner: root
         group: root
         mode: "0644"
+      notify: restart traefik
 
     - name: Install Traefik systemd unit
       copy:
@@ -75,12 +83,10 @@
           ExecStart=/usr/local/bin/traefik --configFile={{ traefik_static_config }}
           Restart=always
           RestartSec=5
-          {% if traefik_cf_api_token is defined and traefik_cf_api_token %}
-          Environment="CF_DNS_API_TOKEN={{ traefik_cf_api_token }}"
-          {% endif %}
 
           [Install]
           WantedBy=multi-user.target
+      notify: restart traefik
 
     - name: Stop and disable nginx if running (nginx conflicts with Traefik on port 80/443)
       systemd:

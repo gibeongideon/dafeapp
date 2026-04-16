@@ -18,6 +18,7 @@ urlpatterns = [
     path("odoo/servers/<int:server_id>/check/", views.OdooServerCheckConnectivityView.as_view(), name="odoo-server-check"),
     path("odoo/servers/<int:server_id>/metrics/", views.OdooServerMetricsAPIView.as_view(), name="odoo-server-metrics"),
     path("odoo/servers/<int:server_id>/reprovision/", views.OdooServerReprovisionAPIView.as_view(), name="odoo-server-reprovision"),
+    path("odoo/servers/<int:server_id>/refresh-traefik/", views.OdooServerRefreshTraefikView.as_view(), name="odoo-server-refresh-traefik"),
     path("odoo/servers/<int:server_id>/platform-domain/", views.OdooServerPlatformDomainAPIView.as_view(), name="odoo-server-platform-domain"),
     path("odoo/servers/<int:server_id>/cancel/", views.OdooServerCancelProvisionAPIView.as_view(), name="odoo-server-cancel"),
     path("pyos/vps/create/", views.PyosVpsCreateAPIView.as_view(), name="pyos-vps-create"),

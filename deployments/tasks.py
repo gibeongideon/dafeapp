@@ -1784,7 +1784,6 @@ def _ensure_bare_traefik_gateway(server: OdooServer) -> tuple[bool, str]:
     if not Path(playbook).exists():
         return False, f"Bare-metal Traefik playbook not found: {playbook}"
 
-    cf_token = getattr(settings, "PLATFORM_DNS_API_TOKEN", "").strip()
     extra_vars = {
         "traefik_dynamic_dir": _traefik_dynamic_dir(),
         "traefik_tls_mode": _effective_tls_mode(server),
@@ -1793,8 +1792,6 @@ def _ensure_bare_traefik_gateway(server: OdooServer) -> tuple[bool, str]:
         "traefik_log_level": getattr(settings, "TRAEFIK_LOG_LEVEL", "INFO"),
         "traefik_version": getattr(settings, "TRAEFIK_VERSION", "3.1.2"),
     }
-    if cf_token:
-        extra_vars["traefik_cf_api_token"] = cf_token
     ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
     try:
         ok, log_blob = _run_ansible_playbook(
@@ -3493,6 +3490,31 @@ def _mark_server_unreachable_from_ansible_log(server: OdooServer, log_blob: str)
     return True
 
 
+@shared_task(bind=True, max_retries=0)
+def refresh_traefik_gateway(self, server_id: int):
+    """
+    Force-refresh the Traefik gateway on a bare-metal server.
+    Clears the 5-minute cache lock so the gateway playbook runs immediately,
+    re-deploying the static config (and restarting Traefik via the handler
+    when the config actually changed).
+    """
+    server = OdooServer.objects.filter(pk=server_id, is_active=True).first()
+    if not server:
+        logger.warning("refresh_traefik_gateway: server %s not found.", server_id)
+        return
+    if server.deployment_mode != OdooServer.DeploymentMode.BARE_METAL:
+        logger.info("refresh_traefik_gateway: server %s is not bare-metal, skipping.", server_id)
+        return
+    # Clear the gateway cache so _ensure_bare_traefik_gateway actually runs the playbook.
+    cache_key = f"deployments:server:{server_id}:traefik-gateway-ready"
+    cache.delete(cache_key)
+    ok, log_blob = _ensure_bare_traefik_gateway(server)
+    logger.info(
+        "refresh_traefik_gateway: server %s — ok=%s log=%s",
+        server_id, ok, log_blob[:200],
+    )
+
+
 @shared_task
 def check_server_connectivity():
     """
@@ -4979,13 +5001,10 @@ def _configure_docker_host_inner(self, server_id: int, job_id: int | None = None
         server.docker_postgres_password = pg_password
         server.save(update_fields=["docker_postgres_password"])
 
-    cf_token = getattr(settings, "PLATFORM_DNS_API_TOKEN", "").strip()
     extra_vars = {
         "acme_email": acme_email,
         "postgres_password": pg_password,
     }
-    if cf_token:
-        extra_vars["cf_api_token"] = cf_token
 
     _broadcast_server(server.id, "Running Docker host setup playbook…", server.status)
     ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)

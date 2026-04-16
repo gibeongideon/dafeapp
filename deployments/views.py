@@ -2153,6 +2153,36 @@ class OdooServerReprovisionAPIView(LoginRequiredMixin, View):
         return JsonResponse({"ok": True, "message": "Re-provisioning started.", "task_id": str(getattr(job, "id", ""))})
 
 
+class OdooServerRefreshTraefikView(LoginRequiredMixin, View):
+    """POST /odoo/servers/<server_id>/refresh-traefik/ — force-refresh the Traefik gateway on a bare-metal server."""
+
+    def post(self, request, server_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if request.org_role not in ("SUPER_ADMIN", "ADMIN", "MANAGER"):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        server = get_object_or_404(
+            OdooServer,
+            pk=server_id,
+            organization=org,
+            is_active=True,
+        )
+
+        if server.deployment_mode != OdooServer.DeploymentMode.BARE_METAL:
+            return JsonResponse({"error": "Traefik refresh is only available for bare-metal servers."}, status=400)
+        if server.status not in (OdooServer.Status.PROVISIONED, OdooServer.Status.FAILED):
+            return JsonResponse(
+                {"error": f"Server must be PROVISIONED or FAILED (current: {server.status})."},
+                status=409,
+            )
+
+        from deployments.tasks import refresh_traefik_gateway
+        job = refresh_traefik_gateway.delay(server.id)
+        return JsonResponse({"ok": True, "message": "Traefik gateway refresh started.", "task_id": str(job.id)})
+
+
 class OdooServerPlatformDomainAPIView(LoginRequiredMixin, View):
     """POST   /odoo/servers/<server_id>/platform-domain/ — set or change the server's DafeApp subdomain.
        DELETE /odoo/servers/<server_id>/platform-domain/ — remove it and delete the Cloudflare record."""

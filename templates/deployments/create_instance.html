@@ -1227,7 +1227,20 @@
 
         <div id="server-settings-{{ s.id }}" class="rounded-2xl border border-gray-200 bg-gray-50 p-3 space-y-2">
           <p class="text-[10px] uppercase tracking-wide text-gray-400">Settings</p>
-          <p class="text-xs text-gray-600">Use these lower-frequency actions without crowding the main card.</p>
+          {% if s.deployment_mode != 'DOCKER' %}
+          <div class="flex items-center justify-between gap-3 text-xs text-gray-600">
+            <div>
+              <p class="font-medium text-gray-700">Traefik gateway</p>
+              <p class="text-[11px] text-gray-500">Re-deploy the reverse proxy config and reload certificates.</p>
+            </div>
+            <button type="button"
+                    class="refresh-traefik-btn shrink-0 px-3 py-1.5 text-[11px] font-medium rounded-lg border border-gray-200 text-gray-700 hover:bg-white transition-colors"
+                    data-server-id="{{ s.id }}"
+                    {% if s.status != 'PROVISIONED' %}disabled title="Server must be provisioned first."{% endif %}>
+              Refresh
+            </button>
+          </div>
+          {% endif %}
         </div>
 
         <div class="grid grid-cols-1 gap-2 text-xs text-gray-600">
@@ -3054,6 +3067,35 @@ chmod 600 ~/.ssh/authorized_keys</pre>
       kanban.appendChild(placeholder);
     }
   }
+
+  async function refreshTraefik(serverId, btn) {
+    btn.disabled = true;
+    btn.textContent = "Refreshing…";
+    try {
+      const resp = await fetch(`/api/deployments/odoo/servers/${serverId}/refresh-traefik/`, {
+        method: "POST",
+        headers: { "X-CSRFToken": getCsrfToken(), "Content-Type": "application/json" },
+      });
+      const data = await resp.json();
+      if (resp.ok && data.ok) {
+        showToast("Traefik gateway refresh started — certificates will be re-issued shortly.", "success");
+      } else {
+        showToast(data.error || "Failed to start Traefik refresh.", "error");
+      }
+    } catch (e) {
+      showToast("Network error — could not reach server.", "error");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Refresh";
+    }
+  }
+
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest(".refresh-traefik-btn");
+    if (!btn) return;
+    const serverId = btn.dataset.serverId;
+    if (serverId) refreshTraefik(serverId, btn);
+  });
 
   async function reprovisionServer(serverId, btn) {
     if (!confirm("Re-run server provisioning? This will check connectivity and re-configure the server.")) return;

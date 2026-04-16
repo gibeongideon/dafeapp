@@ -24,7 +24,6 @@
     backup_dir: /backups
     acme_email: "{{ acme_email | default('odoo@example.com') }}"
     postgres_password: "{{ postgres_password }}"
-    cf_api_token: "{{ cf_api_token | default('') }}"
 
   tasks:
     - name: Stop unattended-upgrades and wait for apt locks to clear
@@ -149,7 +148,6 @@
         content: |
           ACME_EMAIL={{ acme_email }}
           POSTGRES_PASSWORD={{ postgres_password }}
-          CF_DNS_API_TOKEN={{ cf_api_token | default('') }}
 
     - name: Remove unlabelled odoo-network if it exists (idempotency fix)
       # A pre-existing network without compose labels causes `docker compose up` to fail.
