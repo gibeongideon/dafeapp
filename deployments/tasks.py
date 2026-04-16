@@ -1575,6 +1575,57 @@ def _traefik_acme_email() -> str:
     return getattr(settings, "TRAEFIK_ACME_EMAIL", os.getenv("ODOO_ADMIN_EMAIL", "odoo@example.com").strip())
 
 
+def _cleanup_acme_challenge_dns_records(base_domain: str, cf_token: str) -> None:
+    """
+    Delete all _acme-challenge TXT records for *.base_domain from Cloudflare.
+    Stale records accumulate when Traefik's ACME cleanup fails (e.g. after a
+    forced acme.json reset), causing error 81058 on the next cert request.
+    """
+    if not cf_token or not base_domain:
+        return
+    import requests as _requests
+
+    headers = {"Authorization": f"Bearer {cf_token}", "Content-Type": "application/json"}
+    base = "https://api.cloudflare.com/client/v4"
+
+    # Resolve zone ID by domain name (avoid requiring PLATFORM_DNS_ZONE_ID)
+    try:
+        resp = _requests.get(f"{base}/zones", params={"name": base_domain}, headers=headers, timeout=10)
+        zones = resp.json().get("result", [])
+        if not zones:
+            logger.warning("_cleanup_acme_challenge_dns_records: zone not found for %s", base_domain)
+            return
+        zone_id = zones[0]["id"]
+    except Exception as exc:
+        logger.warning("_cleanup_acme_challenge_dns_records: failed to resolve zone: %s", exc)
+        return
+
+    # List all TXT records that start with _acme-challenge
+    try:
+        resp = _requests.get(
+            f"{base}/zones/{zone_id}/dns_records",
+            params={"type": "TXT", "per_page": 100},
+            headers=headers,
+            timeout=10,
+        )
+        records = resp.json().get("result", [])
+    except Exception as exc:
+        logger.warning("_cleanup_acme_challenge_dns_records: failed to list records: %s", exc)
+        return
+
+    deleted = 0
+    for record in records:
+        if "_acme-challenge" in record.get("name", ""):
+            try:
+                _requests.delete(f"{base}/zones/{zone_id}/dns_records/{record['id']}", headers=headers, timeout=10)
+                deleted += 1
+                logger.info("_cleanup_acme_challenge_dns_records: deleted %s", record["name"])
+            except Exception as exc:
+                logger.warning("_cleanup_acme_challenge_dns_records: failed to delete %s: %s", record["name"], exc)
+    if deleted:
+        logger.info("_cleanup_acme_challenge_dns_records: cleaned %d stale record(s) for %s", deleted, base_domain)
+
+
 def _effective_tls_mode(server: OdooServer) -> str:
     value = getattr(server, "tls_mode", "") or getattr(settings, "TRAEFIK_DEFAULT_TLS_MODE", OdooServer.TLSMode.LETS_ENCRYPT)
     valid = {choice for choice, _ in OdooServer.TLSMode.choices}
@@ -3520,6 +3571,13 @@ def refresh_traefik_gateway(self, server_id: int):
     # Clear the gateway cache so _ensure_bare_traefik_gateway actually runs the playbook.
     cache_key = f"deployments:server:{server_id}:traefik-gateway-ready"
     cache.delete(cache_key)
+    # Remove stale _acme-challenge TXT records from Cloudflare before resetting ACME.
+    # Stale records cause error 81058 ("identical record already exists") on the next
+    # cert request, silently blocking certificate issuance.
+    _cleanup_acme_challenge_dns_records(
+        base_domain=os.getenv("PLATFORM_BASE_DOMAIN", "").strip(),
+        cf_token=os.getenv("PLATFORM_DNS_API_TOKEN", "").strip(),
+    )
     ok, log_blob = _ensure_bare_traefik_gateway(server, acme_reset=True)
     logger.info(
         "refresh_traefik_gateway: server %s — ok=%s log=%s",
