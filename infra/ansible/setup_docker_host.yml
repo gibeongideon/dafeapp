@@ -148,6 +148,7 @@
         content: |
           ACME_EMAIL={{ acme_email }}
           POSTGRES_PASSWORD={{ postgres_password }}
+          CF_DNS_API_TOKEN={{ cf_dns_api_token | default('') }}
 
     - name: Remove unlabelled odoo-network if it exists (idempotency fix)
       # A pre-existing network without compose labels causes `docker compose up` to fail.
