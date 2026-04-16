@@ -11,6 +11,7 @@
     traefik_acme_email: "{{ traefik_acme_email | default('odoo@example.com') }}"
     traefik_log_level: "{{ traefik_log_level | default('INFO') }}"
     traefik_tls_mode: "{{ traefik_tls_mode | default('LETS_ENCRYPT') }}"
+    traefik_acme_reset: "{{ traefik_acme_reset | default(false) | bool }}"
     traefik_download_url: "https://github.com/traefik/traefik/releases/download/v{{ traefik_version }}/traefik_v{{ traefik_version }}_linux_amd64.tar.gz"
     traefik_download_path: "/tmp/traefik-{{ traefik_version }}.tar.gz"
 
@@ -48,6 +49,13 @@
         include:
           - traefik
         mode: "0755"
+
+    - name: Clear ACME storage to force fresh certificate requests
+      file:
+        path: "{{ traefik_acme_storage }}"
+        state: absent
+      when: traefik_acme_reset
+      notify: restart traefik
 
     - name: Ensure ACME storage file exists
       file:

@@ -55,25 +55,70 @@
 
   tasks:
     # ------------------------------------------------------------------
-    # 0. Ensure PostgreSQL is running before any database operations
+    # 0. Ensure PostgreSQL is installed and running
     # ------------------------------------------------------------------
-    - name: Ensure PostgreSQL service is enabled and running
-      systemd:
-        name: postgresql
-        enabled: true
-        state: started
-
-    - name: Inspect PostgreSQL clusters
-      command: pg_lsclusters --no-header
-      register: pg_clusters
+    - name: Detect installed PostgreSQL major version (first pass)
+      shell: "ls -1 /usr/lib/postgresql 2>/dev/null | sort -V | tail -n 1"
+      register: pg_major_version_precheck
       changed_when: false
       failed_when: false
+
+    - name: Install PostgreSQL 16 from PGDG if not already installed
+      when: pg_major_version_precheck.stdout | trim == ""
+      block:
+        - name: Add PostgreSQL APT key
+          shell: |
+            curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+              | gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg
+          args:
+            executable: /bin/bash
+            creates: /etc/apt/trusted.gpg.d/postgresql.gpg
+
+        - name: Add PostgreSQL APT repository
+          shell: |
+            echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+              > /etc/apt/sources.list.d/pgdg.list
+          args:
+            executable: /bin/bash
+            creates: /etc/apt/sources.list.d/pgdg.list
+
+        - name: Install postgresql-16
+          apt:
+            name: postgresql-16
+            update_cache: true
+            state: present
 
     - name: Detect installed PostgreSQL major version
       shell: "ls -1 /usr/lib/postgresql 2>/dev/null | sort -V | tail -n 1"
       register: pg_major_version
       changed_when: false
       failed_when: pg_major_version.stdout | trim == ""
+
+    - name: Ensure PostgreSQL service is enabled and running
+      systemd:
+        name: postgresql
+        enabled: true
+        state: started
+      ignore_errors: true   # service name varies (e.g. postgresql@16-main); clusters are started below
+
+    - name: Start any versioned PostgreSQL units that exist and are not running
+      shell: |
+        systemctl list-units --type=service --all --no-legend 2>/dev/null \
+          | grep -oP 'postgresql@\S+(?=\.service)' \
+          | while read svc; do
+              systemctl enable "${svc}.service" 2>/dev/null || true
+              systemctl start  "${svc}.service" 2>/dev/null || true
+            done
+        exit 0
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Inspect PostgreSQL clusters
+      command: pg_lsclusters --no-header
+      register: pg_clusters
+      changed_when: false
+      failed_when: false
 
     - name: Create a default PostgreSQL cluster if none exists
       command: "pg_createcluster {{ pg_major_version.stdout | trim }} main --start"
@@ -218,10 +263,12 @@
           failed_when: false
 
         - name: Collect PostgreSQL service status
-          command: systemctl status postgresql --no-pager -l
+          shell: systemctl status postgresql --no-pager -l 2>/dev/null || systemctl status 'postgresql@*' --no-pager -l 2>/dev/null || true
           register: pg_service_status
           changed_when: false
           failed_when: false
+          args:
+            executable: /bin/bash
 
         - name: Show PostgreSQL diagnostics
           debug:

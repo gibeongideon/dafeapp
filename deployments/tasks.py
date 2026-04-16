@@ -1771,7 +1771,7 @@ def _probe_domain_access(instance: OdooInstance, domain: str | None = None) -> t
         return True, False, f"Domain is reachable but TLS certificate could not be verified for {url}."
 
 
-def _ensure_bare_traefik_gateway(server: OdooServer) -> tuple[bool, str]:
+def _ensure_bare_traefik_gateway(server: OdooServer, *, acme_reset: bool = False) -> tuple[bool, str]:
     if server.deployment_mode != OdooServer.DeploymentMode.BARE_METAL:
         return True, "Traefik gateway not required for this deployment mode."
     if not server.ip_address:
@@ -1791,6 +1791,7 @@ def _ensure_bare_traefik_gateway(server: OdooServer) -> tuple[bool, str]:
         "traefik_acme_storage": getattr(settings, "TRAEFIK_ACME_STORAGE", "/var/lib/traefik/acme.json"),
         "traefik_log_level": getattr(settings, "TRAEFIK_LOG_LEVEL", "INFO"),
         "traefik_version": getattr(settings, "TRAEFIK_VERSION", "3.1.2"),
+        "traefik_acme_reset": "true" if acme_reset else "false",
     }
     ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
     try:
@@ -3508,7 +3509,7 @@ def refresh_traefik_gateway(self, server_id: int):
     # Clear the gateway cache so _ensure_bare_traefik_gateway actually runs the playbook.
     cache_key = f"deployments:server:{server_id}:traefik-gateway-ready"
     cache.delete(cache_key)
-    ok, log_blob = _ensure_bare_traefik_gateway(server)
+    ok, log_blob = _ensure_bare_traefik_gateway(server, acme_reset=True)
     logger.info(
         "refresh_traefik_gateway: server %s — ok=%s log=%s",
         server_id, ok, log_blob[:200],
