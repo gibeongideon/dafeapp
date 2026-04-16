@@ -196,6 +196,27 @@
     # ------------------------------------------------------------------
     # 3. Create dedicated Python virtualenv
     # ------------------------------------------------------------------
+    - name: Install build dependencies required for Python C-extension packages
+      apt:
+        name:
+          - build-essential
+          - python3-dev
+          - libpq-dev
+          - libldap2-dev
+          - libsasl2-dev
+          - libssl-dev
+          - libffi-dev
+          - libxslt-dev
+          - libzip-dev
+          - libpng-dev
+          - libjpeg-dev
+        state: present
+        update_cache: false
+      register: apt_build_deps
+      retries: 3
+      delay: 5
+      until: apt_build_deps is succeeded
+
     - name: Ensure python3-venv is installed (version-specific package required on Debian/Ubuntu)
       shell: |
         PY_MINOR=$(python3 -c "import sys; print(sys.version_info.minor)")

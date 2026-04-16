@@ -1341,6 +1341,7 @@ def _run_ansible_playbook(
     ssh_key_path: str | None = None,
     ssh_password: str | None = None,
     on_chunk=None,
+    abort_check=None,
 ) -> tuple[bool, str]:
     """
     Run an Ansible playbook against `ip`.
@@ -1348,6 +1349,11 @@ def _run_ansible_playbook(
     When `on_chunk` is provided (callable accepting a str line), output is
     streamed line-by-line via Popen so callers can broadcast live to WebSocket.
     Without it, falls back to the original blocking subprocess.run behaviour.
+
+    `abort_check` is an optional callable() → bool.  If it returns True the
+    subprocess is killed immediately and the function returns (False, log).
+    It is called every N lines during streaming to detect external cancellation
+    (e.g. the server record was deleted while Ansible was running).
     """
     effective_user = ssh_user or os.getenv("ANSIBLE_SSH_USER", "root").strip()
     effective_key = ssh_key_path or os.getenv("ANSIBLE_SSH_KEY_PATH", "").strip()
@@ -1356,7 +1362,13 @@ def _run_ansible_playbook(
         "ansible-playbook", playbook,
         "-i", f"{ip},",
         "--user", effective_user,
-        "--ssh-extra-args", "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
+        "--ssh-extra-args", (
+            "-o StrictHostKeyChecking=no"
+            " -o UserKnownHostsFile=/dev/null"
+            " -o ConnectTimeout=15"
+            " -o ServerAliveInterval=10"
+            " -o ServerAliveCountMax=3"
+        ),
     ]
     if effective_key:
         args.extend(["--private-key", effective_key])
@@ -1380,8 +1392,12 @@ def _run_ansible_playbook(
             text=True,
             env=env,
             bufsize=1,
+            # New process group so we can kill the whole tree on abort.
+            start_new_session=True,
         )
         lines: list[str] = []
+        line_count = 0
+        aborted = False
         for line in proc.stdout:
             clean = line.rstrip()
             if clean:
@@ -1391,9 +1407,29 @@ def _run_ansible_playbook(
                 on_chunk(line)
             except Exception:
                 pass
-        proc.wait()
+            line_count += 1
+            # Every 20 lines check whether the caller wants to abort (e.g.
+            # because the server record was deleted or marked FAILED externally).
+            if abort_check and line_count % 20 == 0:
+                try:
+                    if abort_check():
+                        logger.warning("Ansible playbook aborted by abort_check after %d lines.", line_count)
+                        import signal as _signal
+                        try:
+                            os.killpg(os.getpgid(proc.pid), _signal.SIGTERM)
+                        except ProcessLookupError:
+                            pass
+                        proc.wait(timeout=10)
+                        aborted = True
+                        break
+                except Exception:
+                    pass
+        if not aborted:
+            proc.wait()
         log_blob = "".join(lines).strip()
-        return proc.returncode == 0, log_blob
+        if aborted:
+            log_blob = _append_text(log_blob, "[aborted] Playbook was terminated because the server was cancelled or deleted.")
+        return proc.returncode == 0 and not aborted, log_blob
 
     # Non-streaming (original) mode.
     code, out, err = _run_cmd(args, Path(settings.BASE_DIR), extra_env={"ANSIBLE_HOST_KEY_CHECKING": "False"})
@@ -2814,7 +2850,17 @@ def _configure_odoo_server_inner(self, server_id: int, job_id: int | None = None
     ip_str = str(server.ip_address)
     _broadcast_server(server.id, "Waiting for SSH to become available…", server.status)
     ssh_ready = False
+    cancelled_during_wait = False
     for attempt in range(60):  # up to 5 minutes (60 × 5 s)
+        # Check for external cancellation (server deleted or marked FAILED) every iteration.
+        try:
+            s = OdooServer.objects.only("status", "is_active").get(pk=server.id)
+            if s.status == OdooServer.Status.FAILED or not s.is_active:
+                cancelled_during_wait = True
+                break
+        except OdooServer.DoesNotExist:
+            cancelled_during_wait = True
+            break
         try:
             with socket.create_connection((ip_str, 22), timeout=5):
                 ssh_ready = True
@@ -2823,6 +2869,11 @@ def _configure_odoo_server_inner(self, server_id: int, job_id: int | None = None
             if attempt % 6 == 0:  # log every 30 s
                 logger.info("Server %s: SSH not ready yet (attempt %s/60)…", server.id, attempt + 1)
             time.sleep(5)
+
+    if cancelled_during_wait:
+        logger.info("Server %s: SSH wait loop aborted — server cancelled or deleted.", server.id)
+        _job_done(job_id, ok=False, log="Provisioning cancelled.")
+        return
 
     if not ssh_ready:
         logger.error("Server %s: SSH did not become available after 5 minutes.", server.id)
@@ -2847,6 +2898,16 @@ def _configure_odoo_server_inner(self, server_id: int, job_id: int | None = None
 
     _broadcast_server(server.id, "Running Ansible playbook — Odoo install takes 5–15 min…", server.status)
     ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
+    _server_id = server.id
+
+    def _server_cancelled() -> bool:
+        """Return True if the server record was deleted or externally marked FAILED."""
+        try:
+            s = OdooServer.objects.only("status", "is_active").get(pk=_server_id)
+            return s.status == OdooServer.Status.FAILED or not s.is_active
+        except OdooServer.DoesNotExist:
+            return True  # record deleted
+
     try:
         ok, log_blob = _run_ansible_playbook(
             playbook,
@@ -2856,10 +2917,19 @@ def _configure_odoo_server_inner(self, server_id: int, job_id: int | None = None
             ssh_key_path=ssh_key,
             ssh_password=ssh_password,
             on_chunk=lambda line: _broadcast_log_line(ws_group, line),
+            abort_check=_server_cancelled,
         )
     finally:
         if tmp_key:
             os.unlink(tmp_key)
+
+    # Re-fetch the server to check it still exists before writing results.
+    try:
+        server = OdooServer.objects.select_related("infrastructure").get(pk=server.id)
+    except OdooServer.DoesNotExist:
+        logger.info("Server %s was deleted while Ansible was running; discarding results.", server.id)
+        _job_done(job_id, ok=False, log="Server record was deleted during provisioning.")
+        return
 
     server.provisioning_log = _append_text(server.provisioning_log, f"[ansible server]\n{log_blob}".strip())
     if ok:
@@ -2877,7 +2947,10 @@ def _configure_odoo_server_inner(self, server_id: int, job_id: int | None = None
             ok = False
             log_blob = _append_text(log_blob, gateway_log)
 
-    server.status = OdooServer.Status.PROVISIONED if ok else OdooServer.Status.FAILED
+    # Only set FAILED if the status hasn't already been set to FAILED by the
+    # periodic connectivity check (avoid overwriting it with PROVISIONED).
+    if not ok or server.status not in (OdooServer.Status.FAILED, OdooServer.Status.PROVISIONED):
+        server.status = OdooServer.Status.PROVISIONED if ok else OdooServer.Status.FAILED
     logger.info(
         "Server %s: configuration %s",
         server.id,
@@ -3494,8 +3567,6 @@ def _persist_server_reachability(
 
     if (
         not reachable
-        and infra
-        and infra.infra_type == Infrastructure.InfraType.PYOS
         and server.status in (
             OdooServer.Status.CONNECTING,
             OdooServer.Status.PROVISIONING,
@@ -5043,7 +5114,16 @@ def _configure_docker_host_inner(self, server_id: int, job_id: int | None = None
     ip_str = str(server.ip_address)
     _broadcast_server(server.id, "Waiting for SSH to become available…", server.status)
     ssh_ready = False
+    cancelled_during_wait = False
     for attempt in range(60):  # up to 5 minutes (60 × 5 s)
+        try:
+            s = OdooServer.objects.only("status", "is_active").get(pk=server.id)
+            if s.status == OdooServer.Status.FAILED or not s.is_active:
+                cancelled_during_wait = True
+                break
+        except OdooServer.DoesNotExist:
+            cancelled_during_wait = True
+            break
         try:
             with socket.create_connection((ip_str, 22), timeout=5):
                 ssh_ready = True
@@ -5052,6 +5132,11 @@ def _configure_docker_host_inner(self, server_id: int, job_id: int | None = None
             if attempt % 6 == 0:
                 logger.info("Server %s: SSH not ready yet (attempt %s/60)…", server.id, attempt + 1)
             time.sleep(5)
+
+    if cancelled_during_wait:
+        logger.info("Server %s: SSH wait loop aborted — server cancelled or deleted.", server.id)
+        _job_done(job_id, ok=False, log="Provisioning cancelled.")
+        return
 
     if not ssh_ready:
         logger.error("Server %s: SSH did not become available after 5 minutes.", server.id)
@@ -5080,6 +5165,16 @@ def _configure_docker_host_inner(self, server_id: int, job_id: int | None = None
 
     _broadcast_server(server.id, "Running Docker host setup playbook…", server.status)
     ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
+    _server_id = server.id
+
+    def _server_cancelled() -> bool:
+        """Return True if the server record was deleted or externally marked FAILED."""
+        try:
+            s = OdooServer.objects.only("status", "is_active").get(pk=_server_id)
+            return s.status == OdooServer.Status.FAILED or not s.is_active
+        except OdooServer.DoesNotExist:
+            return True  # record deleted
+
     try:
         ok, log_blob = _run_ansible_playbook(
             playbook,
@@ -5089,13 +5184,23 @@ def _configure_docker_host_inner(self, server_id: int, job_id: int | None = None
             ssh_key_path=ssh_key,
             ssh_password=ssh_password,
             on_chunk=lambda line: _broadcast_log_line(ws_group, line),
+            abort_check=_server_cancelled,
         )
     finally:
         if tmp_key:
             os.unlink(tmp_key)
 
+    # Re-fetch to confirm the server record still exists before writing results.
+    try:
+        server = OdooServer.objects.get(pk=server.id)
+    except OdooServer.DoesNotExist:
+        logger.info("Server %s was deleted while Docker host setup was running; discarding results.", server.id)
+        _job_done(job_id, ok=False, log="Server record was deleted during provisioning.")
+        return
+
     server.provisioning_log = _append_text(server.provisioning_log, f"[docker host setup]\n{log_blob}".strip())
-    server.status = OdooServer.Status.PROVISIONED if ok else OdooServer.Status.FAILED
+    if not ok or server.status not in (OdooServer.Status.FAILED, OdooServer.Status.PROVISIONED):
+        server.status = OdooServer.Status.PROVISIONED if ok else OdooServer.Status.FAILED
     final_msg = "Docker host ready — Traefik + PostgreSQL running." if ok else "Docker host setup failed."
     server.provisioning_log = _append_text(server.provisioning_log, final_msg)
     if ok:

@@ -3595,6 +3595,7 @@ class OdooInstanceConsoleView(LoginRequiredMixin, TemplateView):
             OdooInstanceGitRepoSerializer(repos, many=True).data
         )
         ctx["installation_summary_text"] = instance.installation_summary_text or instance.server.installation_summary_text
+        ctx["odoo_admin_password"] = instance.odoo_admin_password or ""
         staging_envs = (
             StagingEnvironment.objects.filter(source_instance=instance)
             .select_related("staging_instance", "staging_instance__server", "source_repo")
