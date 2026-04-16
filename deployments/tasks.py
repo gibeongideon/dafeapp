@@ -3629,6 +3629,19 @@ def _mark_server_unreachable_from_ansible_log(server: OdooServer, log_blob: str)
     return True
 
 
+def _probe_server_http(server: OdooServer, host: str) -> tuple[bool, str]:
+    """
+    Fallback connectivity probe when SSH is unavailable.
+    Checks if the server is responding on port 443 or 80.
+    Returns (reachable, message).
+    """
+    for port in (443, 80):
+        with suppress(OSError):
+            with socket.create_connection((host, port), timeout=3):
+                return True, f"Server up — port {port} reachable (SSH unavailable from DafeApp host)."
+    return False, f"Server unreachable — SSH and HTTP ports blocked from DafeApp host."
+
+
 @shared_task(bind=True, max_retries=0)
 def refresh_traefik_gateway(self, server_id: int):
     """
@@ -3680,22 +3693,29 @@ def check_server_connectivity():
     ).filter(is_active=True)
 
     for server in servers:
-        host, port = _odoo_server_ssh_target(server)
-        if not host:
-            continue
-        reachable, message = _probe_server_ssh(server)
-        if server.ip_address != host:
-            server.ip_address = host
-            server.save(update_fields=["ip_address", "updated_at"])
-        _persist_server_reachability(server, reachable=reachable, message=message, checked_at=now)
-        logger.info(
-            "Reachability check: server %s (%s:%s) is %s (%s)",
-            server.id,
-            host,
-            port,
-            "connected" if reachable else "disconnected",
-            message,
-        )
+        try:
+            host, port = _odoo_server_ssh_target(server)
+            if not host:
+                continue
+            reachable, message = _probe_server_ssh(server)
+            # Fallback: if SSH is unreachable, check ports 443/80 —
+            # server is up even if DafeApp can't SSH into it.
+            if not reachable:
+                reachable, message = _probe_server_http(server, host)
+            if server.ip_address != host:
+                server.ip_address = host
+                server.save(update_fields=["ip_address", "updated_at"])
+            _persist_server_reachability(server, reachable=reachable, message=message, checked_at=now)
+            logger.info(
+                "Reachability check: server %s (%s:%s) is %s (%s)",
+                server.id,
+                host,
+                port,
+                "connected" if reachable else "disconnected",
+                message,
+            )
+        except Exception:
+            logger.warning("Reachability check crashed for server %s", server.id, exc_info=True)
 
     # --- ExternalServer: validate SSH using the same PYOS connection path ---
     ext_servers = ExternalServer.objects.filter(host__isnull=False)

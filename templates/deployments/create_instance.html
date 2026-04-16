@@ -1110,20 +1110,24 @@
             </span>
           </div>
           <span id="server-conn-badge-{{ s.id }}" class="px-1.5 py-0.5 rounded text-[10px] font-medium
-            {% if s.last_checked_at and not s.is_reachable %}bg-red-50 text-red-600
+            {% if s.last_checked_at and s.is_reachable %}bg-green-50 text-green-600
+            {% elif s.last_checked_at and not s.is_reachable %}bg-red-50 text-red-600
             {% elif s.infrastructure and s.infrastructure.infra_type == 'PYOS' and s.infrastructure.external_server and s.infrastructure.external_server.last_verified_at and not s.infrastructure.external_server.is_verified %}bg-red-50 text-red-600
-            {% else %}bg-yellow-50 text-yellow-600{% endif %}">
-            {% if s.last_checked_at and not s.is_reachable %}Disconnected
+            {% else %}bg-gray-50 text-gray-400{% endif %}">
+            {% if s.last_checked_at and s.is_reachable %}Connected
+            {% elif s.last_checked_at and not s.is_reachable %}Disconnected
             {% elif s.infrastructure and s.infrastructure.infra_type == 'PYOS' and s.infrastructure.external_server and s.infrastructure.external_server.last_verified_at and not s.infrastructure.external_server.is_verified %}Disconnected
-            {% else %}Checking…{% endif %}
+            {% else %}Unknown{% endif %}
           </span>
           <span id="server-conn-msg-{{ s.id }}" class="hidden text-[10px] max-w-[11rem] text-right leading-tight
-            {% if s.last_checked_at and not s.is_reachable %}text-red-500
+            {% if s.last_checked_at and s.is_reachable %}text-green-500
+            {% elif s.last_checked_at and not s.is_reachable %}text-red-500
             {% elif s.infrastructure and s.infrastructure.infra_type == 'PYOS' and s.infrastructure.external_server and s.infrastructure.external_server.last_verified_at and not s.infrastructure.external_server.is_verified %}text-red-500
-            {% else %}text-yellow-600{% endif %}">
-            {% if s.last_checked_at and not s.is_reachable %}Disconnected.
+            {% else %}text-gray-400{% endif %}">
+            {% if s.last_checked_at and s.is_reachable %}Connected.
+            {% elif s.last_checked_at and not s.is_reachable %}Disconnected.
             {% elif s.infrastructure and s.infrastructure.infra_type == 'PYOS' and s.infrastructure.external_server and s.infrastructure.external_server.last_verified_at and not s.infrastructure.external_server.is_verified %}Disconnected.
-            {% else %}Checking connection...{% endif %}
+            {% else %}Not yet checked.{% endif %}
           </span>
         </div>
       </div>
@@ -1246,9 +1250,6 @@
         <div class="grid grid-cols-1 gap-2 text-xs text-gray-600">
           <div class="flex items-center justify-between gap-3">
             <span class="text-gray-500">Connection</span>
-            <button type="button" class="check-connectivity-btn text-[10px] text-gray-400 hover:text-gray-600 underline"
-                    data-server-id="{{ s.id }}"
-                    data-server-status="{{ s.status }}">Check now</button>
           </div>
         </div>
 
@@ -2286,31 +2287,24 @@ chmod 600 ~/.ssh/authorized_keys</pre>
   }
 
   function connBadgeClass(server) {
-    const serverStatus = (server.status || "").toUpperCase();
-    if (serverStatus === "CONNECTING") return "px-1.5 py-0.5 rounded text-[10px] font-medium bg-yellow-50 text-yellow-600";
     const status = (server.ssh_connection_status || "").toLowerCase();
-    if (status === "checking") return "px-1.5 py-0.5 rounded text-[10px] font-medium bg-yellow-50 text-yellow-600";
-    if (!status || status === "unknown") return "px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-50 text-gray-400";
-    return status === "connected"
-      ? "px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-50 text-green-600"
-      : "px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-50 text-red-600";
+    if (status === "connected") return "px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-50 text-green-600";
+    if (status === "disconnected") return "px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-50 text-red-600";
+    return "px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-50 text-gray-400";
   }
 
   function connBadgeLabel(server) {
-    const serverStatus = (server.status || "").toUpperCase();
-    if (serverStatus === "CONNECTING") return "Checking…";
     const status = (server.ssh_connection_status || "").toLowerCase();
-    if (status === "checking") return "Checking…";
-    if (!status || status === "unknown") return "Unknown";
-    return status === "connected" ? "Connected" : "Disconnected";
+    if (status === "connected") return "Connected";
+    if (status === "disconnected") return "Disconnected";
+    return "Unknown";
   }
 
   function connMessageLabel(server) {
     const status = (server.ssh_connection_status || "").toLowerCase();
     if (status === "connected") return "Connected.";
     if (status === "disconnected") return "Disconnected.";
-    if (status === "checking") return "Checking connection...";
-    return "Connection not checked yet.";
+    return "Not yet checked.";
   }
 
   function serverConnectivityStatus(server) {
@@ -2691,20 +2685,8 @@ chmod 600 ~/.ssh/authorized_keys</pre>
     });
   }
 
-  function syncDisconnectedServerRetry(servers = null) {
-    const hasDisconnectedServers = Array.isArray(servers)
-      ? servers.some((server) => {
-          const status = (server.status || "").toUpperCase();
-          return status === "PROVISIONED" && serverConnectivityStatus(server) === "disconnected";
-        })
-      : visibleDisconnectedServerIds().length > 0;
-
-    if (hasDisconnectedServers && !disconnectedServerRetryTimer) {
-      disconnectedServerRetryTimer = setInterval(retryDisconnectedVisibleServers, DISCONNECTED_SERVER_RETRY_INTERVAL_MS);
-    } else if (!hasDisconnectedServers && disconnectedServerRetryTimer) {
-      clearInterval(disconnectedServerRetryTimer);
-      disconnectedServerRetryTimer = null;
-    }
+  function syncDisconnectedServerRetry(_servers = null) {
+    // Connectivity is determined by the background Celery task — no UI retries.
   }
 
   function updateServerProgressFromApi(server) {
@@ -4055,11 +4037,8 @@ chmod 600 ~/.ssh/authorized_keys</pre>
   }
 
   refreshServerCards();
-  autoCheckVisibleServers();
-  syncDisconnectedServerRetry();
   syncPageActionLocks();
   setInterval(refreshServerCards, SERVER_REFRESH_INTERVAL_MS);
-  setInterval(autoCheckVisibleServers, SERVER_REFRESH_INTERVAL_MS);
   refreshInstanceRows();
   setInterval(refreshInstanceRows, SERVER_REFRESH_INTERVAL_MS);
   // Metrics: fetch immediately then every 30s
