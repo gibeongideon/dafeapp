@@ -1793,6 +1793,7 @@ def _ensure_bare_traefik_gateway(server: OdooServer, *, acme_reset: bool = False
         "traefik_version": getattr(settings, "TRAEFIK_VERSION", "3.1.2"),
         "traefik_acme_reset": "true" if acme_reset else "false",
         "cf_dns_api_token": os.getenv("PLATFORM_DNS_API_TOKEN", "").strip(),
+        "traefik_base_domain": os.getenv("PLATFORM_BASE_DOMAIN", "").strip(),
     }
     ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
     try:
@@ -5016,6 +5017,7 @@ def _configure_docker_host_inner(self, server_id: int, job_id: int | None = None
         "acme_email": acme_email,
         "postgres_password": pg_password,
         "cf_dns_api_token": os.getenv("PLATFORM_DNS_API_TOKEN", "").strip(),
+        "traefik_base_domain": os.getenv("PLATFORM_BASE_DOMAIN", "").strip(),
     }
 
     _broadcast_server(server.id, "Running Docker host setup playbook…", server.status)

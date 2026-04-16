@@ -9,8 +9,22 @@ entryPoints:
   web:
     address: ":80"
 {% if traefik_tls_mode != 'DISABLED' %}
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
   websecure:
     address: ":443"
+    http:
+      tls:
+        certResolver: letsencrypt
+{% if traefik_base_domain %}
+        domains:
+          - main: "{{ traefik_base_domain }}"
+            sans:
+              - "*.{{ traefik_base_domain }}"
+{% endif %}
 {% endif %}
 
 providers:
@@ -26,10 +40,10 @@ certificatesResolvers:
       storage: {{ traefik_acme_storage }}
       dnsChallenge:
         provider: cloudflare
-        delayBeforeCheck: "10s"
         resolvers:
           - "1.1.1.1:53"
-          - "8.8.8.8:53"
+          - "1.0.0.1:53"
+        delayBeforeCheck: "20s"
 {% endif %}
 
 log:

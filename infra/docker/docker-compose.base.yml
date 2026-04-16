@@ -32,6 +32,7 @@ services:
     environment:
       - ACME_EMAIL=${ACME_EMAIL:-odoo@example.com}
       - CF_DNS_API_TOKEN=${CF_DNS_API_TOKEN:-}
+      - TRAEFIK_BASE_DOMAIN=${TRAEFIK_BASE_DOMAIN:-}
     networks:
       - odoo-network
     labels:

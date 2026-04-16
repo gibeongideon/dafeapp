@@ -8,8 +8,20 @@ api:
 entryPoints:
   web:
     address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
   websecure:
     address: ":443"
+    http:
+      tls:
+        certResolver: letsencrypt
+        domains:
+          - main: "${TRAEFIK_BASE_DOMAIN}"
+            sans:
+              - "*.${TRAEFIK_BASE_DOMAIN}"
 
 certificatesResolvers:
   letsencrypt:
@@ -18,10 +30,10 @@ certificatesResolvers:
       storage: /letsencrypt/acme.json
       dnsChallenge:
         provider: cloudflare
-        delayBeforeCheck: "10s"
         resolvers:
           - "1.1.1.1:53"
-          - "8.8.8.8:53"
+          - "1.0.0.1:53"
+        delayBeforeCheck: "20s"
 
 providers:
   docker:

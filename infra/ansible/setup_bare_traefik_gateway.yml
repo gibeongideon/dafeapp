@@ -16,6 +16,7 @@
     traefik_download_path: "/tmp/traefik-{{ traefik_version }}.tar.gz"
     traefik_env_file: "/etc/traefik/traefik.env"
     cf_dns_api_token: "{{ cf_dns_api_token | default('') }}"
+    traefik_base_domain: "{{ traefik_base_domain | default('') }}"
 
   handlers:
     # All three handlers listen to the same event and run in definition order.
