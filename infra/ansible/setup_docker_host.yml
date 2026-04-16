@@ -123,9 +123,9 @@
         - "{{ docker_compose_dir }}/instances"
         - "{{ docker_compose_dir }}/letsencrypt"
 
-    - name: Copy Traefik static config
-      copy:
-        src: "{{ playbook_dir }}/../docker/traefik/traefik.yml"
+    - name: Render Traefik static config
+      template:
+        src: "{{ playbook_dir }}/../docker/traefik/traefik.yml.j2"
         dest: "{{ docker_compose_dir }}/traefik/traefik.yml"
         mode: "0644"
 

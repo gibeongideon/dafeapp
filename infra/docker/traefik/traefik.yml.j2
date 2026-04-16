@@ -18,15 +18,17 @@ entryPoints:
     http:
       tls:
         certResolver: letsencrypt
+{% if traefik_base_domain %}
         domains:
-          - main: "${TRAEFIK_BASE_DOMAIN}"
+          - main: "{{ traefik_base_domain }}"
             sans:
-              - "*.${TRAEFIK_BASE_DOMAIN}"
+              - "*.{{ traefik_base_domain }}"
+{% endif %}
 
 certificatesResolvers:
   letsencrypt:
     acme:
-      email: "${ACME_EMAIL}"
+      email: {{ acme_email }}
       storage: /letsencrypt/acme.json
       dnsChallenge:
         provider: cloudflare
