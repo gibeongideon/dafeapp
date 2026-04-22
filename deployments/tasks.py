@@ -3331,6 +3331,99 @@ def delete_odoo_instance(self, instance_id: int, job_id: int | None = None):
         _broadcast_server_snapshot(server)
 
 
+class _InstanceProxy:
+    """
+    Stands in for a deleted OdooInstance so the existing cleanup playbook
+    functions (_run_docker_instance_delete, _run_bare_metal_instance_delete)
+    can run unchanged.  Any .save() calls are silently dropped — the DB
+    record is already gone.
+    """
+
+    def __init__(self, db_name: str, http_port: int):
+        self.db_name = db_name
+        self.http_port = http_port
+        self.provisioning_log = ""
+        self.status = None
+
+    def save(self, **kwargs):
+        pass
+
+
+@shared_task(bind=True, max_retries=0)
+def cleanup_deleted_instance(
+    self,
+    server_id: int,
+    db_name: str,
+    http_port: int,
+    assignment_ids: list,
+):
+    """
+    Remote-only cleanup after an OdooInstance DB record has already been deleted.
+
+    Dispatched from OdooInstanceDeleteAPIView so the UI response is immediate.
+    Steps:
+      1. Remove Cloudflare / managed-zone DNS records.
+      2. Remove Traefik route file from server (bare-metal only).
+      3. Delete orphaned DomainAssignment DB rows.
+      4. SSH → stop service / drop DB / remove container.
+    """
+    from dns.models import DomainAssignment
+
+    try:
+        server = OdooServer.objects.select_related(
+            "infrastructure",
+            "infrastructure__external_server",
+        ).get(pk=server_id)
+    except OdooServer.DoesNotExist:
+        logger.warning("cleanup_deleted_instance: server %s not found; skipping.", server_id)
+        return
+
+    # ── 1 & 2. Domain cleanup ─────────────────────────────────────────────────
+    if assignment_ids:
+        assignments = list(
+            DomainAssignment.objects.select_related("zone", "dns_record").filter(
+                pk__in=assignment_ids
+            )
+        )
+        for assignment in assignments:
+            domain = assignment.domain
+            # Traefik route removal (bare-metal only)
+            if server.deployment_mode == OdooServer.DeploymentMode.BARE_METAL:
+                try:
+                    _delete_bare_traefik_route(None, server, domain)
+                except Exception:
+                    logger.warning(
+                        "cleanup_deleted_instance: Traefik route removal failed for %s", domain, exc_info=True
+                    )
+            # DNS record removal (Cloudflare / managed zone)
+            try:
+                _delete_managed_dns_record(assignment)
+            except Exception:
+                logger.warning(
+                    "cleanup_deleted_instance: DNS record removal failed for %s", domain, exc_info=True
+                )
+
+        # ── 3. Delete orphaned DomainAssignment rows ──────────────────────────
+        DomainAssignment.objects.filter(pk__in=assignment_ids).delete()
+
+    # ── 4. Remote service / DB / container cleanup ────────────────────────────
+    if not server.ip_address:
+        logger.info("cleanup_deleted_instance: server %s has no IP; skipping remote cleanup.", server_id)
+        return
+
+    instance_proxy = _InstanceProxy(db_name=db_name, http_port=http_port)
+    try:
+        if server.deployment_mode == OdooServer.DeploymentMode.DOCKER:
+            _run_docker_instance_delete(instance_proxy, server)
+        else:
+            _run_bare_metal_instance_delete(instance_proxy, server)
+    except Exception:
+        logger.warning(
+            "cleanup_deleted_instance: remote service cleanup failed for db=%s on server %s",
+            db_name, server_id, exc_info=True,
+        )
+
+
 @shared_task(bind=True, max_retries=0)
 def delete_odoo_server(self, server_id: int, job_id: int | None = None):
     """

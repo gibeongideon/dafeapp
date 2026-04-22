@@ -82,6 +82,7 @@ from deployments.serializers import (
 from deployments.tasks import (
     activate_enterprise_for_instance,
     checkout_instance_repo_branch,
+    cleanup_deleted_instance,
     clone_instance_repo,
     configure_docker_host,
     configure_odoo_server,
@@ -3720,17 +3721,36 @@ class OdooInstanceDeleteAPIView(LoginRequiredMixin, View):
         lock_reason = _instance_mutation_lock_reason(instance)
         if lock_reason:
             return JsonResponse({"error": lock_reason}, status=409)
+
+        # Capture everything needed for remote cleanup BEFORE deleting the DB record.
+        # DomainAssignment rows survive the instance delete (SET_NULL FK) so we only
+        # need their PKs — the Celery task fetches the full rows from DB.
         server = instance.server
         instance_pk = instance.pk
+        db_name = instance.db_name
+        http_port = instance.http_port
+        assignment_ids = list(
+            instance.domain_assignments
+            .exclude(status="DELETED")
+            .values_list("pk", flat=True)
+        )
+
         try:
-            # Delete directly from DB — like Django admin.
+            # Synchronous DB delete — cascades to git repos, history, etc.
             instance.delete()
         except Exception as exc:
             logger.exception("OdooInstance %s delete failed", instance_id)
             return JsonResponse({"error": f"Delete failed: {exc}"}, status=500)
 
         _broadcast_instance_removed(instance_pk, server.pk if server else None)
-        _broadcast_server_snapshot(server)
+        if server:
+            _broadcast_server_snapshot(server)
+
+        # Dispatch remote cleanup (non-blocking): stop service, drop DB,
+        # remove Traefik route, remove Cloudflare DNS record.
+        if server and server.ip_address:
+            _dispatch(cleanup_deleted_instance, server.pk, db_name, http_port, assignment_ids)
+
         return JsonResponse({"ok": True, "message": "Instance permanently deleted."})
 
 
