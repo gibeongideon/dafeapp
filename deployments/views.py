@@ -4523,6 +4523,26 @@ from django.core.cache import cache as _cache
 _LOGIN_TOKEN_TTL = 60  # seconds — token is single-use and short-lived
 
 
+class OdooInstanceClearAdminPasswordAPIView(LoginRequiredMixin, View):
+    """
+    POST /api/deployments/odoo/instances/<id>/clear-admin-password/
+
+    Wipes the stored admin password from the DB after the operator has
+    acknowledged and saved it.  The password is then never shown again.
+    """
+
+    def post(self, request, instance_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if request.org_role not in ("SUPER_ADMIN", "ADMIN", "MANAGER"):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+        instance = get_object_or_404(OdooInstance, pk=instance_id, organization=org)
+        instance.odoo_admin_password = ""
+        instance.save(update_fields=["odoo_admin_password", "updated_at"])
+        return JsonResponse({"ok": True})
+
+
 class OdooAdminLoginAPIView(LoginRequiredMixin, View):
     """
     POST /api/deployments/odoo/instances/<id>/admin-login/
