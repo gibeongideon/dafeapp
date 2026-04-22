@@ -3720,23 +3720,18 @@ class OdooInstanceDeleteAPIView(LoginRequiredMixin, View):
         lock_reason = _instance_mutation_lock_reason(instance)
         if lock_reason:
             return JsonResponse({"error": lock_reason}, status=409)
-        # Mark DELETED immediately so the instance won't reappear on refresh
-        # even if the Celery worker hasn't run yet.
-        instance.status = OdooInstance.Status.DELETED
-        instance.save(update_fields=["status", "updated_at"])
+        server = instance.server
+        instance_pk = instance.pk
         try:
-            job = DeploymentJob.objects.create(
-                organization=org,
-                job_type=DeploymentJob.JobType.DELETE_INSTANCE,
-                odoo_instance=instance,
-                odoo_server=instance.server,
-                created_by=request.user,
-            )
-            _dispatch(delete_odoo_instance, instance.id, job.id)
+            # Delete directly from DB — like Django admin.
+            instance.delete()
         except Exception as exc:
-            logger.exception("delete_odoo_instance dispatch failed for instance %s", instance_id)
-            return JsonResponse({"error": f"Failed to queue deletion: {exc}"}, status=500)
-        return JsonResponse({"ok": True, "job_id": job.pk, "message": "Instance deletion queued."})
+            logger.exception("OdooInstance %s delete failed", instance_id)
+            return JsonResponse({"error": f"Delete failed: {exc}"}, status=500)
+
+        _broadcast_instance_removed(instance_pk, server.pk if server else None)
+        _broadcast_server_snapshot(server)
+        return JsonResponse({"ok": True, "message": "Instance permanently deleted."})
 
 
 class OdooServerArchiveAPIView(LoginRequiredMixin, View):
@@ -3811,22 +3806,11 @@ class OdooServerActivateAPIView(LoginRequiredMixin, View):
 
 
 class OdooServerDeleteAPIView(LoginRequiredMixin, View):
-    """
-    POST /api/deployments/odoo/servers/<id>/delete/
-
-    Queues a Celery task that:
-      1. Best-effort stops/removes every instance on the server via SSH/Ansible.
-         SSH failures are logged and skipped — the Django records are deleted anyway.
-      2. Deletes the OdooServer Django record unconditionally.
-
-    Only SUPER_ADMIN and ADMIN may delete a server.
-    """
+    """POST /api/deployments/odoo/servers/<id>/delete/ — permanent DB delete, like Django admin."""
 
     def post(self, request, server_id):
         org = getattr(request, "organization", None)
 
-        # Platform admins may not have a session org; look the server up first
-        # and derive the org from it so we can still enforce the role check.
         if not org and getattr(request.user, "is_platform_admin", False):
             server = get_object_or_404(OdooServer, pk=server_id)
             org = server.organization
@@ -3835,38 +3819,28 @@ class OdooServerDeleteAPIView(LoginRequiredMixin, View):
         else:
             server = get_object_or_404(OdooServer, pk=server_id, organization=org)
 
-        # Server deletion is restricted to SUPER_ADMIN and ADMIN only
         if request.org_role not in ("SUPER_ADMIN", "ADMIN") and not getattr(request.user, "is_platform_admin", False):
             return JsonResponse({"error": "Permission denied. Only SUPER_ADMIN or ADMIN can delete a server."}, status=403)
 
-        # Cancel any in-progress provisioning task so the worker doesn't
-        # keep running after the record is gone.
+        # Cancel any running provisioning task before deleting.
         if server.celery_task_id:
             try:
                 from dafeapp.celery import app as celery_app
                 celery_app.control.revoke(server.celery_task_id, terminate=True, signal="SIGTERM")
             except Exception:
-                pass  # best-effort; proceed regardless
+                pass
 
-        # Mark hidden immediately so the server won't reappear on refresh
-        # even if the Celery worker hasn't run yet.
-        server.is_active = False
-        server.status = OdooServer.Status.DELETED
-        server.save(update_fields=["is_active", "status", "updated_at"])
-
+        server_pk = server.pk
         try:
-            job = DeploymentJob.objects.create(
-                organization=org,
-                job_type=DeploymentJob.JobType.DELETE_SERVER,
-                odoo_server=server,
-                created_by=request.user,
-            )
-            _dispatch(delete_odoo_server, server.pk, job.pk)
+            # Delete directly — cascades to instances, SSH keys, history, jobs
+            # exactly as Django admin does.
+            server.delete()
         except Exception as exc:
-            logger.exception("delete_odoo_server dispatch failed for server %s", server_id)
-            return JsonResponse({"error": f"Failed to queue server deletion: {exc}"}, status=500)
+            logger.exception("OdooServer %s delete failed", server_id)
+            return JsonResponse({"error": f"Delete failed: {exc}"}, status=500)
 
-        return JsonResponse({"ok": True, "job_id": job.pk, "message": "Server deletion queued."})
+        _broadcast_server_event(server_pk, {"type": "removed", "server_id": server_pk, "reason": "deleted"})
+        return JsonResponse({"ok": True, "message": "Server permanently deleted."})
 
 
 class InfrastructureDeleteAPIView(LoginRequiredMixin, View):
