@@ -1411,6 +1411,11 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
             .select_related("infrastructure", "infrastructure__external_server", "cloud_account")
             .order_by("-created_at")[:100]
         )
+        ctx["archived_servers"] = (
+            OdooServer.objects.filter(organization=org, is_active=False, status=OdooServer.Status.ARCHIVED)
+            .select_related("infrastructure", "infrastructure__external_server", "cloud_account")
+            .order_by("-updated_at")[:50]
+        )
         instance_queryset = (
             OdooInstance.objects.filter(organization=org, server__is_active=True)
             .exclude(status=OdooInstance.Status.DELETED)
@@ -3715,6 +3720,10 @@ class OdooInstanceDeleteAPIView(LoginRequiredMixin, View):
         lock_reason = _instance_mutation_lock_reason(instance)
         if lock_reason:
             return JsonResponse({"error": lock_reason}, status=409)
+        # Mark DELETED immediately so the instance won't reappear on refresh
+        # even if the Celery worker hasn't run yet.
+        instance.status = OdooInstance.Status.DELETED
+        instance.save(update_fields=["status", "updated_at"])
         try:
             job = DeploymentJob.objects.create(
                 organization=org,
@@ -3776,6 +3785,31 @@ class OdooServerArchiveAPIView(LoginRequiredMixin, View):
             return JsonResponse({"error": f"Archive failed: {exc}"}, status=500)
 
 
+class OdooServerActivateAPIView(LoginRequiredMixin, View):
+    """POST /api/deployments/odoo/servers/<id>/activate/ — restore an archived server."""
+
+    def post(self, request, server_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if request.org_role not in ("SUPER_ADMIN", "ADMIN", "MANAGER"):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        server = get_object_or_404(OdooServer, pk=server_id, organization=org)
+
+        if server.status == OdooServer.Status.DELETED:
+            return JsonResponse({"error": "Deleted servers cannot be reactivated."}, status=400)
+
+        if server.is_active and server.status != OdooServer.Status.ARCHIVED:
+            return JsonResponse({"ok": True, "message": "Server is already active."})
+
+        server.is_active = True
+        server.status = OdooServer.Status.PROVISIONED
+        server.provisioning_log = (server.provisioning_log + "\n" + "Server reactivated.").strip()
+        server.save(update_fields=["is_active", "status", "provisioning_log", "updated_at"])
+        return JsonResponse({"ok": True, "message": "Server reactivated."})
+
+
 class OdooServerDeleteAPIView(LoginRequiredMixin, View):
     """
     POST /api/deployments/odoo/servers/<id>/delete/
@@ -3813,6 +3847,12 @@ class OdooServerDeleteAPIView(LoginRequiredMixin, View):
                 celery_app.control.revoke(server.celery_task_id, terminate=True, signal="SIGTERM")
             except Exception:
                 pass  # best-effort; proceed regardless
+
+        # Mark hidden immediately so the server won't reappear on refresh
+        # even if the Celery worker hasn't run yet.
+        server.is_active = False
+        server.status = OdooServer.Status.DELETED
+        server.save(update_fields=["is_active", "status", "updated_at"])
 
         try:
             job = DeploymentJob.objects.create(

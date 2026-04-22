@@ -1296,6 +1296,56 @@
     </div>
     {% endfor %}
   </div>
+
+  {% if archived_servers %}
+  <div class="mt-6">
+    <button type="button" id="toggle-archived-servers"
+            class="flex items-center gap-2 text-xs text-gray-400 hover:text-gray-600 transition-colors mb-3">
+      <svg id="archived-chevron" class="w-3.5 h-3.5 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+      </svg>
+      <span>Archived servers ({{ archived_servers|length }})</span>
+    </button>
+    <div id="archived-servers-list" class="hidden grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+      {% for s in archived_servers %}
+      <article class="bg-white border border-gray-200 rounded-xl p-4 opacity-60">
+        <div class="flex items-start justify-between gap-3 mb-3">
+          <div class="min-w-0">
+            <p class="text-sm font-semibold text-gray-700 truncate">{{ s.name }}</p>
+            <p class="text-[11px] text-gray-400 mt-0.5">
+              {% if s.ip_address %}{{ s.ip_address }}{% else %}No IP{% endif %}
+              &middot; Odoo {{ s.odoo_version }}
+            </p>
+          </div>
+          <span class="shrink-0 px-2 py-1 rounded-md text-[11px] font-medium bg-gray-100 text-gray-500">Archived</span>
+        </div>
+        <div class="flex items-center justify-between gap-3 pt-2 border-t border-gray-100">
+          <span class="text-[11px] text-gray-400">
+            {% if s.deployment_mode == 'DOCKER' %}Docker{% else %}Bare-metal{% endif %}
+          </span>
+          <div class="flex items-center gap-3">
+            <button type="button"
+                    class="activate-server-btn text-[11px] font-medium text-blue-600 underline underline-offset-4"
+                    data-server-id="{{ s.id }}"
+                    data-server-name="{{ s.name }}">
+              Activate
+            </button>
+            <button type="button"
+                    class="delete-server-btn text-[11px] font-medium text-red-500 underline underline-offset-4"
+                    data-server-id="{{ s.id }}"
+                    data-server-name="{{ s.name }}"
+                    data-server-status="{{ s.status }}"
+                    data-instance-count="0">
+              Delete
+            </button>
+          </div>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
   {% endif %}
 
 </div>
@@ -5248,6 +5298,40 @@ chmod 600 ~/.ssh/authorized_keys</pre>
         alert(errMsg);
       }
     }
+
+    const activateBtn = e.target.closest(".activate-server-btn");
+    if (activateBtn) {
+      const sid = activateBtn.dataset.serverId;
+      const name = activateBtn.dataset.serverName;
+      if (!confirm(`Reactivate server "${name}"? It will appear in the active servers list again.`)) return;
+      activateBtn.disabled = true;
+      activateBtn.textContent = "Activating…";
+      const resp = await postForm(`/api/deployments/odoo/servers/${sid}/activate/`, {});
+      if (resp.ok) {
+        const article = activateBtn.closest("article");
+        if (article) article.remove();
+        const list = document.getElementById("archived-servers-list");
+        if (list && !list.querySelector("article")) {
+          const wrapper = document.getElementById("toggle-archived-servers")?.closest(".mt-6");
+          if (wrapper) wrapper.remove();
+        }
+        window.location.reload();
+      } else {
+        activateBtn.disabled = false;
+        activateBtn.textContent = "Activate";
+        alert((resp.data && (resp.data.error || resp.data.message)) || `Activation failed (HTTP ${resp.status}).`);
+      }
+      return;
+    }
+  });
+
+  // Archived servers toggle
+  document.getElementById("toggle-archived-servers")?.addEventListener("click", () => {
+    const list = document.getElementById("archived-servers-list");
+    const chevron = document.getElementById("archived-chevron");
+    if (!list) return;
+    const hidden = list.classList.toggle("hidden");
+    if (chevron) chevron.style.transform = hidden ? "" : "rotate(90deg)";
   });
 
   // init
