@@ -173,7 +173,7 @@ class CloudServer(models.Model):
         related_name="cloud_servers",
     )
     cloud_account = models.ForeignKey(
-        CloudAccount, on_delete=models.PROTECT, related_name="servers"
+        CloudAccount, on_delete=models.CASCADE, related_name="servers"
     )
     name = models.CharField(max_length=100)
     provider_server_id = models.CharField(max_length=100, blank=True)

@@ -22,14 +22,14 @@ class Infrastructure(models.Model):
         "cloud.ExternalServer",
         null=True,
         blank=True,
-        on_delete=models.PROTECT,
+        on_delete=models.SET_NULL,
         related_name="deploy_infrastructure",
     )
     cloud_account = models.ForeignKey(
         "cloud.CloudAccount",
         null=True,
         blank=True,
-        on_delete=models.PROTECT,
+        on_delete=models.SET_NULL,
         related_name="deploy_infrastructure",
     )
     is_connected = models.BooleanField(default=False)
@@ -254,14 +254,14 @@ class OdooServer(models.Model):
     )
     infrastructure = models.ForeignKey(
         Infrastructure,
-        on_delete=models.PROTECT,
+        on_delete=models.SET_NULL,
         related_name="servers",
         null=True,
         blank=True,
     )
     cloud_account = models.ForeignKey(
         "cloud.CloudAccount",
-        on_delete=models.PROTECT,
+        on_delete=models.SET_NULL,
         related_name="odoo_servers",
         null=True,
         blank=True,
