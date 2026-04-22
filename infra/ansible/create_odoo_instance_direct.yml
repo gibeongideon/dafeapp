@@ -403,6 +403,13 @@
         proto: tcp
       ignore_errors: true
 
+    - name: Allow gevent (longpolling) port through UFW
+      ufw:
+        rule: allow
+        port: "{{ (http_port | int) + 1000 }}"
+        proto: tcp
+      ignore_errors: true
+
     # ------------------------------------------------------------------
     # 9. Summary
     # ------------------------------------------------------------------
@@ -413,7 +420,7 @@
           - "Odoo instance created (fully isolated)"
           - "Service      : {{ service_name }}"
           - "Database     : {{ db_name }}"
-          - "Port         : {{ http_port }}"
+          - "Port         : {{ http_port }} (gevent/longpolling: {{ (http_port | int) + 1000 }})"
           - "Python venv  : {{ venv_dir }}"
           - "Core addons  : {{ core_addons_dir }}"
           - "Custom addons: {{ custom_addons_dir }}"

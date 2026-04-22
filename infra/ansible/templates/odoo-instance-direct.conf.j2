@@ -13,6 +13,9 @@ db_filter     = ^{{ db_name }}$
 
 ; ── Network ───────────────────────────────────────────────────────────────────
 http_port     = {{ http_port }}
+; Each instance gets its own gevent (longpolling) port = http_port + 1000
+; Without this every instance defaults to 8072, causing a bind conflict.
+gevent_port   = {{ (http_port | int) + 1000 }}
 proxy_mode    = {{ 'True' if proxy_mode | default(false) else 'False' }}
 
 ; ── Isolated environment ──────────────────────────────────────────────────────
