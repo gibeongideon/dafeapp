@@ -3754,6 +3754,51 @@ class OdooInstanceDeleteAPIView(LoginRequiredMixin, View):
         return JsonResponse({"ok": True, "message": "Instance permanently deleted."})
 
 
+class OdooInstanceReprovisionAPIView(LoginRequiredMixin, View):
+    """POST /odoo/instances/<instance_id>/reprovision/ — re-run instance creation on a FAILED/STOPPED instance."""
+
+    def post(self, request, instance_id):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+        if request.org_role not in ("SUPER_ADMIN", "ADMIN", "MANAGER"):
+            return JsonResponse({"error": "Permission denied."}, status=403)
+
+        instance = get_object_or_404(
+            OdooInstance.objects.select_related("server", "server__infrastructure"),
+            pk=instance_id,
+            organization=org,
+        )
+
+        retryable = {OdooInstance.Status.FAILED, OdooInstance.Status.STOPPED}
+        if instance.status not in retryable:
+            return JsonResponse(
+                {"error": f"Instance must be FAILED or STOPPED to re-provision (current: {instance.status})."},
+                status=409,
+            )
+
+        server = instance.server
+        if not server:
+            return JsonResponse({"error": "Instance has no server; cannot re-provision."}, status=400)
+        if server.status != OdooServer.Status.PROVISIONED or not server.ip_address:
+            return JsonResponse(
+                {"error": f"Server must be PROVISIONED with an IP address before re-provisioning the instance (server status: {server.status})."},
+                status=409,
+            )
+
+        instance.status = OdooInstance.Status.PENDING
+        instance.provisioning_log = (instance.provisioning_log or "").rstrip("\n") + "\n--- Re-provision triggered ---"
+        instance.save(update_fields=["status", "provisioning_log", "updated_at"])
+
+        _dispatch(create_odoo_instance, instance.id)
+
+        logger.info(
+            "Instance %s reprovision triggered by user %s (db=%s server=%s)",
+            instance.id, request.user, instance.db_name, server.id,
+        )
+        return JsonResponse({"ok": True, "message": "Instance re-provisioning started."})
+
+
 class OdooServerArchiveAPIView(LoginRequiredMixin, View):
     def post(self, request, server_id):
         org = getattr(request, "organization", None)

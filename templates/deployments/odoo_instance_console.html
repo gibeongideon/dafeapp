@@ -36,16 +36,6 @@
               <span x-text="healthStatus ? 'Healthy' : 'Attention'"></span>
             </span>
           </div>
-          <div class="mt-2 grid grid-cols-2 gap-1.5 text-[11px]">
-            <div class="rounded-md border border-slate-200 bg-white px-2.5 py-1.5">
-              <p class="text-[9px] uppercase tracking-[0.16em] text-slate-400">Server</p>
-              <p class="mt-0.5 font-medium text-slate-700 truncate">{{ odoo_server.name }}</p>
-            </div>
-            <div class="rounded-md border border-slate-200 bg-white px-2.5 py-1.5">
-              <p class="text-[9px] uppercase tracking-[0.16em] text-slate-400">Access</p>
-              <p class="mt-0.5 font-medium text-slate-700 truncate">{% if odoo_instance.domain %}{{ odoo_instance.domain }}{% else %}:{{ odoo_instance.http_port }}{% endif %}</p>
-            </div>
-          </div>
           <a href="{{ odoo_instance.preferred_access_url|default:'#' }}"
              {% if odoo_instance.preferred_access_url %}target="_blank" rel="noopener noreferrer"{% endif %}
              class="mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100">
@@ -234,16 +224,46 @@
           <div>
             <div class="mb-1.5 flex items-center justify-between px-1">
               <span class="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Development</span>
-              <button type="button"
-                      @click="loadLinkedRepoBranches()"
-                      :disabled="!linkedRepo"
-                      title="Refresh branches"
-                      class="flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 text-[11px] leading-none text-slate-400 transition hover:bg-white hover:text-slate-700 disabled:opacity-30">
-                ↻
-              </button>
+              <div class="flex items-center gap-1">
+                <button type="button"
+                        x-show="linkedRepo"
+                        @click="setToolbarTab('addons')"
+                        title="Manage repository"
+                        class="flex h-5 items-center rounded px-1.5 text-[10px] font-medium text-slate-400 transition hover:bg-white hover:text-slate-700">
+                  Repo ⚙
+                </button>
+                <button type="button"
+                        @click="loadLinkedRepoBranches()"
+                        :disabled="!linkedRepo"
+                        title="Refresh branches"
+                        class="flex h-5 w-5 items-center justify-center rounded-full border border-slate-200 text-[11px] leading-none text-slate-400 transition hover:bg-white hover:text-slate-700 disabled:opacity-30">
+                  ↻
+                </button>
+              </div>
             </div>
             <div x-show="linkedRepoBranchesLoading" class="px-1 py-1 text-[11px] text-slate-400">Loading…</div>
-            <div x-show="!linkedRepoBranchesLoading && !linkedRepo" class="px-1 py-1 text-[11px] text-slate-400">Link a repo to see branches.</div>
+            <!-- No repo linked: compact action card -->
+            <div x-show="!linkedRepoBranchesLoading && !linkedRepo"
+                 class="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-3 space-y-2">
+              <p class="text-[11px] text-slate-500">No repository linked. Link one to see branches.</p>
+              <div class="flex flex-wrap gap-1.5">
+                <button type="button"
+                        @click="setToolbarTab('addons'); openRepoModal('github')"
+                        :disabled="instanceActionsLocked()"
+                        class="inline-flex items-center gap-1 rounded-md border border-slate-900 bg-slate-900 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-slate-700 disabled:opacity-50">
+                  <svg class="h-3 w-3" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 21.795 24 17.295 24 12c0-6.63-5.37-12-12-12"/>
+                  </svg>
+                  GitHub
+                </button>
+                <button type="button"
+                        @click="setToolbarTab('addons'); openRepoModal('manual')"
+                        :disabled="instanceActionsLocked()"
+                        class="inline-flex items-center rounded-md border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50">
+                  Manual
+                </button>
+              </div>
+            </div>
             <div x-show="!linkedRepoBranchesLoading && linkedRepo && developmentEnvironments().length === 0" class="px-1 py-1 text-[11px] text-slate-400">No other branches yet.</div>
             <div class="space-y-1">
               <template x-for="env in developmentEnvironments()" :key="env.slug">
@@ -301,6 +321,21 @@
                  class="inline-flex items-center justify-center rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800">
                 Open Live App
               </a>
+              <!-- Reprovision — shown only when instance is FAILED or STOPPED -->
+              <button x-show="['FAILED','STOPPED'].includes((instanceStatus||'').toUpperCase())"
+                      x-cloak
+                      @click="reprovisionInstance()"
+                      :disabled="reprovisionLoading"
+                      class="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-medium text-amber-800 transition hover:bg-amber-100 disabled:opacity-50">
+                <svg x-show="!reprovisionLoading" class="h-4 w-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+                <svg x-show="reprovisionLoading" class="h-4 w-4 animate-spin text-amber-600" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                </svg>
+                <span x-text="reprovisionLoading ? 'Starting…' : 'Reprovision Instance'"></span>
+              </button>
               <button @click="runHealthCheck()"
                       :disabled="healthLoading"
                       class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-50">
@@ -342,6 +377,26 @@
 
     <!-- ── Tab: Overview ── -->
     <div x-show="activeTab === 'overview'" class="p-5">
+
+      {% if odoo_server.status == "FAILED" %}
+      <!-- Server is FAILED — surface a reprovision shortcut here -->
+      <div class="mb-5 flex items-start justify-between gap-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+        <div>
+          <p class="text-sm font-semibold text-red-800">Server {{ odoo_server.name }} is FAILED</p>
+          <p class="mt-0.5 text-xs text-red-600">The underlying server needs to be reprovisioned before instances can run.</p>
+        </div>
+        <button type="button"
+                id="server-reprovision-btn-{{ odoo_server.id }}"
+                onclick="reprovisionServerFromConsole({{ odoo_server.id }}, this)"
+                class="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50">
+          <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          Reprovision Server
+        </button>
+      </div>
+      {% endif %}
+
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
         <div class="bg-gray-50 border border-gray-200 rounded-lg p-3">
           <p class="text-xs text-gray-500 mb-0.5">Server</p>
@@ -637,13 +692,44 @@
                       :class="enterpriseToggleOn ? 'translate-x-5' : 'translate-x-0'"></span>
               </span>
             </button>
+            <!-- Progress banner: shown while activation is running -->
+            <div x-show="enterpriseBusy || enterpriseStatusCode === 'PENDING'"
+                 x-cloak
+                 class="flex items-center gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              <svg class="h-4 w-4 shrink-0 animate-spin text-amber-600" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+              </svg>
+              <span x-text="enterpriseBusy ? 'Queuing enterprise activation…' : 'Enterprise activation in progress — this may take a few minutes…'"></span>
+            </div>
+            <!-- Error banner: shown when activation failed -->
+            <div x-show="enterpriseStatusCode === 'ERROR' && !enterpriseBusy"
+                 x-cloak
+                 class="flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+              <div class="flex items-center gap-2.5 min-w-0">
+                <svg class="h-4 w-4 shrink-0 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                </svg>
+                <span class="text-sm text-red-800">Enterprise activation failed.</span>
+              </div>
+              <button type="button"
+                      @click="activateEnterprise()"
+                      :disabled="enterpriseBusy || instanceActionsLocked() || !enterpriseSourceAvailable"
+                      :title="!enterpriseSourceAvailable ? 'No enterprise source available' : instanceActionLockReason()"
+                      class="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50">
+                <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+                Retry
+              </button>
+            </div>
             <button type="button"
-                    x-show="(enterpriseEnabled || enterpriseStatusCode === 'ERROR') && enterpriseSourceAvailable && enterpriseStatusCode !== 'PENDING'"
+                    x-show="enterpriseEnabled && enterpriseSourceAvailable && !['PENDING','ERROR'].includes(enterpriseStatusCode) && !enterpriseBusy"
                     @click="activateEnterprise()"
                     :disabled="enterpriseBusy || instanceActionsLocked()"
                     :title="instanceActionLockReason()"
-                    class="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                    x-text="enterpriseStatusCode === 'ERROR' ? 'Retry Activation' : 'Re-sync Enterprise'">
+                    class="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50">
+              Re-sync Enterprise
             </button>
             <div x-show="showEnterpriseDetails" class="contents">
               <a href="/deployments/create/?section=enterprise"
@@ -2450,6 +2536,31 @@
             </button>
           </div>
 
+          <!-- Enterprise progress spinner -->
+          <div x-show="enterpriseBusy || enterpriseStatusCode === 'PENDING'"
+               x-cloak
+               class="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+            <svg class="h-3.5 w-3.5 shrink-0 animate-spin text-amber-600" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+            </svg>
+            <span x-text="enterpriseBusy ? 'Queuing…' : 'Activating enterprise…'"></span>
+          </div>
+          <!-- Error banner with retry button -->
+          <div x-show="enterpriseStatusCode === 'ERROR' && !enterpriseBusy"
+               x-cloak
+               class="flex items-center justify-between gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
+            <span class="text-xs text-red-700">Activation failed.</span>
+            <button type="button"
+                    @click="activateEnterprise()"
+                    :disabled="enterpriseBusy || instanceActionsLocked() || !enterpriseSourceAvailable"
+                    class="inline-flex items-center gap-1 rounded-md border border-red-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-red-700 hover:bg-red-100 disabled:opacity-50">
+              <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+              </svg>
+              Retry
+            </button>
+          </div>
           <!-- Enterprise messages -->
           <div x-show="enterpriseError"
                class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
@@ -2482,11 +2593,11 @@
               </div>
               <div class="flex flex-wrap gap-2">
                 <button type="button"
-                        x-show="(enterpriseEnabled || enterpriseStatusCode === 'ERROR') && enterpriseSourceAvailable && enterpriseStatusCode !== 'PENDING'"
+                        x-show="enterpriseEnabled && enterpriseSourceAvailable && !['PENDING','ERROR'].includes(enterpriseStatusCode)"
                         @click="activateEnterprise()"
                         :disabled="enterpriseBusy || instanceActionsLocked()"
-                        class="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                        x-text="enterpriseStatusCode === 'ERROR' ? 'Retry Activation' : 'Re-sync Enterprise'">
+                        class="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                  Re-sync Enterprise
                 </button>
                 <a href="/deployments/create/?section=enterprise"
                    class="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50">
@@ -2718,6 +2829,9 @@ function instanceConsole(instanceId) {
     instanceStatus: '{{ odoo_instance.get_status_display }}',
     instanceDomainStatus: '{{ odoo_instance.domain_status|escapejs }}',
     instanceSslStatus: '{{ odoo_instance.ssl_status|escapejs }}',
+
+    // Reprovision
+    reprovisionLoading: false,
 
     // Health
     healthLoading: false,
@@ -4738,6 +4852,29 @@ function instanceConsole(instanceId) {
     },
 
     // ── Health check ──
+    async reprovisionInstance() {
+      if (!confirm('Re-run instance provisioning? This will re-create the service on the server (database is kept).')) return;
+      this.reprovisionLoading = true;
+      try {
+        const res = await fetch(`/api/deployments/odoo/instances/${this.instanceId}/reprovision/`, {
+          method: 'POST',
+          headers: { 'X-CSRFToken': this.getCsrf(), 'Content-Type': 'application/json' },
+        });
+        const data = await res.json();
+        if (res.ok && data.ok) {
+          this.instanceStatus = 'Pending';
+          this.setToolbarTab('jobs');
+          this.loadJobs();
+        } else {
+          alert(data.error || 'Failed to start re-provisioning.');
+        }
+      } catch (err) {
+        alert('Network error: ' + err.message);
+      } finally {
+        this.reprovisionLoading = false;
+      }
+    },
+
     async runHealthCheck() {
       this.healthLoading = true;
       this.healthMessage = null;
@@ -5516,5 +5653,30 @@ document.addEventListener('alpine:init', () => {
     },
   });
 });
+
+async function reprovisionServerFromConsole(serverId, btn) {
+  if (!confirm('Re-run server provisioning? This re-configures the server; existing instances will be unaffected until they are also reprovisioned if needed.')) return;
+  btn.disabled = true;
+  btn.textContent = 'Starting…';
+  try {
+    const csrf = document.cookie.match(/csrftoken=([^;]+)/)?.[1] || '';
+    const resp = await fetch(`/api/deployments/odoo/servers/${serverId}/reprovision/`, {
+      method: 'POST',
+      headers: { 'X-CSRFToken': csrf, 'Content-Type': 'application/json' },
+    });
+    const data = await resp.json();
+    if (resp.ok && data.ok) {
+      btn.closest('div')?.remove();
+    } else {
+      btn.disabled = false;
+      btn.textContent = 'Reprovision Server';
+      alert(data.error || 'Failed to start re-provisioning.');
+    }
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = 'Reprovision Server';
+    alert('Network error: ' + err.message);
+  }
+}
 </script>
 {% endblock %}

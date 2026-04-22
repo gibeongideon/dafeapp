@@ -48,6 +48,7 @@ urlpatterns = [
     path("odoo/instances/<int:instance_id>/domain/detach/", views.OdooInstanceDomainDetachAPIView.as_view(), name="odoo-instance-domain-detach"),
     path("odoo/instances/<int:instance_id>/domain/retry/", views.OdooInstanceDomainRetryAPIView.as_view(), name="odoo-instance-domain-retry"),
     path("odoo/instances/<int:instance_id>/delete/", views.OdooInstanceDeleteAPIView.as_view(), name="odoo-instance-delete"),
+    path("odoo/instances/<int:instance_id>/reprovision/", views.OdooInstanceReprovisionAPIView.as_view(), name="odoo-instance-reprovision"),
     path("infrastructure/", views.InfrastructureListAPIView.as_view(), name="infrastructure-list"),
     path("infrastructure/create/", views.InfrastructureCreateAPIView.as_view(), name="infrastructure-create"),
     path("infrastructure/<int:infrastructure_id>/delete/", views.InfrastructureDeleteAPIView.as_view(), name="infrastructure-delete"),
