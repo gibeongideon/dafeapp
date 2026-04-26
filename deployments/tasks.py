@@ -4325,7 +4325,26 @@ def check_server_connectivity():
             logger.warning("Reachability check crashed for server %s", server.id, exc_info=True)
 
     # --- ExternalServer: validate SSH using the same PYOS connection path ---
-    ext_servers = ExternalServer.objects.filter(host__isnull=False)
+    # Only check servers linked to at least one active OdooServer.
+    # Back off servers that consistently fail: if last check was a failure and
+    # happened within the last 30 minutes, skip — no point hammering every 3 min.
+    backoff_threshold = now - timedelta(minutes=30)
+    active_ext_ids = (
+        OdooServer.objects.filter(
+            is_active=True,
+            infrastructure__infra_type=Infrastructure.InfraType.PYOS,
+            infrastructure__external_server__isnull=False,
+        )
+        .values_list("infrastructure__external_server_id", flat=True)
+        .distinct()
+    )
+    ext_servers = ExternalServer.objects.filter(
+        pk__in=active_ext_ids,
+        host__isnull=False,
+    ).exclude(
+        is_verified=False,
+        last_checked_at__gte=backoff_threshold,
+    )
 
     for ext in ext_servers:
         from cloud.pyos import PyOSService

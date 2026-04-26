@@ -1430,6 +1430,13 @@
         </button>
       </div>
 
+      <button id="reprovision-btn-{{ s.id }}"
+              type="button"
+              onclick="reprovisionServer({{ s.id }}, this)"
+              class="mt-3 w-full py-2 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors {% if s.status != 'FAILED' %}hidden{% endif %}">
+        Retry Provisioning
+      </button>
+
       <div id="server-details-{{ s.id }}" class="hidden mt-3 pt-3 border-t border-gray-100 space-y-3">
         <div class="flex flex-wrap gap-2">
           <a href="#server-monitoring-{{ s.id }}" class="inline-flex items-center rounded-full border border-gray-200 px-2.5 py-1 text-[11px] font-medium text-gray-600 hover:bg-gray-50">Monitoring</a>
@@ -3505,16 +3512,16 @@ chmod 600 ~/.ssh/authorized_keys</pre>
       });
       const data = await resp.json();
       if (resp.ok && data.ok) {
-        btn.closest("div")?.remove() || btn.remove();
+        btn.classList.add("hidden");
         showToast("Re-provisioning started — watch the log for progress.", "success");
       } else {
         btn.disabled = false;
-        btn.textContent = "Reconnect & Reprovision";
+        btn.textContent = "Retry Provisioning";
         showToast(data.error || "Failed to start re-provisioning.", "error");
       }
     } catch (e) {
       btn.disabled = false;
-      btn.textContent = "Reconnect & Reprovision";
+      btn.textContent = "Retry Provisioning";
       showToast("Network error — could not reach server.", "error");
     }
   }
