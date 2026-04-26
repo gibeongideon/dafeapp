@@ -17,6 +17,7 @@ from cloud.models import CloudAccount, ExternalServer
 from dns.models import DomainAssignment, DnsProviderAccount, DnsZone
 from deployments.models import (
     DeploymentJob,
+    DockerCleanupRun,
     EnterpriseSource,
     GitRepositoryCredential,
     Infrastructure,
@@ -238,6 +239,190 @@ class OdooVersionedFlowTests(TestCase):
         server = OdooServer.objects.get(name="odoo19-default-mode")
         self.assertEqual(server.deployment_mode, OdooServer.DeploymentMode.DOCKER)
         mock_dispatch.assert_called_once()
+
+    @patch("deployments.views.collect_docker_cleanup_preview")
+    def test_docker_cleanup_stats_endpoint_returns_summary(self, mock_collect):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="docker-cleanup-stats",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            ip_address="203.0.113.91",
+            status=OdooServer.Status.PROVISIONED,
+            deployment_mode=OdooServer.DeploymentMode.DOCKER,
+            created_by=self.user,
+        )
+        DockerCleanupRun.objects.create(
+            organization=self.org,
+            server=server,
+            status=DockerCleanupRun.Status.DONE,
+            cleanup_types=["stopped_containers"],
+            age_threshold_days=7,
+            items_deleted=2,
+            space_freed_bytes=1024,
+            duration_seconds=8,
+            created_by=self.user,
+            finished_at=timezone.now(),
+        )
+        mock_collect.return_value = {
+            "disk": {
+                "used_percent": 9.0,
+                "used_bytes": 4_660_000_000,
+                "available_bytes": 52_400_000_000,
+                "total_bytes": 57_080_000_000,
+                "database_bytes": 1_500_000_000,
+                "filestore_bytes": 2_000_000_000,
+                "logs_bytes": 50_000_000,
+            },
+            "stopped_containers": 3,
+            "reclaimable_bytes": 700_000_000,
+            "summary": {
+                "stopped_containers": {
+                    "count": 3,
+                    "estimated_reclaimable_bytes": 400_000_000,
+                    "items": [],
+                },
+                "unused_images": {
+                    "count": 2,
+                    "estimated_reclaimable_bytes": 300_000_000,
+                    "items": [],
+                },
+            },
+        }
+
+        resp = self.client.get(
+            reverse("deployments:odoo-server-docker-cleanup", kwargs={"server_id": server.id}),
+            {"age_days": 7},
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.json()
+        self.assertEqual(payload["stopped_containers"], 3)
+        self.assertEqual(payload["reclaimable_bytes"], 700_000_000)
+        self.assertEqual(payload["summary"]["stopped_containers"]["label"], "Stopped Containers")
+        self.assertEqual(payload["last_cleanup_display"], timezone.localtime(DockerCleanupRun.objects.first().started_at).strftime("%b %d, %Y"))
+
+    @patch("deployments.views.collect_docker_cleanup_preview")
+    def test_docker_cleanup_preview_endpoint_filters_selected_types(self, mock_collect):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="docker-cleanup-preview",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            ip_address="203.0.113.92",
+            status=OdooServer.Status.PROVISIONED,
+            deployment_mode=OdooServer.DeploymentMode.DOCKER,
+            created_by=self.user,
+        )
+        mock_collect.return_value = {
+            "summary": {
+                "unused_images": {
+                    "count": 2,
+                    "estimated_reclaimable_bytes": 2048,
+                    "items": [{"id": "img1", "label": "odoo:18"}],
+                },
+                "unused_networks": {
+                    "count": 1,
+                    "estimated_reclaimable_bytes": 0,
+                    "items": [{"id": "net1", "label": "old-net"}],
+                },
+            }
+        }
+
+        resp = self.client.post(
+            reverse("deployments:odoo-server-docker-cleanup-preview", kwargs={"server_id": server.id}),
+            data=json.dumps({"cleanup_types": ["unused_images"], "age_days": 30}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.json()
+        self.assertEqual(payload["cleanup_types"], ["unused_images"])
+        self.assertEqual(payload["items_deleted"], 2)
+        self.assertIn("unused_images", payload["summary"])
+        self.assertNotIn("unused_networks", payload["summary"])
+
+    @patch("deployments.views.execute_docker_cleanup")
+    def test_docker_cleanup_execute_endpoint_creates_history_run(self, mock_execute):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="docker-cleanup-execute",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            ip_address="203.0.113.93",
+            status=OdooServer.Status.PROVISIONED,
+            deployment_mode=OdooServer.DeploymentMode.DOCKER,
+            created_by=self.user,
+        )
+        mock_execute.return_value = {
+            "items_deleted": 4,
+            "space_freed_bytes": 4_096,
+            "type_results": {
+                "stopped_containers": {"deleted_count": 4, "estimated_reclaimable_bytes": 4_096},
+            },
+            "log": "removed containers",
+        }
+
+        resp = self.client.post(
+            reverse("deployments:odoo-server-docker-cleanup-execute", kwargs={"server_id": server.id}),
+            data=json.dumps({"cleanup_types": ["stopped_containers"], "age_days": 7}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.json()
+        self.assertTrue(payload["ok"])
+        run = DockerCleanupRun.objects.get(server=server)
+        self.assertEqual(run.status, DockerCleanupRun.Status.DONE)
+        self.assertEqual(run.items_deleted, 4)
+        self.assertEqual(run.space_freed_bytes, 4_096)
+        self.assertIn("removed containers", run.command_log)
+
+    def test_docker_cleanup_export_endpoint_returns_csv(self):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            infrastructure=self.infrastructure,
+            cloud_account=self.account,
+            name="docker-cleanup-export",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            ip_address="203.0.113.94",
+            status=OdooServer.Status.PROVISIONED,
+            deployment_mode=OdooServer.DeploymentMode.DOCKER,
+            created_by=self.user,
+        )
+        DockerCleanupRun.objects.create(
+            organization=self.org,
+            server=server,
+            status=DockerCleanupRun.Status.DONE,
+            cleanup_types=["stopped_containers", "unused_images"],
+            age_threshold_days=7,
+            items_deleted=5,
+            space_freed_bytes=10_240,
+            duration_seconds=11,
+            created_by=self.user,
+            finished_at=timezone.now(),
+        )
+
+        resp = self.client.get(
+            reverse("deployments:odoo-server-docker-cleanup-export", kwargs={"server_id": server.id})
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp["Content-Type"], "text/csv")
+        text = resp.content.decode()
+        self.assertIn("cleanup_types", text)
+        self.assertIn("Stopped Containers, Unused Images", text)
 
     @patch("deployments.views._dispatch")
     @patch("cloud.pyos.PyOSService.validate")

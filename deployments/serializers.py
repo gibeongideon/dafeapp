@@ -3,6 +3,7 @@ from rest_framework import serializers
 from dns.serializers import DomainAssignmentSerializer
 from deployments.models import (
     DeploymentJob,
+    DockerCleanupRun,
     EnterpriseSource,
     GitHubWebhookEvent,
     GitRepositoryCredential,
@@ -426,6 +427,43 @@ class DeploymentJobSerializer(serializers.ModelSerializer):
             "odoo_server",
             "odoo_instance",
             "log",
+            "started_at",
+            "finished_at",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class DockerCleanupRunSerializer(serializers.ModelSerializer):
+    created_by_name = serializers.SerializerMethodField()
+    cleanup_type_count = serializers.SerializerMethodField()
+
+    def get_created_by_name(self, obj):
+        if not obj.created_by_id:
+            return "System"
+        full_name = obj.created_by.get_full_name().strip()
+        return full_name or obj.created_by.email or obj.created_by.username
+
+    def get_cleanup_type_count(self, obj):
+        return len(obj.cleanup_types or [])
+
+    class Meta:
+        model = DockerCleanupRun
+        fields = [
+            "id",
+            "server",
+            "status",
+            "cleanup_types",
+            "cleanup_type_count",
+            "age_threshold_days",
+            "items_deleted",
+            "space_freed_bytes",
+            "duration_seconds",
+            "summary",
+            "error_message",
+            "command_log",
+            "created_by",
+            "created_by_name",
             "started_at",
             "finished_at",
             "created_at",

@@ -474,7 +474,7 @@
 
     <div class="space-y-4">
       {% if selected_server %}
-      <div id="server-workspace-tabs" class="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <div id="server-workspace-tabs" class="grid grid-cols-2 gap-3 md:grid-cols-3 {% if selected_server.deployment_mode == 'DOCKER' %}xl:grid-cols-7{% else %}xl:grid-cols-6{% endif %}">
           <a href="{% url 'deployments:create-instance' %}?section=instances&server_id={{ selected_server.id }}&server_tab=dashboard{% if instance_view_mode == 'list' %}&instance_view=list{% endif %}#server-workspace-tabs"
              class="inline-flex w-full items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold {% if server_dashboard_tab == 'dashboard' %}bg-gray-900 text-white{% else %}border border-gray-200 bg-white text-gray-700 hover:bg-gray-50{% endif %}">
             Dash
@@ -491,6 +491,12 @@
              class="inline-flex w-full items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold {% if server_dashboard_tab == 'postgres' %}bg-gray-900 text-white{% else %}border border-gray-200 bg-white text-gray-700 hover:bg-gray-50{% endif %}">
             Postgres
           </a>
+          {% if selected_server.deployment_mode == 'DOCKER' %}
+          <a href="{% url 'deployments:create-instance' %}?section=instances&server_id={{ selected_server.id }}&server_tab=cleanup{% if instance_view_mode == 'list' %}&instance_view=list{% endif %}#server-workspace-tabs"
+             class="inline-flex w-full items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold {% if server_dashboard_tab == 'cleanup' %}bg-gray-900 text-white{% else %}border border-gray-200 bg-white text-gray-700 hover:bg-gray-50{% endif %}">
+            Cleanup
+          </a>
+          {% endif %}
           <a href="{% url 'deployments:create-instance' %}?section=instances&server_id={{ selected_server.id }}&server_tab=ssh{% if instance_view_mode == 'list' %}&instance_view=list{% endif %}#server-workspace-tabs"
              class="inline-flex w-full items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold {% if server_dashboard_tab == 'ssh' %}bg-gray-900 text-white{% else %}border border-gray-200 bg-white text-gray-700 hover:bg-gray-50{% endif %}">
             SSH Keys
@@ -575,6 +581,237 @@
           <p class="text-sm text-gray-600">Bare-metal servers keep PostgreSQL within each instance layout. Use instance-level tools for database operations.</p>
         </div>
         {% endif %}
+      </section>
+      {% elif selected_server and server_dashboard_tab == 'cleanup' and selected_server.deployment_mode == 'DOCKER' %}
+      <section id="docker-cleanup-panel"
+               data-server-id="{{ selected_server.id }}"
+               class="space-y-5 rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p class="text-[11px] uppercase tracking-[0.18em] text-gray-400">Docker Cleanup</p>
+            <h3 class="mt-2 text-sm font-semibold text-gray-900">Manage Docker resources and free up disk space on {{ selected_server.name }}</h3>
+          </div>
+          <div class="flex items-center gap-2">
+            <span id="docker-cleanup-conn-badge"
+                  class="inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-medium {% if selected_server.is_reachable %}bg-green-100 text-green-700{% else %}bg-red-100 text-red-700{% endif %}">
+              {% if selected_server.is_reachable %}Connected{% else %}Disconnected{% endif %}
+            </span>
+            <button id="docker-cleanup-refresh-btn"
+                    type="button"
+                    class="inline-flex items-center rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        <div id="docker-cleanup-msg" class="hidden rounded-2xl border px-4 py-3 text-sm"></div>
+
+        <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <div class="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3">
+            <p class="text-[10px] uppercase tracking-[0.16em] text-gray-400">Disk Used</p>
+            <p id="docker-cleanup-disk-used" class="mt-2 text-2xl font-semibold text-gray-900">—</p>
+          </div>
+          <div class="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3">
+            <p class="text-[10px] uppercase tracking-[0.16em] text-gray-400">Reclaimable</p>
+            <p id="docker-cleanup-reclaimable" class="mt-2 text-2xl font-semibold text-gray-900">—</p>
+          </div>
+          <div class="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3">
+            <p class="text-[10px] uppercase tracking-[0.16em] text-gray-400">Last Cleanup</p>
+            <p id="docker-cleanup-last-cleanup" class="mt-2 text-sm font-semibold text-gray-900">Never</p>
+          </div>
+          <div class="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3">
+            <p class="text-[10px] uppercase tracking-[0.16em] text-gray-400">Stopped Containers</p>
+            <p id="docker-cleanup-stopped" class="mt-2 text-2xl font-semibold text-gray-900">—</p>
+          </div>
+          <div class="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3">
+            <p class="text-[10px] uppercase tracking-[0.16em] text-gray-400">Disk Usage</p>
+            <p id="docker-cleanup-disk-capacity" class="mt-2 text-sm font-semibold text-gray-900">—</p>
+          </div>
+        </div>
+
+        <div class="grid gap-5 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+          <div class="space-y-4 rounded-3xl border border-gray-200 bg-gray-50/60 p-4">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p class="text-xs font-semibold text-gray-900">Cleanup Options</p>
+                <p class="mt-1 text-xs text-gray-500">Preview first, then remove only the Docker resources you no longer need.</p>
+              </div>
+              <div class="flex items-center gap-2 text-xs">
+                <button id="docker-cleanup-select-all" type="button" class="font-medium text-gray-700 hover:text-gray-900">Select All</button>
+                <span class="text-gray-300">|</span>
+                <button id="docker-cleanup-deselect-all" type="button" class="font-medium text-gray-500 hover:text-gray-700">Deselect All</button>
+              </div>
+            </div>
+
+            <div class="grid gap-3">
+              <label class="flex items-start gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3">
+                <input type="checkbox" class="docker-cleanup-type mt-1 accent-gray-900" value="dangling_images" checked />
+                <div class="min-w-0">
+                  <div class="flex items-center justify-between gap-3">
+                    <p class="text-sm font-medium text-gray-900">Dangling Images</p>
+                    <span id="docker-cleanup-count-dangling_images" class="text-xs font-medium text-gray-500">—</span>
+                  </div>
+                  <p class="mt-1 text-xs text-gray-500">Images not tagged or referenced by any container.</p>
+                </div>
+              </label>
+              <label class="flex items-start gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3">
+                <input type="checkbox" class="docker-cleanup-type mt-1 accent-gray-900" value="stopped_containers" checked />
+                <div class="min-w-0">
+                  <div class="flex items-center justify-between gap-3">
+                    <p class="text-sm font-medium text-gray-900">Stopped Containers</p>
+                    <span id="docker-cleanup-count-stopped_containers" class="text-xs font-medium text-gray-500">—</span>
+                  </div>
+                  <p class="mt-1 text-xs text-gray-500">Containers that have been stopped and are no longer serving traffic.</p>
+                </div>
+              </label>
+              <label class="flex items-start gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3">
+                <input type="checkbox" class="docker-cleanup-type mt-1 accent-gray-900" value="unused_images" checked />
+                <div class="min-w-0">
+                  <div class="flex items-center justify-between gap-3">
+                    <p class="text-sm font-medium text-gray-900">Unused Images</p>
+                    <span id="docker-cleanup-count-unused_images" class="text-xs font-medium text-gray-500">—</span>
+                  </div>
+                  <p class="mt-1 text-xs text-gray-500">Tagged images no longer used by any remaining container.</p>
+                </div>
+              </label>
+              <label class="flex items-start gap-3 rounded-2xl border border-amber-200 bg-white px-4 py-3">
+                <input type="checkbox" class="docker-cleanup-type mt-1 accent-gray-900" value="unused_volumes" />
+                <div class="min-w-0">
+                  <div class="flex items-center justify-between gap-3">
+                    <p class="text-sm font-medium text-gray-900">Unused Volumes</p>
+                    <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">High Impact</span>
+                  </div>
+                  <p class="mt-1 text-xs text-gray-500">Volumes not mounted by any container. Protected core volumes are excluded automatically.</p>
+                  <p id="docker-cleanup-count-unused_volumes" class="mt-1 text-xs font-medium text-gray-500">—</p>
+                </div>
+              </label>
+              <label class="flex items-start gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3">
+                <input type="checkbox" class="docker-cleanup-type mt-1 accent-gray-900" value="unused_networks" />
+                <div class="min-w-0">
+                  <div class="flex items-center justify-between gap-3">
+                    <p class="text-sm font-medium text-gray-900">Unused Networks</p>
+                    <span id="docker-cleanup-count-unused_networks" class="text-xs font-medium text-gray-500">—</span>
+                  </div>
+                  <p class="mt-1 text-xs text-gray-500">Networks not used by any container. The shared `odoo-network` stays protected.</p>
+                </div>
+              </label>
+              <label class="flex items-start gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3">
+                <input type="checkbox" class="docker-cleanup-type mt-1 accent-gray-900" value="build_cache" />
+                <div class="min-w-0">
+                  <div class="flex items-center justify-between gap-3">
+                    <p class="text-sm font-medium text-gray-900">Build Cache</p>
+                    <span id="docker-cleanup-count-build_cache" class="text-xs font-medium text-gray-500">—</span>
+                  </div>
+                  <p class="mt-1 text-xs text-gray-500">Docker build cache and temporary layers older than the selected threshold.</p>
+                </div>
+              </label>
+            </div>
+
+            <div class="rounded-2xl border border-gray-200 bg-white px-4 py-3">
+              <div class="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p class="text-sm font-medium text-gray-900">Age Threshold</p>
+                  <p class="mt-1 text-xs text-gray-500">Only remove resources older than the selected age when Docker exposes age metadata.</p>
+                </div>
+                <div class="inline-flex rounded-xl border border-gray-200 bg-gray-50 p-1">
+                  <button type="button" class="docker-cleanup-age-btn rounded-lg px-3 py-1.5 text-xs font-medium text-gray-600" data-age-days="1">1 day</button>
+                  <button type="button" class="docker-cleanup-age-btn rounded-lg px-3 py-1.5 text-xs font-medium bg-gray-900 text-white" data-age-days="7">7 days</button>
+                  <button type="button" class="docker-cleanup-age-btn rounded-lg px-3 py-1.5 text-xs font-medium text-gray-600" data-age-days="30">30 days</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs text-blue-800">
+              Recommended workflow: click <strong>Preview</strong> to see what will be removed, then confirm from the preview modal.
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+              <button id="docker-cleanup-preview-btn"
+                      type="button"
+                      class="inline-flex items-center rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700">
+                Preview Cleanup
+              </button>
+              <button id="docker-cleanup-execute-btn"
+                      type="button"
+                      class="inline-flex items-center rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50">
+                Quick Execute
+              </button>
+              <a id="docker-cleanup-export-link"
+                 href="{% url 'deployments:odoo-server-docker-cleanup-export' selected_server.id %}"
+                 class="inline-flex items-center rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                Export CSV
+              </a>
+            </div>
+          </div>
+
+          <div class="space-y-4">
+            <div class="rounded-3xl border border-gray-200 bg-gray-50/60 p-4">
+              <p class="text-xs font-semibold text-gray-900">Total Capacity</p>
+              <p id="docker-cleanup-total-capacity" class="mt-2 text-sm text-gray-700">Used: — / Available: —</p>
+              <div class="mt-4 grid gap-3">
+                <div class="rounded-2xl border border-gray-200 bg-white px-4 py-3">
+                  <div class="flex items-center justify-between gap-3 text-xs font-medium text-gray-700">
+                    <span>Database</span>
+                    <span id="docker-cleanup-db-share">~0%</span>
+                  </div>
+                  <div class="mt-2 h-2 overflow-hidden rounded-full bg-gray-100">
+                    <div id="docker-cleanup-db-bar" class="h-full rounded-full bg-emerald-500" style="width:0%"></div>
+                  </div>
+                  <p id="docker-cleanup-db-size" class="mt-2 text-[11px] text-gray-500">—</p>
+                </div>
+                <div class="rounded-2xl border border-gray-200 bg-white px-4 py-3">
+                  <div class="flex items-center justify-between gap-3 text-xs font-medium text-gray-700">
+                    <span>Filestore</span>
+                    <span id="docker-cleanup-filestore-share">~0%</span>
+                  </div>
+                  <div class="mt-2 h-2 overflow-hidden rounded-full bg-gray-100">
+                    <div id="docker-cleanup-filestore-bar" class="h-full rounded-full bg-indigo-500" style="width:0%"></div>
+                  </div>
+                  <p id="docker-cleanup-filestore-size" class="mt-2 text-[11px] text-gray-500">—</p>
+                </div>
+                <div class="rounded-2xl border border-gray-200 bg-white px-4 py-3">
+                  <div class="flex items-center justify-between gap-3 text-xs font-medium text-gray-700">
+                    <span>Logs</span>
+                    <span id="docker-cleanup-logs-share">~0%</span>
+                  </div>
+                  <div class="mt-2 h-2 overflow-hidden rounded-full bg-gray-100">
+                    <div id="docker-cleanup-logs-bar" class="h-full rounded-full bg-amber-500" style="width:0%"></div>
+                  </div>
+                  <p id="docker-cleanup-logs-size" class="mt-2 text-[11px] text-gray-500">—</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="rounded-3xl border border-gray-200 bg-gray-50/60 p-4">
+              <div class="flex items-center justify-between gap-3">
+                <div>
+                  <p class="text-xs font-semibold text-gray-900">Cleanup History</p>
+                  <p class="mt-1 text-xs text-gray-500">Recent cleanup runs for this Docker host.</p>
+                </div>
+              </div>
+              <div class="mt-4 overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200 text-sm">
+                  <thead class="bg-white">
+                    <tr class="text-left text-[11px] uppercase tracking-[0.14em] text-gray-400">
+                      <th class="px-3 py-2 font-medium">Timestamp</th>
+                      <th class="px-3 py-2 font-medium">Type</th>
+                      <th class="px-3 py-2 font-medium">Items Deleted</th>
+                      <th class="px-3 py-2 font-medium">Space Freed</th>
+                      <th class="px-3 py-2 font-medium">Duration</th>
+                      <th class="px-3 py-2 font-medium">Status</th>
+                      <th class="px-3 py-2 font-medium">User</th>
+                    </tr>
+                  </thead>
+                  <tbody id="docker-cleanup-history-body" class="divide-y divide-gray-100 bg-white">
+                    <tr>
+                      <td colspan="7" class="px-3 py-6 text-center text-sm text-gray-400">Loading cleanup history…</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
       {% elif selected_server and server_dashboard_tab == 'ssh' %}
       <section class="bg-white border border-gray-200 rounded-3xl p-5 shadow-sm space-y-4">
@@ -2190,12 +2427,72 @@ chmod 600 ~/.ssh/authorized_keys</pre>
   </div>
 </div>
 
+<div id="docker-cleanup-preview-modal" class="fixed inset-0 bg-black/40 hidden z-50">
+  <div class="min-h-full flex items-center justify-center p-4">
+    <div class="w-full max-w-3xl bg-white rounded-2xl border border-gray-200 shadow-xl">
+      <div class="flex items-center justify-between gap-3 border-b border-gray-100 px-5 py-4">
+        <div>
+          <p class="text-[11px] uppercase tracking-[0.16em] text-gray-400">Preview</p>
+          <h3 class="mt-1 text-sm font-semibold text-gray-900">Docker cleanup preview</h3>
+        </div>
+        <button id="docker-cleanup-preview-close" type="button" class="text-sm text-gray-500 hover:text-gray-700">Close</button>
+      </div>
+      <div class="space-y-4 px-5 py-4">
+        <div class="grid gap-3 sm:grid-cols-3">
+          <div class="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3">
+            <p class="text-[10px] uppercase tracking-[0.16em] text-gray-400">Cleanup Types</p>
+            <p id="docker-cleanup-preview-types" class="mt-2 text-sm font-semibold text-gray-900">—</p>
+          </div>
+          <div class="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3">
+            <p class="text-[10px] uppercase tracking-[0.16em] text-gray-400">Items</p>
+            <p id="docker-cleanup-preview-items" class="mt-2 text-sm font-semibold text-gray-900">—</p>
+          </div>
+          <div class="rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3">
+            <p class="text-[10px] uppercase tracking-[0.16em] text-gray-400">Estimated Space Freed</p>
+            <p id="docker-cleanup-preview-space" class="mt-2 text-sm font-semibold text-gray-900">—</p>
+          </div>
+        </div>
+        <div class="overflow-x-auto rounded-2xl border border-gray-200">
+          <table class="min-w-full divide-y divide-gray-200 text-sm">
+            <thead class="bg-gray-50">
+              <tr class="text-left text-[11px] uppercase tracking-[0.14em] text-gray-400">
+                <th class="px-4 py-3 font-medium">Category</th>
+                <th class="px-4 py-3 font-medium">Count</th>
+                <th class="px-4 py-3 font-medium">Estimated</th>
+                <th class="px-4 py-3 font-medium">Items</th>
+              </tr>
+            </thead>
+            <tbody id="docker-cleanup-preview-body" class="divide-y divide-gray-100 bg-white">
+              <tr>
+                <td colspan="4" class="px-4 py-6 text-center text-sm text-gray-400">No preview loaded yet.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="flex items-center justify-between gap-3 border-t border-gray-100 px-5 py-4">
+        <p id="docker-cleanup-preview-msg" class="text-xs text-gray-500"></p>
+        <div class="flex items-center gap-2">
+          <button id="docker-cleanup-preview-cancel" type="button" class="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+            Cancel
+          </button>
+          <button id="docker-cleanup-execute-from-preview" type="button" class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700">
+            Execute Cleanup
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 (() => {
   const csrf = "{{ csrf_token }}";
   const dnsDashboardEnabled = {{ show_dns_view|yesno:"true,false" }};
   const defaultTlsMode = "{{ default_tls_mode }}";
   const platformBaseDomain = "{{ PLATFORM_BASE_DOMAIN|default:'dafeapp.com' }}";
+  const dockerCleanupEnabled = {% if selected_server and selected_server.deployment_mode == 'DOCKER' and server_dashboard_tab == 'cleanup' %}true{% else %}false{% endif %};
+  const dockerCleanupServerId = "{{ selected_server.id|default:'' }}";
 
   // ─── helpers ─────────────────────────────────────────────────────────────
   const $ = (id) => document.getElementById(id);
@@ -2507,6 +2804,18 @@ chmod 600 ~/.ssh/authorized_keys</pre>
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return "Never";
     return date.toLocaleString();
+  }
+
+  function formatBytes(value) {
+    let amount = Number(value || 0);
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    for (const unit of units) {
+      if (Math.abs(amount) < 1024 || unit === units[units.length - 1]) {
+        return unit === "B" ? `${Math.round(amount)} ${unit}` : `${amount.toFixed(2)} ${unit}`;
+      }
+      amount /= 1024;
+    }
+    return "0 B";
   }
 
   function dnsStatusClass(status) {
@@ -3466,6 +3775,212 @@ chmod 600 ~/.ssh/authorized_keys</pre>
   const pendingServerChecks = new Set();
   const pendingServerCheckTimeouts = new Map();
 
+  let dockerCleanupAgeDays = 7;
+  let dockerCleanupPreviewPayload = null;
+  let dockerCleanupLoading = false;
+
+  function cleanupTypeValues() {
+    return Array.from(document.querySelectorAll(".docker-cleanup-type:checked")).map((el) => el.value);
+  }
+
+  function setDockerCleanupMessage(text = "", isError = false) {
+    const el = $("docker-cleanup-msg");
+    if (!el) return;
+    if (!text) {
+      hide(el);
+      el.textContent = "";
+      el.className = "hidden rounded-2xl border px-4 py-3 text-sm";
+      return;
+    }
+    show(el);
+    el.textContent = text;
+    el.className = isError
+      ? "rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+      : "rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700";
+  }
+
+  function syncDockerCleanupButtons() {
+    const hasSelection = cleanupTypeValues().length > 0;
+    const previewBtn = $("docker-cleanup-preview-btn");
+    const executeBtn = $("docker-cleanup-execute-btn");
+    const executeFromPreviewBtn = $("docker-cleanup-execute-from-preview");
+    [previewBtn, executeBtn, executeFromPreviewBtn].forEach((btn) => {
+      if (!btn) return;
+      btn.disabled = dockerCleanupLoading || !hasSelection;
+      btn.classList.toggle("opacity-50", btn.disabled);
+      btn.classList.toggle("cursor-not-allowed", btn.disabled);
+    });
+  }
+
+  function updateDockerCleanupAgeButtons() {
+    document.querySelectorAll(".docker-cleanup-age-btn").forEach((btn) => {
+      const active = Number(btn.dataset.ageDays || "7") === dockerCleanupAgeDays;
+      btn.className = active
+        ? "docker-cleanup-age-btn rounded-lg px-3 py-1.5 text-xs font-medium bg-gray-900 text-white"
+        : "docker-cleanup-age-btn rounded-lg px-3 py-1.5 text-xs font-medium text-gray-600";
+    });
+  }
+
+  function setBreakdownBar(barId, labelId, sizeId, percent, bytes) {
+    const bar = $(barId);
+    const label = $(labelId);
+    const size = $(sizeId);
+    if (bar) bar.style.width = `${Math.max(0, Math.min(Number(percent || 0), 100))}%`;
+    if (label) label.textContent = `~${Number(percent || 0).toFixed(1)}%`;
+    if (size) size.textContent = formatBytes(bytes);
+  }
+
+  function renderDockerCleanupStats(data) {
+    if ($("docker-cleanup-disk-used")) $("docker-cleanup-disk-used").textContent = `${Number(data.disk.used_percent || 0).toFixed(1)}%`;
+    if ($("docker-cleanup-reclaimable")) $("docker-cleanup-reclaimable").textContent = data.reclaimable_display || formatBytes(data.reclaimable_bytes);
+    if ($("docker-cleanup-last-cleanup")) $("docker-cleanup-last-cleanup").textContent = data.last_cleanup_display || "Never";
+    if ($("docker-cleanup-stopped")) $("docker-cleanup-stopped").textContent = String(data.stopped_containers || 0);
+    if ($("docker-cleanup-disk-capacity")) $("docker-cleanup-disk-capacity").textContent = formatBytes(data.disk.used_bytes || 0);
+    if ($("docker-cleanup-total-capacity")) {
+      $("docker-cleanup-total-capacity").textContent = `Used: ${data.disk.used_display || formatBytes(data.disk.used_bytes)} (${Number(data.disk.used_percent || 0).toFixed(1)}%) · Available: ${data.disk.available_display || formatBytes(data.disk.available_bytes)}`;
+    }
+    setBreakdownBar("docker-cleanup-db-bar", "docker-cleanup-db-share", "docker-cleanup-db-size", data.disk.database_percent, data.disk.database_bytes);
+    setBreakdownBar("docker-cleanup-filestore-bar", "docker-cleanup-filestore-share", "docker-cleanup-filestore-size", data.disk.filestore_percent, data.disk.filestore_bytes);
+    setBreakdownBar("docker-cleanup-logs-bar", "docker-cleanup-logs-share", "docker-cleanup-logs-size", data.disk.logs_percent, data.disk.logs_bytes);
+    Object.entries(data.summary || {}).forEach(([key, row]) => {
+      const el = $(`docker-cleanup-count-${key}`);
+      if (el) el.textContent = `${row.count || 0} · ${row.estimated_reclaimable_display || formatBytes(row.estimated_reclaimable_bytes)}`;
+    });
+  }
+
+  function renderDockerCleanupHistory(rows) {
+    const body = $("docker-cleanup-history-body");
+    if (!body) return;
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="7" class="px-3 py-6 text-center text-sm text-gray-400">No cleanup runs yet on this server.</td></tr>';
+      return;
+    }
+    body.innerHTML = rows.map((row) => {
+      const statusClass = row.status === "DONE"
+        ? "bg-green-100 text-green-700"
+        : row.status === "FAILED"
+          ? "bg-red-100 text-red-700"
+          : "bg-yellow-100 text-yellow-700";
+      return `
+        <tr>
+          <td class="px-3 py-3 text-xs text-gray-700">${escapeHtml(formatDate(row.started_at))}</td>
+          <td class="px-3 py-3 text-xs text-gray-700">${escapeHtml(row.cleanup_types_summary || row.cleanup_types_label || "")}</td>
+          <td class="px-3 py-3 text-xs text-gray-700">${escapeHtml(String(row.items_deleted || 0))}</td>
+          <td class="px-3 py-3 text-xs text-gray-700">${escapeHtml(row.space_freed_display || "0 B")}</td>
+          <td class="px-3 py-3 text-xs text-gray-700">${escapeHtml(row.duration_display || "-")}</td>
+          <td class="px-3 py-3 text-xs"><span class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${statusClass}">${escapeHtml(row.status || "UNKNOWN")}</span></td>
+          <td class="px-3 py-3 text-xs text-gray-700">${escapeHtml(row.created_by_name || "System")}</td>
+        </tr>
+      `;
+    }).join("");
+  }
+
+  function renderDockerCleanupPreview(data) {
+    dockerCleanupPreviewPayload = data;
+    if ($("docker-cleanup-preview-types")) $("docker-cleanup-preview-types").textContent = (data.cleanup_type_labels || []).join(", ");
+    if ($("docker-cleanup-preview-items")) $("docker-cleanup-preview-items").textContent = String(data.items_deleted || 0);
+    if ($("docker-cleanup-preview-space")) $("docker-cleanup-preview-space").textContent = data.estimated_reclaimable_display || formatBytes(data.estimated_reclaimable_bytes);
+    const body = $("docker-cleanup-preview-body");
+    if (!body) return;
+    const entries = Object.values(data.summary || {});
+    if (!entries.length) {
+      body.innerHTML = '<tr><td colspan="4" class="px-4 py-6 text-center text-sm text-gray-400">Nothing eligible for cleanup with the current filters.</td></tr>';
+      return;
+    }
+    body.innerHTML = entries.map((row) => {
+      const items = Array.isArray(row.items) ? row.items : [];
+      const itemHtml = items.length
+        ? `<ul class="space-y-1">${items.slice(0, 6).map((item) => `<li class="truncate font-mono text-[11px] text-gray-600">${escapeHtml(item.label || item.id || "")}</li>`).join("")}${items.length > 6 ? `<li class="text-[11px] text-gray-400">+${items.length - 6} more…</li>` : ""}</ul>`
+        : '<span class="text-[11px] text-gray-400">No matching items.</span>';
+      return `
+        <tr>
+          <td class="px-4 py-3 align-top">
+            <p class="text-sm font-medium text-gray-900">${escapeHtml(row.label || "")}</p>
+          </td>
+          <td class="px-4 py-3 align-top text-sm text-gray-700">${escapeHtml(String(row.count || 0))}</td>
+          <td class="px-4 py-3 align-top text-sm text-gray-700">${escapeHtml(row.estimated_reclaimable_display || formatBytes(row.estimated_reclaimable_bytes || 0))}</td>
+          <td class="px-4 py-3 align-top">${itemHtml}</td>
+        </tr>
+      `;
+    }).join("");
+  }
+
+  async function loadDockerCleanupDashboard() {
+    if (!dockerCleanupEnabled || !dockerCleanupServerId) return;
+    try {
+      setDockerCleanupMessage("");
+      const stats = await requestJson(`/api/deployments/odoo/servers/${dockerCleanupServerId}/docker-cleanup/?age_days=${dockerCleanupAgeDays}`);
+      if (stats.ok) {
+        renderDockerCleanupStats(stats.data);
+      } else {
+        setDockerCleanupMessage(stats.data.error || "Docker cleanup stats could not be loaded.", true);
+      }
+      const history = await requestJson(`/api/deployments/odoo/servers/${dockerCleanupServerId}/docker-cleanup/history/`);
+      renderDockerCleanupHistory(history.ok ? (history.data.results || []) : []);
+    } catch (err) {
+      setDockerCleanupMessage(err instanceof Error ? err.message : "Docker cleanup data could not be loaded.", true);
+    }
+  }
+
+  async function previewDockerCleanup() {
+    if (!dockerCleanupServerId) return;
+    dockerCleanupLoading = true;
+    syncDockerCleanupButtons();
+    setMsg($("docker-cleanup-preview-msg"), "Loading preview…");
+    try {
+      const resp = await requestJson(`/api/deployments/odoo/servers/${dockerCleanupServerId}/docker-cleanup/preview/`, {
+        method: "POST",
+        payload: {
+          cleanup_types: cleanupTypeValues(),
+          age_days: dockerCleanupAgeDays,
+        },
+      });
+      if (!resp.ok) {
+        setDockerCleanupMessage(resp.data.error || "Preview failed.", true);
+        return;
+      }
+      renderDockerCleanupPreview(resp.data);
+      show($("docker-cleanup-preview-modal"));
+      setMsg($("docker-cleanup-preview-msg"), "");
+    } catch (err) {
+      setDockerCleanupMessage(err instanceof Error ? err.message : "Preview failed.", true);
+    } finally {
+      dockerCleanupLoading = false;
+      syncDockerCleanupButtons();
+    }
+  }
+
+  async function executeDockerCleanup() {
+    if (!dockerCleanupServerId || !cleanupTypeValues().length) return;
+    dockerCleanupLoading = true;
+    syncDockerCleanupButtons();
+    setDockerCleanupMessage("Running Docker cleanup…");
+    try {
+      const resp = await requestJson(`/api/deployments/odoo/servers/${dockerCleanupServerId}/docker-cleanup/execute/`, {
+        method: "POST",
+        payload: {
+          cleanup_types: cleanupTypeValues(),
+          age_days: dockerCleanupAgeDays,
+        },
+      });
+      if (!resp.ok) {
+        const errorText = (resp.data && resp.data.error) || "Cleanup failed.";
+        setDockerCleanupMessage(errorText, true);
+        if (resp.data && resp.data.run) renderDockerCleanupHistory([resp.data.run]);
+        return;
+      }
+      hide($("docker-cleanup-preview-modal"));
+      const run = resp.data.run || {};
+      setDockerCleanupMessage(`Cleanup finished. Removed ${run.items_deleted || 0} item(s) and freed ${run.space_freed_display || "0 B"}.`);
+      await loadDockerCleanupDashboard();
+    } catch (err) {
+      setDockerCleanupMessage(err instanceof Error ? err.message : "Cleanup failed.", true);
+    } finally {
+      dockerCleanupLoading = false;
+      syncDockerCleanupButtons();
+    }
+  }
+
   function visibleServerIds() {
     const ids = new Set();
     document.querySelectorAll("[id^='server-badge-']").forEach((el) => {
@@ -3564,6 +4079,44 @@ chmod 600 ~/.ssh/authorized_keys</pre>
     }
 
     return resp;
+  }
+
+  document.querySelectorAll(".docker-cleanup-type").forEach((el) => {
+    el.addEventListener("change", syncDockerCleanupButtons);
+  });
+  document.querySelectorAll(".docker-cleanup-age-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      dockerCleanupAgeDays = Number(btn.dataset.ageDays || "7");
+      updateDockerCleanupAgeButtons();
+      loadDockerCleanupDashboard();
+    });
+  });
+  $("docker-cleanup-select-all")?.addEventListener("click", () => {
+    document.querySelectorAll(".docker-cleanup-type").forEach((el) => { el.checked = true; });
+    syncDockerCleanupButtons();
+  });
+  $("docker-cleanup-deselect-all")?.addEventListener("click", () => {
+    document.querySelectorAll(".docker-cleanup-type").forEach((el) => { el.checked = false; });
+    syncDockerCleanupButtons();
+  });
+  $("docker-cleanup-refresh-btn")?.addEventListener("click", loadDockerCleanupDashboard);
+  $("docker-cleanup-preview-btn")?.addEventListener("click", previewDockerCleanup);
+  $("docker-cleanup-execute-btn")?.addEventListener("click", async () => {
+    if (!cleanupTypeValues().length) return;
+    const confirmed = window.confirm("Run Docker cleanup now on this server?");
+    if (!confirmed) return;
+    await executeDockerCleanup();
+  });
+  $("docker-cleanup-execute-from-preview")?.addEventListener("click", executeDockerCleanup);
+  $("docker-cleanup-preview-close")?.addEventListener("click", () => hide($("docker-cleanup-preview-modal")));
+  $("docker-cleanup-preview-cancel")?.addEventListener("click", () => hide($("docker-cleanup-preview-modal")));
+  $("docker-cleanup-preview-modal")?.addEventListener("click", (event) => {
+    if (event.target === $("docker-cleanup-preview-modal")) hide($("docker-cleanup-preview-modal"));
+  });
+  if (dockerCleanupEnabled) {
+    updateDockerCleanupAgeButtons();
+    syncDockerCleanupButtons();
+    loadDockerCleanupDashboard();
   }
 
   async function autoCheckVisibleServers() {

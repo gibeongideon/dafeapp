@@ -1,4 +1,5 @@
 import logging
+import csv
 import json
 import re
 import shlex
@@ -39,6 +40,7 @@ from cloud.pyos import looks_like_public_key_text
 from dns.models import DomainAssignment, DnsZone, normalize_domain_name
 from deployments.models import (
     DeploymentJob,
+    DockerCleanupRun,
     EnterpriseSource,
     GitHubWebhookEvent,
     GitRepositoryCredential,
@@ -66,6 +68,7 @@ from deployments.domain_utils import (
 )
 from deployments.serializers import (
     DeploymentJobSerializer,
+    DockerCleanupRunSerializer,
     EnterpriseSourceSerializer,
     GitHubWebhookEventSerializer,
     GitRepositoryCredentialSerializer,
@@ -105,6 +108,12 @@ from deployments.tasks import (
     terraform_apply_instance,
     update_instance_modules_all,
     update_instance_repo,
+    collect_docker_cleanup_preview,
+    execute_docker_cleanup,
+    _docker_cleanup_age_days,
+    _docker_cleanup_labels,
+    _format_bytes_human,
+    _normalized_docker_cleanup_types,
 )
 from subscriptions.exceptions import SubscriptionError, SubscriptionLimitError
 from subscriptions.services import SubscriptionEnforcer
@@ -158,6 +167,33 @@ def _request_data(request):
         except json.JSONDecodeError:
             return {}
     return request.POST
+
+
+def _docker_cleanup_row_payload(run: DockerCleanupRun) -> dict:
+    data = DockerCleanupRunSerializer(run).data
+    labels = _docker_cleanup_labels(run.cleanup_types or [])
+    data["cleanup_types_label"] = ", ".join(labels)
+    data["cleanup_types_summary"] = f"{len(labels)} cleanup type{'s' if len(labels) != 1 else ''}"
+    data["space_freed_display"] = _format_bytes_human(run.space_freed_bytes)
+    data["duration_display"] = f"{run.duration_seconds}s" if run.duration_seconds else "-"
+    return data
+
+
+def _get_docker_cleanup_server(request, server_id):
+    org = getattr(request, "organization", None)
+    if not org:
+        return None, JsonResponse({"error": "No active organization."}, status=400)
+    if request.org_role not in ("SUPER_ADMIN", "ADMIN", "MANAGER"):
+        return None, JsonResponse({"error": "Permission denied."}, status=403)
+    server = get_object_or_404(
+        OdooServer.objects.select_related("infrastructure", "infrastructure__external_server"),
+        pk=server_id,
+        organization=org,
+        is_active=True,
+    )
+    if server.deployment_mode != OdooServer.DeploymentMode.DOCKER:
+        return None, JsonResponse({"error": "Docker cleanup is only available for Docker servers."}, status=400)
+    return server, None
 
 
 def _enterprise_archive_root(*, scope: str = EnterpriseSource.Scope.PLATFORM, owner_id: int | None = None) -> Path:
@@ -1369,7 +1405,7 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
             section = "servers"
         server_id = (self.request.GET.get("server_id") or "").strip()
         server_tab = (self.request.GET.get("server_tab") or "").strip().lower()
-        if server_tab not in {"dashboard", "monitoring", "instances", "postgres", "ssh", "settings"}:
+        if server_tab not in {"dashboard", "monitoring", "instances", "postgres", "cleanup", "ssh", "settings"}:
             server_tab = "dashboard"
         # Default to list view on the all-instances page; kanban elsewhere.
         _default_view = "list" if (section == "instances" and not server_id) else "kanban"
@@ -1424,7 +1460,6 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
             .order_by("-created_at")
         )
         ctx["selected_server"] = None
-        ctx["server_dashboard_tab"] = server_tab
         filtered_instances = instance_queryset
         ctx["server_id"] = server_id
         if server_id:
@@ -1434,8 +1469,11 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
                 organization=org,
                 is_active=True,
             )
+            if server_tab == "cleanup" and selected_server.deployment_mode != OdooServer.DeploymentMode.DOCKER:
+                server_tab = "dashboard"
             ctx["selected_server"] = selected_server
             filtered_instances = filtered_instances.filter(server=selected_server)
+        ctx["server_dashboard_tab"] = server_tab
         instance_paginator = Paginator(filtered_instances, self.INSTANCE_PAGE_SIZE)
         instance_page_obj = instance_paginator.get_page(instance_page_number)
         visible_instances = list(instance_page_obj.object_list)
@@ -4043,6 +4081,243 @@ class OdooServerHistoryAPIView(LoginRequiredMixin, View):
         server = get_object_or_404(OdooServer, pk=server_id, organization=org)
         qs = OdooServerHistory.objects.filter(server=server).order_by("-deployed_at")
         return JsonResponse({"results": OdooServerHistorySerializer(qs, many=True).data})
+
+
+class OdooServerDockerCleanupAPIView(LoginRequiredMixin, View):
+    """GET /deployments/odoo/servers/<id>/docker-cleanup/ — current cleanup stats and category counts."""
+
+    def get(self, request, server_id):
+        server, err = _get_docker_cleanup_server(request, server_id)
+        if err:
+            return err
+
+        age_days = _docker_cleanup_age_days(request.GET.get("age_days"))
+        try:
+            preview = collect_docker_cleanup_preview(server, age_days=age_days)
+        except Exception as exc:
+            logger.warning("Docker cleanup stats failed for server %s: %s", server.id, exc)
+            return JsonResponse({"error": str(exc)}, status=502)
+
+        last_cleanup = server.docker_cleanup_runs.filter(status=DockerCleanupRun.Status.DONE).order_by("-started_at").first()
+        summary = {}
+        for key, row in (preview.get("summary") or {}).items():
+            summary[key] = {
+                **row,
+                "label": _docker_cleanup_labels([key])[0] if key in _normalized_docker_cleanup_types([key]) else key,
+                "estimated_reclaimable_display": _format_bytes_human(row.get("estimated_reclaimable_bytes")),
+            }
+        disk = preview.get("disk") or {}
+        total_bytes = int(disk.get("total_bytes") or 0)
+        payload = {
+            "server_id": server.id,
+            "age_threshold_days": age_days,
+            "stopped_containers": int(preview.get("stopped_containers") or 0),
+            "reclaimable_bytes": int(preview.get("reclaimable_bytes") or 0),
+            "reclaimable_display": _format_bytes_human(preview.get("reclaimable_bytes")),
+            "last_cleanup_at": last_cleanup.started_at.isoformat() if last_cleanup else "",
+            "last_cleanup_display": timezone.localtime(last_cleanup.started_at).strftime("%b %d, %Y") if last_cleanup else "Never",
+            "disk": {
+                **disk,
+                "used_display": _format_bytes_human(disk.get("used_bytes")),
+                "available_display": _format_bytes_human(disk.get("available_bytes")),
+                "total_display": _format_bytes_human(total_bytes),
+                "database_display": _format_bytes_human(disk.get("database_bytes")),
+                "filestore_display": _format_bytes_human(disk.get("filestore_bytes")),
+                "logs_display": _format_bytes_human(disk.get("logs_bytes")),
+                "database_percent": round((int(disk.get("database_bytes") or 0) / total_bytes) * 100, 1) if total_bytes else 0,
+                "filestore_percent": round((int(disk.get("filestore_bytes") or 0) / total_bytes) * 100, 1) if total_bytes else 0,
+                "logs_percent": round((int(disk.get("logs_bytes") or 0) / total_bytes) * 100, 1) if total_bytes else 0,
+            },
+            "summary": summary,
+        }
+        return JsonResponse(payload)
+
+
+class OdooServerDockerCleanupPreviewAPIView(LoginRequiredMixin, View):
+    """POST /deployments/odoo/servers/<id>/docker-cleanup/preview/ — inspect what would be removed."""
+
+    def post(self, request, server_id):
+        server, err = _get_docker_cleanup_server(request, server_id)
+        if err:
+            return err
+
+        payload = _request_data(request)
+        age_days = _docker_cleanup_age_days(payload.get("age_days"))
+        cleanup_types = _normalized_docker_cleanup_types(
+            payload.get("cleanup_types") or request.POST.getlist("cleanup_types")
+        )
+        if not cleanup_types:
+            return JsonResponse({"error": "Select at least one cleanup type."}, status=400)
+
+        try:
+            preview = collect_docker_cleanup_preview(server, age_days=age_days)
+        except Exception as exc:
+            logger.warning("Docker cleanup preview failed for server %s: %s", server.id, exc)
+            return JsonResponse({"error": str(exc)}, status=502)
+
+        summary = preview.get("summary") or {}
+        selected = {}
+        items_deleted = 0
+        reclaimable_bytes = 0
+        for key in cleanup_types:
+            row = summary.get(key) or {"count": 0, "estimated_reclaimable_bytes": 0, "items": []}
+            selected[key] = {
+                **row,
+                "label": _docker_cleanup_labels([key])[0],
+                "estimated_reclaimable_display": _format_bytes_human(row.get("estimated_reclaimable_bytes")),
+            }
+            items_deleted += int(row.get("count") or 0)
+            reclaimable_bytes += int(row.get("estimated_reclaimable_bytes") or 0)
+
+        return JsonResponse(
+            {
+                "server_id": server.id,
+                "age_threshold_days": age_days,
+                "cleanup_types": cleanup_types,
+                "cleanup_type_labels": _docker_cleanup_labels(cleanup_types),
+                "items_deleted": items_deleted,
+                "estimated_reclaimable_bytes": reclaimable_bytes,
+                "estimated_reclaimable_display": _format_bytes_human(reclaimable_bytes),
+                "summary": selected,
+            }
+        )
+
+
+class OdooServerDockerCleanupExecuteAPIView(LoginRequiredMixin, View):
+    """POST /deployments/odoo/servers/<id>/docker-cleanup/execute/ — execute cleanup now."""
+
+    def post(self, request, server_id):
+        server, err = _get_docker_cleanup_server(request, server_id)
+        if err:
+            return err
+
+        payload = _request_data(request)
+        age_days = _docker_cleanup_age_days(payload.get("age_days"))
+        cleanup_types = _normalized_docker_cleanup_types(
+            payload.get("cleanup_types") or request.POST.getlist("cleanup_types")
+        )
+        if not cleanup_types:
+            return JsonResponse({"error": "Select at least one cleanup type."}, status=400)
+
+        run = DockerCleanupRun.objects.create(
+            organization=server.organization,
+            server=server,
+            status=DockerCleanupRun.Status.RUNNING,
+            cleanup_types=cleanup_types,
+            age_threshold_days=age_days,
+            created_by=request.user,
+        )
+        started_at = timezone.now()
+
+        try:
+            result = execute_docker_cleanup(server, cleanup_types, age_days=age_days)
+            finished_at = timezone.now()
+            run.status = DockerCleanupRun.Status.DONE
+            run.items_deleted = int(result.get("items_deleted") or 0)
+            run.space_freed_bytes = int(result.get("space_freed_bytes") or 0)
+            run.duration_seconds = max(1, int((finished_at - started_at).total_seconds()))
+            run.summary = result.get("type_results") or {}
+            run.command_log = (result.get("log") or "")[:20000]
+            run.finished_at = finished_at
+            run.error_message = ""
+            run.save(
+                update_fields=[
+                    "status",
+                    "items_deleted",
+                    "space_freed_bytes",
+                    "duration_seconds",
+                    "summary",
+                    "command_log",
+                    "finished_at",
+                    "error_message",
+                    "updated_at",
+                ]
+            )
+            log_audit(
+                request.user,
+                AuditLog.Action.OTHER,
+                None,
+                f"Docker cleanup ran on server '{server.name}'.",
+                metadata={
+                    "server_id": server.id,
+                    "cleanup_types": cleanup_types,
+                    "age_threshold_days": age_days,
+                    "items_deleted": run.items_deleted,
+                    "space_freed_bytes": run.space_freed_bytes,
+                },
+                organization=server.organization,
+            )
+        except Exception as exc:
+            finished_at = timezone.now()
+            run.status = DockerCleanupRun.Status.FAILED
+            run.duration_seconds = max(1, int((finished_at - started_at).total_seconds()))
+            run.finished_at = finished_at
+            run.error_message = str(exc)
+            run.save(update_fields=["status", "duration_seconds", "finished_at", "error_message", "updated_at"])
+            logger.warning("Docker cleanup failed for server %s: %s", server.id, exc)
+            return JsonResponse({"error": str(exc), "run": _docker_cleanup_row_payload(run)}, status=502)
+
+        return JsonResponse({"ok": True, "run": _docker_cleanup_row_payload(run)})
+
+
+class OdooServerDockerCleanupHistoryAPIView(LoginRequiredMixin, View):
+    """GET /deployments/odoo/servers/<id>/docker-cleanup/history/ — cleanup execution history."""
+
+    def get(self, request, server_id):
+        server, err = _get_docker_cleanup_server(request, server_id)
+        if err:
+            return err
+
+        rows = [
+            _docker_cleanup_row_payload(run)
+            for run in server.docker_cleanup_runs.select_related("created_by").all()[:50]
+        ]
+        return JsonResponse({"results": rows})
+
+
+class OdooServerDockerCleanupExportAPIView(LoginRequiredMixin, View):
+    """GET /deployments/odoo/servers/<id>/docker-cleanup/export/ — export cleanup history as CSV."""
+
+    def get(self, request, server_id):
+        server, err = _get_docker_cleanup_server(request, server_id)
+        if err:
+            return err
+
+        response = HttpResponse(content_type="text/csv")
+        response["Content-Disposition"] = f'attachment; filename="server-{server.id}-docker-cleanup-history.csv"'
+
+        writer = csv.writer(response)
+        writer.writerow(
+            [
+                "timestamp",
+                "status",
+                "cleanup_types",
+                "age_threshold_days",
+                "items_deleted",
+                "space_freed_bytes",
+                "space_freed_display",
+                "duration_seconds",
+                "user",
+                "error_message",
+            ]
+        )
+        for run in server.docker_cleanup_runs.select_related("created_by").all():
+            payload = _docker_cleanup_row_payload(run)
+            writer.writerow(
+                [
+                    payload["started_at"],
+                    payload["status"],
+                    payload["cleanup_types_label"],
+                    payload["age_threshold_days"],
+                    payload["items_deleted"],
+                    payload["space_freed_bytes"],
+                    payload["space_freed_display"],
+                    payload["duration_seconds"] or "",
+                    payload["created_by_name"],
+                    payload["error_message"],
+                ]
+            )
+        return response
 
 
 class OdooInstanceHistoryAPIView(LoginRequiredMixin, View):

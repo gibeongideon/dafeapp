@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 import time
 import traceback
+from datetime import datetime, timezone as dt_timezone
 from contextlib import suppress
 from pathlib import Path
 from urllib.parse import quote, urlparse, urlunparse
@@ -40,6 +41,7 @@ from deployments.domain_utils import (
 )
 from deployments.models import (
     DeploymentJob,
+    DockerCleanupRun,
     EnterpriseSource,
     GitRepositoryCredential,
     Infrastructure,
@@ -54,6 +56,20 @@ from deployments.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+DOCKER_CLEANUP_TYPE_LABELS = {
+    "dangling_images": "Dangling Images",
+    "stopped_containers": "Stopped Containers",
+    "unused_images": "Unused Images",
+    "unused_volumes": "Unused Volumes",
+    "unused_networks": "Unused Networks",
+    "build_cache": "Build Cache",
+}
+
+DOCKER_CLEANUP_DEFAULT_TYPES = list(DOCKER_CLEANUP_TYPE_LABELS.keys())
+DOCKER_CLEANUP_PROTECTED_CONTAINERS = {"traefik", "odoo-postgres", "postgres"}
+DOCKER_CLEANUP_PROTECTED_NETWORKS = {"bridge", "host", "none", "odoo-network"}
+DOCKER_CLEANUP_PROTECTED_VOLUMES = {"postgres_data", "letsencrypt"}
 
 
 def _channel_safe(value):
@@ -235,6 +251,453 @@ def _release_repo_lock(instance_id: int, token: str):
 def _truncate_text(value: str, limit: int = 12000) -> str:
     value = value or ""
     return value[-limit:] if len(value) > limit else value
+
+
+def _format_bytes_human(value: int | float | None) -> str:
+    amount = float(value or 0)
+    units = ["B", "KB", "MB", "GB", "TB"]
+    for unit in units:
+        if abs(amount) < 1024 or unit == units[-1]:
+            if unit == "B":
+                return f"{int(amount)} {unit}"
+            return f"{amount:.2f} {unit}"
+        amount /= 1024.0
+    return "0 B"
+
+
+def _docker_cleanup_age_days(value) -> int:
+    try:
+        days = int(value)
+    except (TypeError, ValueError):
+        return 7
+    return days if days in {1, 7, 30} else 7
+
+
+def _normalized_docker_cleanup_types(cleanup_types) -> list[str]:
+    rows = cleanup_types or []
+    if isinstance(rows, str):
+        rows = [rows]
+    normalized: list[str] = []
+    for row in rows:
+        key = str(row or "").strip()
+        if key in DOCKER_CLEANUP_TYPE_LABELS and key not in normalized:
+            normalized.append(key)
+    return normalized
+
+
+def _docker_cleanup_labels(cleanup_types: list[str]) -> list[str]:
+    return [DOCKER_CLEANUP_TYPE_LABELS[key] for key in cleanup_types if key in DOCKER_CLEANUP_TYPE_LABELS]
+
+
+def _docker_cleanup_remote_script(config: dict) -> str:
+    config_json = json.dumps(config)
+    return f"""
+import json
+import os
+import shutil
+import subprocess
+import sys
+from datetime import datetime, timedelta, timezone
+
+CONFIG = json.loads({config_json!r})
+MODE = CONFIG.get("mode", "preview")
+AGE_DAYS = int(CONFIG.get("age_days", 7))
+SELECTED_TYPES = list(CONFIG.get("selected_types") or [])
+PROTECTED_CONTAINERS = set(CONFIG.get("protected_containers") or [])
+PROTECTED_NETWORKS = set(CONFIG.get("protected_networks") or [])
+PROTECTED_VOLUMES = set(CONFIG.get("protected_volumes") or [])
+
+CUTOFF = datetime.now(timezone.utc) - timedelta(days=AGE_DAYS)
+
+
+def run(cmd, check=True):
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if check and proc.returncode != 0:
+        raise RuntimeError((proc.stderr or proc.stdout or "").strip() or f"command failed: {{cmd}}")
+    return proc
+
+
+def parse_datetime(value):
+    if not value:
+        return None
+    raw = str(value).strip()
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(raw)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        pass
+    for fmt in ("%Y-%m-%d %H:%M:%S %z %Z", "%Y-%m-%d %H:%M:%S %z", "%Y-%m-%d %H:%M:%S"):
+        try:
+            dt = datetime.strptime(str(value), fmt)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc)
+        except Exception:
+            continue
+    return None
+
+
+def older_than_threshold(created_at):
+    dt = parse_datetime(created_at)
+    if dt is None:
+        return True
+    return dt <= CUTOFF
+
+
+def du_bytes(path):
+    if not path or not os.path.exists(path):
+        return 0
+    proc = run(["du", "-sb", path], check=False)
+    if proc.returncode != 0:
+        return 0
+    try:
+        return int((proc.stdout or "0").split()[0])
+    except Exception:
+        return 0
+
+
+def short_id(value):
+    text = str(value or "")
+    if text.startswith("sha256:"):
+        text = text.split(":", 1)[1]
+    return text[:12]
+
+
+def disk_snapshot():
+    probe_path = "/data" if os.path.exists("/data") else "/"
+    usage = shutil.disk_usage(probe_path)
+    db_bytes = du_bytes("/data/postgres")
+    filestore_bytes = du_bytes("/data/odoo")
+    logs_bytes = du_bytes("/var/lib/docker/containers")
+    return {{
+        "probe_path": probe_path,
+        "total_bytes": int(usage.total),
+        "used_bytes": int(usage.used),
+        "available_bytes": int(usage.free),
+        "used_percent": round((usage.used / usage.total) * 100, 1) if usage.total else 0.0,
+        "database_bytes": int(db_bytes),
+        "filestore_bytes": int(filestore_bytes),
+        "logs_bytes": int(logs_bytes),
+    }}
+
+
+def json_from_docker(args):
+    proc = run(["docker", *args], check=False)
+    if proc.returncode != 0:
+        return []
+    raw = (proc.stdout or "").strip()
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    if isinstance(data, list):
+        return data
+    return [data]
+
+
+container_ids = [row for row in (run(["docker", "ps", "-aq", "--no-trunc"], check=False).stdout or "").split() if row]
+containers = []
+used_volume_names = set()
+used_image_ids = set()
+stopped_containers = []
+if container_ids:
+    for row in json_from_docker(["container", "inspect", "--size", *container_ids]):
+        name = str(row.get("Name") or "").lstrip("/")
+        state = row.get("State") or {{}}
+        status = str(state.get("Status") or "").lower()
+        image_id = str(row.get("Image") or "")
+        created_at = row.get("Created")
+        info = {{
+            "id": row.get("Id"),
+            "name": name,
+            "status": status,
+            "created_at": created_at,
+            "size_bytes": int(row.get("SizeRw") or 0),
+            "image_id": image_id,
+        }}
+        containers.append(info)
+        if image_id:
+            used_image_ids.add(image_id)
+        for mount in row.get("Mounts") or []:
+            if (mount.get("Type") or "").lower() == "volume" and mount.get("Name"):
+                used_volume_names.add(str(mount.get("Name")))
+        if status in {{"exited", "dead", "created"}} and name not in PROTECTED_CONTAINERS and older_than_threshold(created_at):
+            stopped_containers.append(info)
+
+
+image_ids = []
+image_ids_raw = (run(["docker", "image", "ls", "-aq", "--no-trunc"], check=False).stdout or "").split()
+for image_id in image_ids_raw:
+    if image_id not in image_ids:
+        image_ids.append(image_id)
+
+images = []
+dangling_images = []
+unused_images = []
+if image_ids:
+    for row in json_from_docker(["image", "inspect", *image_ids]):
+        image_id = str(row.get("Id") or "")
+        tags = [tag for tag in (row.get("RepoTags") or []) if tag and tag != "<none>:<none>"]
+        created_at = row.get("Created")
+        info = {{
+            "id": image_id,
+            "label": tags[0] if tags else f"<none> · {{short_id(image_id)}}",
+            "created_at": created_at,
+            "size_bytes": int(row.get("Size") or 0),
+            "dangling": not tags,
+        }}
+        images.append(info)
+        if image_id in used_image_ids or not older_than_threshold(created_at):
+            continue
+        if not tags:
+            dangling_images.append(info)
+        else:
+            unused_images.append(info)
+
+
+volume_rows = []
+volume_names = [row for row in (run(["docker", "volume", "ls", "-q"], check=False).stdout or "").split() if row]
+unused_volumes = []
+if volume_names:
+    for row in json_from_docker(["volume", "inspect", *volume_names]):
+        name = str(row.get("Name") or "")
+        if not name or name in PROTECTED_VOLUMES or name in used_volume_names:
+            continue
+        created_at = row.get("CreatedAt")
+        if not older_than_threshold(created_at):
+            continue
+        unused_volumes.append({{
+            "id": name,
+            "label": name,
+            "created_at": created_at,
+            "size_bytes": du_bytes(row.get("Mountpoint")),
+        }})
+
+
+network_ids = [row for row in (run(["docker", "network", "ls", "-q", "--no-trunc"], check=False).stdout or "").split() if row]
+unused_networks = []
+if network_ids:
+    for row in json_from_docker(["network", "inspect", *network_ids]):
+        name = str(row.get("Name") or "")
+        containers_map = row.get("Containers") or {{}}
+        created_at = row.get("Created")
+        if not name or name in PROTECTED_NETWORKS:
+            continue
+        if containers_map:
+            continue
+        if not older_than_threshold(created_at):
+            continue
+        unused_networks.append({{
+            "id": row.get("Id"),
+            "label": name,
+            "created_at": created_at,
+            "size_bytes": 0,
+        }})
+
+
+build_cache_reclaimable_bytes = 0
+build_cache_items = []
+system_df_proc = run(["docker", "system", "df", "--format", "{{{{json .}}}}"], check=False)
+if system_df_proc.returncode == 0:
+    for line in (system_df_proc.stdout or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        row_type = str(row.get("Type") or "").lower()
+        if "build" in row_type:
+            value = str(row.get("Reclaimable") or "").split(" ", 1)[0]
+            size_raw = str(row.get("Size") or "0")
+            reclaim_raw = str(row.get("Reclaimable") or "0 B")
+            build_cache_items = [{{
+                "id": "build-cache",
+                "label": f"Docker build cache older than {{AGE_DAYS}} day(s)",
+                "created_at": None,
+                "size_hint": size_raw,
+                "reclaimable_hint": reclaim_raw,
+            }}]
+            break
+
+
+def parse_size(text):
+    raw = str(text or "").strip().upper().replace("IB", "B")
+    if not raw:
+        return 0
+    match = __import__("re").match(r"([0-9]+(?:\\.[0-9]+)?)\\s*([KMGTP]?B)", raw)
+    if not match:
+        return 0
+    value = float(match.group(1))
+    unit = match.group(2)
+    scale = {{
+        "B": 1,
+        "KB": 1024,
+        "MB": 1024 ** 2,
+        "GB": 1024 ** 3,
+        "TB": 1024 ** 4,
+        "PB": 1024 ** 5,
+    }}
+    return int(value * scale.get(unit, 1))
+
+
+if build_cache_items:
+    build_cache_reclaimable_bytes = parse_size(build_cache_items[0].get("reclaimable_hint"))
+
+
+categories = {{
+    "dangling_images": dangling_images,
+    "stopped_containers": stopped_containers,
+    "unused_images": unused_images,
+    "unused_volumes": unused_volumes,
+    "unused_networks": unused_networks,
+    "build_cache": build_cache_items,
+}}
+
+summary = {{}}
+for key, items in categories.items():
+    estimated_bytes = sum(int(item.get("size_bytes") or 0) for item in items)
+    if key == "build_cache" and build_cache_reclaimable_bytes:
+        estimated_bytes = build_cache_reclaimable_bytes
+    summary[key] = {{
+        "count": len(items),
+        "estimated_reclaimable_bytes": estimated_bytes,
+        "items": [
+            {{
+                "id": item.get("id"),
+                "label": item.get("label") or item.get("id"),
+                "created_at": item.get("created_at"),
+                "size_bytes": int(item.get("size_bytes") or 0),
+                "size_hint": item.get("size_hint") or "",
+                "reclaimable_hint": item.get("reclaimable_hint") or "",
+            }}
+            for item in items[:100]
+        ],
+    }}
+
+disk_before = disk_snapshot()
+
+if MODE == "execute":
+    log_lines = []
+    type_results = {{}}
+    selected = [key for key in SELECTED_TYPES if key in categories]
+
+    def execute_command(cmd, description):
+        proc = run(cmd, check=False)
+        text = (proc.stdout or "") + ("\\n" + proc.stderr if proc.stderr else "")
+        log_lines.append(f"[{{description}}]\\n{{text.strip()}}".strip())
+        return proc
+
+    for key in selected:
+        items = categories.get(key) or []
+        deleted = 0
+        if key == "dangling_images":
+            ids = [item["id"] for item in items if item.get("id")]
+            if ids:
+                proc = execute_command(["docker", "image", "rm", "-f", *ids], "dangling images")
+                deleted = len(ids) if proc.returncode == 0 else 0
+        elif key == "stopped_containers":
+            ids = [item["id"] for item in items if item.get("id")]
+            if ids:
+                proc = execute_command(["docker", "container", "rm", "-f", *ids], "stopped containers")
+                deleted = len(ids) if proc.returncode == 0 else 0
+        elif key == "unused_images":
+            ids = [item["id"] for item in items if item.get("id")]
+            if ids:
+                proc = execute_command(["docker", "image", "rm", "-f", *ids], "unused images")
+                deleted = len(ids) if proc.returncode == 0 else 0
+        elif key == "unused_volumes":
+            ids = [item["id"] for item in items if item.get("id")]
+            if ids:
+                proc = execute_command(["docker", "volume", "rm", "-f", *ids], "unused volumes")
+                deleted = len(ids) if proc.returncode == 0 else 0
+        elif key == "unused_networks":
+            ids = [item["id"] for item in items if item.get("id")]
+            if ids:
+                proc = execute_command(["docker", "network", "rm", *ids], "unused networks")
+                deleted = len(ids) if proc.returncode == 0 else 0
+        elif key == "build_cache":
+            proc = execute_command(["docker", "builder", "prune", "-a", "-f", "--filter", f"until={{AGE_DAYS * 24}}h"], "build cache")
+            if proc.returncode == 0:
+                deleted = max(0, len([line for line in (proc.stdout or "").splitlines() if line.strip() and not line.lower().startswith("total reclaimed space")]))
+        type_results[key] = {{
+            "deleted_count": deleted,
+            "estimated_reclaimable_bytes": summary.get(key, {{}}).get("estimated_reclaimable_bytes", 0),
+        }}
+
+    disk_after = disk_snapshot()
+    space_freed_bytes = max(0, int(disk_before["used_bytes"]) - int(disk_after["used_bytes"]))
+    output = {{
+        "mode": MODE,
+        "disk_before": disk_before,
+        "disk_after": disk_after,
+        "space_freed_bytes": space_freed_bytes,
+        "items_deleted": sum(int(row.get("deleted_count") or 0) for row in type_results.values()),
+        "type_results": type_results,
+        "log": "\\n\\n".join(log_lines).strip(),
+    }}
+else:
+    output = {{
+        "mode": MODE,
+        "disk": disk_before,
+        "stopped_containers": len(stopped_containers),
+        "reclaimable_bytes": sum(int(row.get("estimated_reclaimable_bytes") or 0) for row in summary.values()),
+        "summary": summary,
+    }}
+
+print(json.dumps(output))
+"""
+
+
+def _run_remote_json(server: OdooServer, script: str, *, timeout: int = 1800) -> dict:
+    code, output = _ssh_run(server, "python3 - <<'PY'\n" + script + "\nPY", timeout=timeout)
+    if code != 0:
+        raise RuntimeError(output or "Remote command failed.")
+    try:
+        return json.loads(output or "{}")
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Remote command returned invalid JSON: {output[:400]}") from exc
+
+
+def collect_docker_cleanup_preview(server: OdooServer, age_days: int = 7) -> dict:
+    payload = {
+        "mode": "preview",
+        "age_days": _docker_cleanup_age_days(age_days),
+        "selected_types": DOCKER_CLEANUP_DEFAULT_TYPES,
+        "protected_containers": sorted(DOCKER_CLEANUP_PROTECTED_CONTAINERS),
+        "protected_networks": sorted(DOCKER_CLEANUP_PROTECTED_NETWORKS),
+        "protected_volumes": sorted(DOCKER_CLEANUP_PROTECTED_VOLUMES),
+    }
+    result = _run_remote_json(server, _docker_cleanup_remote_script(payload), timeout=180)
+    disk = result.get("disk") or {}
+    return {
+        "disk": disk,
+        "stopped_containers": int(result.get("stopped_containers") or 0),
+        "reclaimable_bytes": int(result.get("reclaimable_bytes") or 0),
+        "summary": result.get("summary") or {},
+    }
+
+
+def execute_docker_cleanup(server: OdooServer, cleanup_types: list[str], age_days: int = 7) -> dict:
+    normalized_types = _normalized_docker_cleanup_types(cleanup_types)
+    if not normalized_types:
+        raise ValueError("Select at least one cleanup type.")
+    payload = {
+        "mode": "execute",
+        "age_days": _docker_cleanup_age_days(age_days),
+        "selected_types": normalized_types,
+        "protected_containers": sorted(DOCKER_CLEANUP_PROTECTED_CONTAINERS),
+        "protected_networks": sorted(DOCKER_CLEANUP_PROTECTED_NETWORKS),
+        "protected_volumes": sorted(DOCKER_CLEANUP_PROTECTED_VOLUMES),
+    }
+    return _run_remote_json(server, _docker_cleanup_remote_script(payload), timeout=1800)
 
 
 def _append_repo_log(repo: OdooInstanceGitRepo, message: str, *, reset: bool = False):

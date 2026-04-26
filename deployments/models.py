@@ -921,6 +921,54 @@ class OdooServerHistory(models.Model):
         return f"Server #{self.server_id} v{self.odoo_version} @ {self.deployed_at:%Y-%m-%d %H:%M}"
 
 
+class DockerCleanupRun(models.Model):
+    class Status(models.TextChoices):
+        RUNNING = "RUNNING", "Running"
+        DONE = "DONE", "Done"
+        FAILED = "FAILED", "Failed"
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.CASCADE,
+        related_name="docker_cleanup_runs",
+    )
+    server = models.ForeignKey(
+        OdooServer,
+        on_delete=models.CASCADE,
+        related_name="docker_cleanup_runs",
+    )
+    status = models.CharField(max_length=15, choices=Status.choices, default=Status.RUNNING)
+    cleanup_types = models.JSONField(default=list, blank=True)
+    age_threshold_days = models.PositiveIntegerField(default=7)
+    items_deleted = models.PositiveIntegerField(default=0)
+    space_freed_bytes = models.BigIntegerField(default=0)
+    duration_seconds = models.PositiveIntegerField(null=True, blank=True)
+    summary = models.JSONField(default=dict, blank=True)
+    error_message = models.TextField(blank=True)
+    command_log = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="docker_cleanup_runs",
+    )
+    started_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-started_at", "-id"]
+        indexes = [
+            models.Index(fields=["organization", "server", "-started_at"], name="dep_docker_cleanup_server_idx"),
+            models.Index(fields=["organization", "status"], name="dep_docker_cleanup_status_idx"),
+        ]
+
+    def __str__(self):
+        return f"DockerCleanupRun #{self.pk} on server {self.server_id} [{self.status}]"
+
+
 class OdooInstanceHistory(models.Model):
     """Immutable snapshot of an OdooInstance's config at each successful deployment."""
 
