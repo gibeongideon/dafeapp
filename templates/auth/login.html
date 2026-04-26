@@ -87,6 +87,7 @@
         <div>
           <div class="flex justify-between items-center mb-1">
             <label class="text-sm font-medium text-gray-700">Password</label>
+            <a href="{% url 'users:password-reset' %}" class="text-xs text-blue-600 hover:underline">Forgot password?</a>
           </div>
           <input type="password" name="password"
                  placeholder="••••••••"

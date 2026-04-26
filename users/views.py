@@ -1,11 +1,16 @@
+from urllib.parse import urlparse
+
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model, login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.views import LoginView as BaseLoginView
 from django.contrib.auth.views import LogoutView as BaseLogoutView
+from django.contrib.auth.views import PasswordResetConfirmView as BasePasswordResetConfirmView
+from django.contrib.auth.views import PasswordResetView as BasePasswordResetView
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse_lazy
 from django.utils.decorators import method_decorator
 from django.views import View
 from rest_framework import generics, permissions, status
@@ -35,6 +40,25 @@ class LoginView(BaseLoginView):
 
 class LogoutView(BaseLogoutView):
     next_page = settings.LOGOUT_REDIRECT_URL
+
+
+class CustomPasswordResetView(BasePasswordResetView):
+    template_name = "auth/password_reset_form.html"
+    email_template_name = "auth/password_reset_email.txt"
+    subject_template_name = "auth/password_reset_email_subject.txt"
+    success_url = reverse_lazy("users:password_reset_done")
+
+    def dispatch(self, request, *args, **kwargs):
+        site_url = getattr(settings, "SITE_URL", "").rstrip("/")
+        if site_url:
+            parsed = urlparse(site_url)
+            self.extra_email_context = {"domain": parsed.netloc, "protocol": parsed.scheme}
+        return super().dispatch(request, *args, **kwargs)
+
+
+class CustomPasswordResetConfirmView(BasePasswordResetConfirmView):
+    template_name = "auth/password_reset_confirm.html"
+    success_url = reverse_lazy("users:password_reset_complete")
 
 
 class OrgSignupView(View):
