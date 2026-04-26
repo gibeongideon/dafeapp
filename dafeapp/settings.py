@@ -159,6 +159,14 @@ CELERY_TIMEZONE = "UTC"
 CELERY_WORKER_HIJACK_ROOT_LOGGER = False
 CELERY_WORKER_CONCURRENCY = env.int("CELERY_WORKER_CONCURRENCY", default=10)
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
+
+# Route long-running provisioning tasks to a dedicated queue so they are
+# never blocked behind periodic beat tasks.
+CELERY_TASK_ROUTES = {
+    "deployments.tasks.provision_odoo_server": {"queue": "provisioning"},
+    "deployments.tasks.configure_odoo_server": {"queue": "provisioning"},
+    "deployments.tasks.configure_docker_host": {"queue": "provisioning"},
+}
 CELERY_SERVER_CONNECTIVITY_INTERVAL_SECONDS = env.int(
     "CELERY_SERVER_CONNECTIVITY_INTERVAL_SECONDS",
     default=180,

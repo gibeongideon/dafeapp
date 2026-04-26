@@ -56,11 +56,24 @@ services:
       redis:
         condition: service_healthy
 
-  # ── Celery Worker ───────────────────────────────────────────────────────────
+  # ── Celery Worker (default queue — periodic/background tasks) ───────────────
   celery_worker:
     image: ${IMAGE:-ghcr.io/gibeongideon/dafeapp:dev}
     restart: unless-stopped
-    command: celery -A dafeapp worker -l info --concurrency 2
+    command: celery -A dafeapp worker -l info --concurrency 4 --queues celery
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ── Celery Provisioning Worker (server provisioning — never blocked) ─────────
+  celery_provisioning:
+    image: ${IMAGE:-ghcr.io/gibeongideon/dafeapp:dev}
+    restart: unless-stopped
+    command: celery -A dafeapp worker -l info --concurrency 4 --queues provisioning -n provisioning@%h
     env_file:
       - .env
     depends_on:
