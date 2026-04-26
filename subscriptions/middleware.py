@@ -31,6 +31,7 @@ class SubscriptionMiddleware:
     def __call__(self, request):
         if (
             request.user.is_authenticated
+            and not getattr(request.user, "is_platform_admin", False)
             and getattr(request, "organization", None) is not None
             and not self._is_exempt(request.path)
         ):
