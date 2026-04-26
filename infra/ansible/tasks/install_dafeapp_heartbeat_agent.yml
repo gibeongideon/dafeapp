@@ -17,8 +17,42 @@
     content: |
       #!/bin/bash
       DAFEAPP_URL="{{ dafeapp_heartbeat_url }}"
+
+      collect_metrics() {
+        # CPU: two /proc/stat snapshots 0.3s apart
+        read -ra r1 < /proc/stat
+        sleep 0.3
+        read -ra r2 < /proc/stat
+        idle1=${r1[4]}; total1=0; for v in "${r1[@]:1}"; do ((total1+=v)); done
+        idle2=${r2[4]}; total2=0; for v in "${r2[@]:1}"; do ((total2+=v)); done
+        dt=$(( total2 - total1 )); di=$(( idle2 - idle1 ))
+        if [ "$dt" -gt 0 ]; then
+          cpu=$(awk "BEGIN {printf \"%.1f\", (1 - $di / $dt) * 100}")
+        else
+          cpu="0.0"
+        fi
+
+        # Memory
+        mem_total=$(awk '/MemTotal/{print $2}' /proc/meminfo)
+        mem_avail=$(awk '/MemAvailable/{print $2}' /proc/meminfo)
+        mem=$(awk "BEGIN {printf \"%.1f\", ($mem_total - $mem_avail) / $mem_total * 100}")
+
+        # Disk usage on /
+        disk=$(df / | awk 'NR==2 {gsub(/%/,"",$5); print $5}')
+
+        # Active TCP connections
+        conn=$(ss -tn 2>/dev/null | tail -n +2 | wc -l)
+
+        printf '{"cpu":%s,"memory":%s,"disk":%s,"connections":%s}' \
+          "$cpu" "$mem" "$disk" "$conn"
+      }
+
       while true; do
-        curl -X POST --max-time 10 --silent --output /dev/null "$DAFEAPP_URL" || true
+        payload=$(collect_metrics)
+        curl -X POST "$DAFEAPP_URL" \
+          --max-time 10 --silent --output /dev/null \
+          -H "Content-Type: application/json" \
+          -d "$payload" || true
         sleep 60
       done
 

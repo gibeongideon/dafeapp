@@ -2118,6 +2118,9 @@ class HeartbeatView(View):
     """Receive liveness heartbeats from the remote dafeapp-heartbeat service."""
 
     def post(self, request, token):
+        import json
+        from django.core.cache import cache
+
         try:
             server = OdooServer.objects.only(
                 "pk",
@@ -2134,6 +2137,20 @@ class HeartbeatView(View):
         server.last_checked_at = now
         server.is_reachable = True
         server.save(update_fields=["last_heartbeat_at", "last_checked_at", "is_reachable", "updated_at"])
+
+        # Cache metrics so OdooServerMetricsAPIView returns them without SSH
+        try:
+            body = json.loads(request.body)
+            metrics = {
+                "cpu": float(body["cpu"]),
+                "memory": float(body["memory"]),
+                "disk": int(body["disk"]),
+                "connections": int(body["connections"]),
+            }
+            cache.set(f"server_metrics_{server.pk}", metrics, timeout=120)
+        except Exception:
+            pass  # metrics are optional — heartbeat still counts without them
+
         return JsonResponse({"ok": True})
 
 
