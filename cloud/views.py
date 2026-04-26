@@ -71,8 +71,11 @@ class CloudDashboardView(CloudSuperAdminMixin, TemplateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         org = self.request.organization
+        all_accounts = list(CloudAccount.objects.filter(organization=org))
         ctx["external_servers"] = ExternalServer.objects.filter(organization=org)
-        ctx["cloud_accounts"] = CloudAccount.objects.filter(organization=org)
+        ctx["cloud_accounts"] = all_accounts
+        ctx["do_accounts"] = [a for a in all_accounts if a.provider == CloudAccount.Provider.DIGITALOCEAN]
+        ctx["aws_accounts"] = [a for a in all_accounts if a.provider == CloudAccount.Provider.AWS]
         ctx["cloud_servers"] = CloudServer.objects.filter(
             organization=org
         ).exclude(status=CloudServer.Status.DELETED)
@@ -250,6 +253,9 @@ def _digitalocean_oauth_enabled() -> bool:
 
 
 def _digitalocean_redirect_uri(request) -> str:
+    site_url = getattr(settings, "SITE_URL", "").rstrip("/")
+    if site_url:
+        return site_url + reverse("cloud:digitalocean-oauth-callback")
     return request.build_absolute_uri(reverse("cloud:digitalocean-oauth-callback"))
 
 

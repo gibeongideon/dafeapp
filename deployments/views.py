@@ -1476,7 +1476,7 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
             instance__organization=org
         ).select_related("instance")[:15]
         ctx["enforcer"] = getattr(self.request, "subscription_enforcer", SubscriptionEnforcer(org))
-        from cloud.models import SystemSSHKey, CloudAccount
+        from cloud.models import SystemSSHKey
         ctx["dafeapp_public_key"] = SystemSSHKey.get_or_create_keypair().public_key
         ctx["pyos_default_ssh_key_path"] = PyOSSSHSettings.get_or_create_settings().default_ssh_key_path
         ctx["platform_account_available"] = CloudAccount.get_platform_account() is not None
