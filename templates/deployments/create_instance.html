@@ -2518,6 +2518,39 @@ chmod 600 ~/.ssh/authorized_keys</pre>
     el.className = isError ? "text-xs text-red-600" : "text-xs text-gray-500";
   };
 
+  function showToast(message, type = "info") {
+    const colors = { success: "bg-green-600", error: "bg-red-600", info: "bg-gray-800" };
+    const toast = document.createElement("div");
+    toast.className = `fixed bottom-5 right-5 z-[9999] max-w-sm px-4 py-3 rounded-lg text-white text-sm shadow-lg ${colors[type] || colors.info}`;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    setTimeout(() => {
+      toast.style.transition = "opacity 0.3s";
+      toast.style.opacity = "0";
+      setTimeout(() => toast.remove(), 300);
+    }, 4000);
+  }
+
+  function showConfirmAsync(title, body, confirmLabel = "Confirm") {
+    return new Promise((resolve) => {
+      const modal = document.getElementById("confirm-modal");
+      document.getElementById("confirm-title").textContent = title;
+      document.getElementById("confirm-body").textContent = body;
+      document.getElementById("confirm-ok").textContent = confirmLabel;
+      let settled = false;
+      const done = (val) => {
+        if (settled) return;
+        settled = true;
+        modal.classList.add("hidden");
+        resolve(val);
+      };
+      document.getElementById("confirm-ok").addEventListener("click", () => done(true), { once: true });
+      document.getElementById("confirm-cancel").addEventListener("click", () => done(false), { once: true });
+      modal.addEventListener("click", (ev) => { if (ev.target === modal) done(false); }, { once: true });
+      modal.classList.remove("hidden");
+    });
+  }
+
   async function postForm(endpoint, payload) {
     const fd = new FormData();
     Object.entries(payload).forEach(([k, v]) => {
@@ -3509,7 +3542,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
   });
 
   async function reprovisionServer(serverId, btn) {
-    if (!confirm("Re-run server provisioning? This will check connectivity and re-configure the server.")) return;
+    if (!await showConfirmAsync("Retry Provisioning", "Re-run server provisioning? This will check connectivity and re-configure the server.", "Re-provision")) return;
     btn.disabled = true;
     btn.textContent = "Starting…";
     try {
@@ -3534,7 +3567,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
   }
 
   async function cancelServerProvision(serverId, btn) {
-    if (!confirm("Stop the provisioning process? The server will enter FAILED state and can be deleted or retried.")) return;
+    if (!await showConfirmAsync("Stop Provisioning", "The server will enter FAILED state and can be deleted or retried.", "Stop")) return;
     btn.disabled = true;
     btn.textContent = "Stopping…";
     try {
@@ -4128,8 +4161,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
   $("docker-cleanup-preview-btn")?.addEventListener("click", previewDockerCleanup);
   $("docker-cleanup-execute-btn")?.addEventListener("click", async () => {
     if (!cleanupTypeValues().length) return;
-    const confirmed = window.confirm("Run Docker cleanup now on this server?");
-    if (!confirmed) return;
+    if (!await showConfirmAsync("Run Docker Cleanup", "This will remove unused images, containers, and volumes on the server. This cannot be undone.", "Run Cleanup")) return;
     await executeDockerCleanup();
   });
   $("docker-cleanup-execute-from-preview")?.addEventListener("click", executeDockerCleanup);
@@ -5117,7 +5149,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
       loadSSHKeys(sshKeysServerId);
     } else {
       btn.disabled = false;
-      alert(resp.data.error || "Delete failed.");
+      showToast(resp.data.error || "Delete failed.", "error");
     }
   });
 
@@ -5369,7 +5401,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
     if (!selectedAccountId) {
       syncCloudAccountState();
       $("source-modal-msg").textContent = hasCloudAccounts ? "Select a cloud account first." : "No cloud account connected yet. Use Connect new account first.";
-      if (!hasCloudAccounts) window.alert("No cloud account connected yet. Please connect a cloud account first.");
+      if (!hasCloudAccounts) { showToast("No cloud account connected yet. Please connect a cloud account first.", "error"); return; }
       return;
     }
     openDetailsModal();
@@ -5755,7 +5787,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
     } else {
       const errMsg = (resp && resp.data && (resp.data.error || resp.data.message))
         || `Action failed (HTTP ${resp?.status ?? '?'}).`;
-      alert(errMsg);
+      showToast(errMsg, "error");
     }
   });
 
@@ -5804,7 +5836,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
     if (deleteInstanceBtn) {
       const iid = deleteInstanceBtn.dataset.instanceId;
       const name = deleteInstanceBtn.dataset.instanceName || `#${iid}`;
-      if (!confirm(`Permanently delete "${name}"? This drops the database and cannot be undone.`)) return;
+      if (!await showConfirmAsync("Delete Instance", `Permanently delete "${name}"? This drops the database and cannot be undone.`, "Delete")) return;
 
       deleteInstanceBtn.disabled = true;
       deleteInstanceBtn.textContent = "Deleting…";
@@ -5838,7 +5870,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
         deleteInstanceBtn.textContent = "Delete";
         const errMsg = (resp.data && (resp.data.error || resp.data.message))
           || `Delete failed (HTTP ${resp.status}).`;
-        alert(errMsg);
+        showToast(errMsg, "error");
       }
       return;
     }
@@ -5856,7 +5888,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
       const resp = await postForm(`/api/dns/accounts/${verifyDnsBtn.dataset.accountId}/verify/`, {});
       verifyDnsBtn.disabled = false;
       if (!resp.ok) {
-        alert(resp.data.error || "Verification failed.");
+        showToast(resp.data.error || "Verification failed.", "error");
       }
       await loadDnsDashboard();
       return;
@@ -5868,7 +5900,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
       const resp = await postForm(`/api/dns/accounts/${syncDnsBtn.dataset.accountId}/sync-zones/`, {});
       syncDnsBtn.disabled = false;
       if (!resp.ok) {
-        alert(resp.data.error || "Zone sync failed.");
+        showToast(resp.data.error || "Zone sync failed.", "error");
       }
       await loadDnsDashboard();
       return;
@@ -5974,7 +6006,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
       const msg = isBusy
         ? `Server "${archiveBtn.dataset.serverName}" is still provisioning. Archiving will cancel the task and hide it. Continue?`
         : `Archive "${archiveBtn.dataset.serverName}"? It will be hidden from the UI.`;
-      if (!confirm(msg)) return;
+      if (!await showConfirmAsync("Archive Server", msg, "Archive")) return;
       archiveBtn.disabled = true;
       archiveBtn.textContent = "Archiving…";
       const resp = await postForm(`/api/deployments/odoo/servers/${sid}/archive/`, {});
@@ -5984,7 +6016,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
       } else {
         archiveBtn.disabled = false;
         archiveBtn.textContent = "Archive";
-        alert((resp.data && (resp.data.error || resp.data.message)) || `Archive failed (HTTP ${resp.status}).`);
+        showToast((resp.data && (resp.data.error || resp.data.message)) || `Archive failed (HTTP ${resp.status}).`, "error");
       }
       return;
     }
@@ -5998,7 +6030,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
       if (hasInstances) warning += ` This will also stop and remove all ${deleteBtn.dataset.instanceCount} instance(s) on it.`;
       if (isBusy) warning += " (Provisioning will be cancelled.)";
       warning += " This cannot be undone.";
-      if (!confirm(warning)) return;
+      if (!await showConfirmAsync("Delete Server", warning, "Delete")) return;
 
       const sid = deleteBtn.dataset.serverId;
       deleteBtn.disabled = true;
@@ -6018,7 +6050,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
         deleteBtn.textContent = "Delete permanently";
         const errMsg = (resp.data && (resp.data.error || resp.data.message))
           || `Delete failed (HTTP ${resp.status}).`;
-        alert(errMsg);
+        showToast(errMsg, "error");
       }
     }
 
@@ -6026,7 +6058,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
     if (activateBtn) {
       const sid = activateBtn.dataset.serverId;
       const name = activateBtn.dataset.serverName;
-      if (!confirm(`Reactivate server "${name}"? It will appear in the active servers list again.`)) return;
+      if (!await showConfirmAsync("Reactivate Server", `Reactivate server "${name}"? It will appear in the active servers list again.`, "Reactivate")) return;
       activateBtn.disabled = true;
       activateBtn.textContent = "Activating…";
       const resp = await postForm(`/api/deployments/odoo/servers/${sid}/activate/`, {});
@@ -6042,7 +6074,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
       } else {
         activateBtn.disabled = false;
         activateBtn.textContent = "Activate";
-        alert((resp.data && (resp.data.error || resp.data.message)) || `Activation failed (HTTP ${resp.status}).`);
+        showToast((resp.data && (resp.data.error || resp.data.message)) || `Activation failed (HTTP ${resp.status}).`, "error");
       }
       return;
     }
