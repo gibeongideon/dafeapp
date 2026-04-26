@@ -1400,6 +1400,18 @@ def _append_text(current: str, msg: str) -> str:
     return f"{current}\n{msg}".strip() if current else msg
 
 
+def _record_server_progress(server: OdooServer, message: str):
+    server.provisioning_log = _append_text(server.provisioning_log, message)
+    server.save(update_fields=["provisioning_log", "updated_at"])
+
+
+def _record_server_step(server: OdooServer, step: str, detail: str = ""):
+    message = f"[step] {step}"
+    if detail:
+        message = f"{message}\n{detail}"
+    _record_server_progress(server, message)
+
+
 def _record_instance_progress(instance: OdooInstance, message: str):
     instance.provisioning_log = _append_text(instance.provisioning_log, message)
     instance.save(update_fields=["provisioning_log", "updated_at"])
@@ -1766,7 +1778,13 @@ def _provider_native_provision_server(server: OdooServer) -> tuple[bool, str, st
     from cloud.models import SystemSSHKey
     import requests as _requests
     provider = get_provider(server.cloud_account)
+    _record_server_step(
+        server,
+        "Preparing provider-native provisioning",
+        f"provider={server.cloud_account.provider} region={server.region} size={server.size}",
+    )
     system_key = SystemSSHKey.get_or_create_keypair()
+    _record_server_step(server, "Registering DafeApp SSH key with provider")
     fingerprint = provider.ensure_dafeapp_ssh_key(system_key.public_key)
     if not fingerprint:
         logger.warning("Could not register DafeApp SSH key in cloud account '%s'.", server.cloud_account.name)
@@ -1778,8 +1796,10 @@ def _provider_native_provision_server(server: OdooServer) -> tuple[bool, str, st
             "Provisioning needs permission to upload and attach an SSH key. "
             "For DigitalOcean custom-scope tokens, include ssh_key:read and ssh_key:create.",
         )
+    _record_server_progress(server, f"[provider] SSH key registered with fingerprint {fingerprint}.")
     ssh_key_ids = [fingerprint]
     try:
+        _record_server_step(server, "Creating provider server", f"name={server.name} region={server.region} size={server.size}")
         created = provider.create_server(name=server.name, region=server.region, size=server.size, ssh_key_ids=ssh_key_ids)
     except _requests.HTTPError as exc:
         status_code = exc.response.status_code if exc.response is not None else "?"
@@ -1793,8 +1813,10 @@ def _provider_native_provision_server(server: OdooServer) -> tuple[bool, str, st
     provider_id = str(created.get("id") or "")
     if not provider_id:
         return False, "", "", "Provider did not return a server id."
+    _record_server_progress(server, f"[provider] Server created with provider id={provider_id}.")
 
     try:
+        _record_server_step(server, "Creating provider firewall", f"provider_id={provider_id}")
         provider.create_firewall(provider_id)
     except _requests.HTTPError as exc:
         status_code = exc.response.status_code if exc.response is not None else "?"
@@ -1805,11 +1827,15 @@ def _provider_native_provision_server(server: OdooServer) -> tuple[bool, str, st
         return False, provider_id, "", _provider_error_message(status_code, detail, action="create the server firewall")
     except Exception as exc:
         return False, provider_id, "", f"Server was created, but firewall setup failed: {exc}"
+    _record_server_progress(server, f"[provider] Firewall created for provider id={provider_id}.")
 
     for _ in range(30):
         status = provider.get_server_status(provider_id)
+        if _ in (0, 5, 11, 17, 23, 29):
+            _record_server_progress(server, f"[provider] Polling server status: attempt {_ + 1}/30 -> {status}")
         if status in ("active", "running"):
             ip = provider.get_server_ip(provider_id)
+            _record_server_progress(server, f"[provider] Server status is {status}. Public IP: {ip or 'not available yet'}")
             return True, provider_id, ip, ""
         time.sleep(5)
 
@@ -3178,6 +3204,11 @@ def _provision_odoo_server_inner(self, server_id: int):
     # CONNECTING phase: live API credential check before starting Terraform
     logger.info("Server %s: validating managed cloud credentials via live API call", server.id)
     _broadcast_server(server.id, "Connecting to cloud provider…", server.status)
+    _record_server_step(
+        server,
+        "Connecting to cloud provider",
+        f"provider={managed_account.provider if managed_account else ''} region={server.region} size={server.size}",
+    )
 
     # Step 1: DB sanity check (account exists and is marked verified)
     ok, err = infra.validate_connection_target()
@@ -3209,6 +3240,7 @@ def _provision_odoo_server_inner(self, server_id: int):
         return
 
     logger.info("Server %s: cloud API credentials confirmed (%s)", server.id, cloud_account.provider)
+    _record_server_progress(server, f"[provider] Cloud account credentials verified for {cloud_account.provider}.")
 
     # Transition to PROVISIONING for Terraform / droplet creation phase
     server.status = OdooServer.Status.PROVISIONING
@@ -3234,10 +3266,12 @@ def _provision_odoo_server_inner(self, server_id: int):
     tfvars_path.write_text(json.dumps(vars_payload, indent=2))
     server.terraform_state_path = str(module_dir / "terraform.tfstate")
     server.save(update_fields=["terraform_state_path"])
+    _record_server_step(server, "Prepared infrastructure state directory", f"state_root={state_root}")
 
     tf_env = _terraform_provider_env(managed_account, server.region)
 
     if (module_dir / "main.tf").exists():
+        _record_server_step(server, "Running Terraform init", f"module_dir={module_dir}")
         code, out, err = _run_cmd(["terraform", f"-chdir={module_dir}", "init", "-input=false"], module_dir, extra_env=tf_env)
         server.provisioning_log = _append_text(server.provisioning_log, f"[terraform init]\n{out}\n{err}".strip())
         server.save(update_fields=["provisioning_log"])
@@ -3248,6 +3282,7 @@ def _provision_odoo_server_inner(self, server_id: int):
             _broadcast_server(server.id, "Terraform init failed — check logs.", server.status, done=True)
             return
 
+        _record_server_step(server, "Running Terraform apply", f"vars_file={tfvars_path}")
         code, out, err = _run_cmd(
             [
                 "terraform",
@@ -3310,6 +3345,7 @@ def _provision_odoo_server_inner(self, server_id: int):
             server.provisioning_log,
             "Provisioned with provider API fallback (no Terraform module found).",
         )
+        server.save(update_fields=["provider_server_id", "ip_address", "firewall_configured", "provisioning_log", "updated_at"])
 
     dns_hook = os.getenv("DNS_CREATE_HOOK_CMD", "").strip()
     if dns_hook and server.dns_domain and server.ip_address:
@@ -3393,8 +3429,10 @@ def _configure_odoo_server_inner(self, server_id: int, job_id: int | None = None
     ws_group = f"odoo.server.{server.id}"
     ip_str = str(server.ip_address)
     _broadcast_server(server.id, "Waiting for SSH to become available…", server.status)
+    _record_server_step(server, "Waiting for SSH", f"target={ip_str}:22 timeout=5m")
     ssh_ready = False
     cancelled_during_wait = False
+    last_ssh_error = ""
     for attempt in range(60):  # up to 5 minutes (60 × 5 s)
         # Check for external cancellation (server deleted or marked FAILED) every iteration.
         try:
@@ -3409,9 +3447,15 @@ def _configure_odoo_server_inner(self, server_id: int, job_id: int | None = None
             with socket.create_connection((ip_str, 22), timeout=5):
                 ssh_ready = True
                 break
-        except OSError:
+        except OSError as exc:
+            last_ssh_error = str(exc)
             if attempt % 6 == 0:  # log every 30 s
                 logger.info("Server %s: SSH not ready yet (attempt %s/60)…", server.id, attempt + 1)
+                _record_server_progress(
+                    server,
+                    f"[ssh wait] attempt {attempt + 1}/60 failed for {ip_str}:22"
+                    + (f" — last error: {last_ssh_error}" if last_ssh_error else ""),
+                )
             time.sleep(5)
 
     if cancelled_during_wait:
@@ -3423,6 +3467,8 @@ def _configure_odoo_server_inner(self, server_id: int, job_id: int | None = None
         logger.error("Server %s: SSH did not become available after 5 minutes.", server.id)
         server.status = OdooServer.Status.FAILED
         msg = "SSH port 22 did not become available within 5 minutes after server was running."
+        if last_ssh_error:
+            msg = f"{msg} Last socket error: {last_ssh_error}"
         server.provisioning_log = _append_text(server.provisioning_log, msg)
         server.save(update_fields=["status", "provisioning_log", "updated_at"])
         _broadcast_server(server.id, msg, server.status, done=True)
@@ -3430,6 +3476,7 @@ def _configure_odoo_server_inner(self, server_id: int, job_id: int | None = None
         return
 
     logger.info("Server %s: SSH is ready — starting Ansible.", server.id)
+    _record_server_progress(server, f"[ssh wait] SSH port 22 became reachable on {ip_str}.")
 
     admin_email = os.getenv("ODOO_ADMIN_EMAIL", "odoo@example.com").strip()
     extra_vars = {
@@ -5869,8 +5916,10 @@ def _configure_docker_host_inner(self, server_id: int, job_id: int | None = None
     ws_group = f"odoo.server.{server.id}"
     ip_str = str(server.ip_address)
     _broadcast_server(server.id, "Waiting for SSH to become available…", server.status)
+    _record_server_step(server, "Waiting for SSH", f"target={ip_str}:22 timeout=5m")
     ssh_ready = False
     cancelled_during_wait = False
+    last_ssh_error = ""
     for attempt in range(60):  # up to 5 minutes (60 × 5 s)
         try:
             s = OdooServer.objects.only("status", "is_active").get(pk=server.id)
@@ -5884,9 +5933,15 @@ def _configure_docker_host_inner(self, server_id: int, job_id: int | None = None
             with socket.create_connection((ip_str, 22), timeout=5):
                 ssh_ready = True
                 break
-        except OSError:
+        except OSError as exc:
+            last_ssh_error = str(exc)
             if attempt % 6 == 0:
                 logger.info("Server %s: SSH not ready yet (attempt %s/60)…", server.id, attempt + 1)
+                _record_server_progress(
+                    server,
+                    f"[ssh wait] attempt {attempt + 1}/60 failed for {ip_str}:22"
+                    + (f" — last error: {last_ssh_error}" if last_ssh_error else ""),
+                )
             time.sleep(5)
 
     if cancelled_during_wait:
@@ -5898,6 +5953,8 @@ def _configure_docker_host_inner(self, server_id: int, job_id: int | None = None
         logger.error("Server %s: SSH did not become available after 5 minutes.", server.id)
         server.status = OdooServer.Status.FAILED
         msg = "SSH port 22 did not become available within 5 minutes after server was running."
+        if last_ssh_error:
+            msg = f"{msg} Last socket error: {last_ssh_error}"
         server.provisioning_log = _append_text(server.provisioning_log, msg)
         server.save(update_fields=["status", "provisioning_log", "updated_at"])
         _broadcast_server(server.id, msg, server.status, done=True)
@@ -5905,6 +5962,7 @@ def _configure_docker_host_inner(self, server_id: int, job_id: int | None = None
         return
 
     logger.info("Server %s: SSH is ready — starting Docker host setup.", server.id)
+    _record_server_progress(server, f"[ssh wait] SSH port 22 became reachable on {ip_str}.")
 
     acme_email = os.getenv("ODOO_ADMIN_EMAIL", "odoo@example.com").strip()
     pg_password = server.docker_postgres_password or os.getenv("DOCKER_POSTGRES_PASSWORD", "odoo_secret")
