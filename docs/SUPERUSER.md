@@ -158,4 +158,32 @@ For the 500 you're seeing right now, run:
 
 
 docker compose -f docker-compose.prod.yml logs web --tail=50
-It will show the full Django traceback so you can see exactly what's failing.
+It will show the full Django traceback so you can see exactly what's failing
+
+
+DO AFTER DEPLOYEMENT
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d web
+.
+
+
+
+
+THIS WORKS
+
+docker compose -f docker-compose.prod.yml logs celery_worker --tail=100
+docker compose -f docker-compose.prod.yml logs celery_beat --tail=50
+
+
+how to get live logss
+
+docker compose -f docker-compose.prod.yml logs web -f
+The -f flag streams logs live. For all services at once:
+
+
+docker compose -f docker-compose.prod.yml logs -f
+For just celery worker:
+
+
+docker compose -f docker-compose.prod.yml logs celery_worker -f
+Press Ctrl+C to stop streaming.
