@@ -1508,6 +1508,13 @@
           <ul id="server-progress-{{ s.id }}" class="space-y-1.5 max-h-36 overflow-y-auto"></ul>
         </div>
 
+        <div id="server-fail-log-{{ s.id }}"
+             class="{% if s.status != 'FAILED' %}hidden{% endif %}">
+          <p class="text-[10px] uppercase tracking-wide text-red-400 mb-1.5">Failure Reason</p>
+          <pre id="server-fail-text-{{ s.id }}"
+               class="text-[11px] font-mono text-red-700 bg-red-50 border border-red-100 rounded-lg p-3 overflow-x-auto whitespace-pre-wrap max-h-40">{{ s.provisioning_log|default:"No details recorded."|slice:"-600:" }}</pre>
+        </div>
+
         <div id="server-summary-wrap-{{ s.id }}"
              class="{% if s.installation_summary_text %}{% else %}hidden{% endif %}">
           <p class="text-[10px] uppercase tracking-wide text-gray-400 mb-1.5">Installation Summary</p>
@@ -3629,6 +3636,17 @@ chmod 600 ~/.ssh/authorized_keys</pre>
     if (reprovisionBtn) {
       if (isFailed) { reprovisionBtn.classList.remove("hidden"); }
       else { reprovisionBtn.classList.add("hidden"); }
+    }
+    // Show/hide failure log
+    const failLog = document.getElementById(`server-fail-log-${sid}`);
+    const failText = document.getElementById(`server-fail-text-${sid}`);
+    if (failLog && failText) {
+      if (isFailed) {
+        failText.textContent = (server.provisioning_log || "No details recorded.").slice(-600);
+        failLog.classList.remove("hidden");
+      } else {
+        failLog.classList.add("hidden");
+      }
     }
     statusBadges.forEach((statusBadge) => {
       statusBadge.textContent = serverBadgeLabel(server.status);

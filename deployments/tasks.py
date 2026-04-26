@@ -1376,15 +1376,20 @@ def _run_cmd(args: list[str], cwd: Path, extra_env: dict | None = None) -> tuple
     env = os.environ.copy()
     if extra_env:
         env.update({k: str(v) for k, v in extra_env.items() if v is not None})
-    proc = subprocess.run(
-        args,
-        cwd=str(cwd),
-        text=True,
-        capture_output=True,
-        check=False,
-        env=env,
-    )
-    return proc.returncode, proc.stdout or "", proc.stderr or ""
+    try:
+        proc = subprocess.run(
+            args,
+            cwd=str(cwd),
+            text=True,
+            capture_output=True,
+            check=False,
+            env=env,
+        )
+        return proc.returncode, proc.stdout or "", proc.stderr or ""
+    except FileNotFoundError:
+        return 1, "", f"Command not found: '{args[0]}' — make sure it is installed and on PATH."
+    except Exception as exc:
+        return 1, "", f"Failed to run command '{args[0]}': {exc}"
 
 
 def _append_logs(run: TerraformRun, out: str = "", err: str = ""):
