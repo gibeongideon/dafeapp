@@ -1,0 +1,6 @@
+xited with code 137
+celery_worker-1  | /usr/local/lib/python3.13/site-packages/celery/platforms.py:841: SecurityWarning: You're running the worker with superuser privileges: this is
+celery_worker-1  | absolutely not recommended!
+celery_worker-1  | 
+celery_worker-1  | Please specify a different user using 
+

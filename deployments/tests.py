@@ -34,9 +34,12 @@ from deployments.tasks import (
     delete_odoo_instance,
     _mark_server_unreachable_from_ansible_log,
     _persist_server_reachability,
+    check_server_connectivity,
+    mark_disconnected_servers,
+    repair_stale_heartbeat_agents,
     sync_instance_repo_status,
 )
-from deployments.signals import _sync_connectivity_periodic_task
+from deployments.signals import _sync_connectivity_periodic_task, _sync_heartbeat_periodic_tasks
 from users.models import VCSAccount
 
 User = get_user_model()
@@ -148,6 +151,119 @@ class DeploymentBeatScheduleTests(TestCase):
         self.assertIsNotNone(task.interval)
         self.assertEqual(task.interval.every, 3)
         self.assertEqual(task.interval.period, IntervalSchedule.MINUTES)
+
+    @override_settings(
+        CELERY_SERVER_HEARTBEAT_INTERVAL_SECONDS=60,
+        CELERY_SERVER_HEARTBEAT_REPAIR_INTERVAL_SECONDS=3600,
+    )
+    def test_sync_heartbeat_periodic_tasks_creates_disconnect_and_repair_entries(self):
+        _sync_heartbeat_periodic_tasks()
+
+        disconnect_task = PeriodicTask.objects.get(name="mark-disconnected-servers")
+        self.assertEqual(disconnect_task.task, "deployments.tasks.mark_disconnected_servers")
+        self.assertTrue(disconnect_task.enabled)
+        self.assertEqual(disconnect_task.interval.every, 1)
+        self.assertEqual(disconnect_task.interval.period, IntervalSchedule.MINUTES)
+
+        repair_task = PeriodicTask.objects.get(name="repair-stale-heartbeat-agents")
+        self.assertEqual(repair_task.task, "deployments.tasks.repair_stale_heartbeat_agents")
+        self.assertTrue(repair_task.enabled)
+        self.assertEqual(repair_task.interval.every, 1)
+        self.assertEqual(repair_task.interval.period, IntervalSchedule.HOURS)
+
+
+class ServerHeartbeatTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(email="heartbeat@test.com", password="pass")
+        cls.org = Organization.objects.create(name="Heartbeat Org", owner=cls.user)
+        OrganizationMembership.objects.create(
+            user=cls.user,
+            organization=cls.org,
+            role=OrganizationMembership.Role.SUPER_ADMIN,
+        )
+
+    def test_heartbeat_endpoint_marks_server_connected(self):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            name="heartbeat-target",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            is_reachable=False,
+        )
+
+        resp = self.client.post(
+            reverse("deployments:server-heartbeat", kwargs={"token": server.agent_token}),
+            data={},
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertJSONEqual(resp.content, {"ok": True})
+        server.refresh_from_db()
+        self.assertTrue(server.is_reachable)
+        self.assertIsNotNone(server.last_checked_at)
+        self.assertIsNotNone(server.last_heartbeat_at)
+
+    def test_mark_disconnected_servers_marks_stale_agent_server_offline(self):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            name="heartbeat-stale",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            is_reachable=True,
+            last_heartbeat_at=timezone.now() - timedelta(minutes=6),
+        )
+
+        mark_disconnected_servers()
+
+        server.refresh_from_db()
+        self.assertFalse(server.is_reachable)
+        self.assertIsNotNone(server.last_checked_at)
+
+    @patch("deployments.tasks._probe_server_ssh")
+    def test_connectivity_sweep_skips_ssh_for_agent_enabled_servers(self, mock_probe):
+        server = OdooServer.objects.create(
+            organization=self.org,
+            name="heartbeat-skip",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            ip_address="203.0.113.80",
+            is_reachable=True,
+            last_heartbeat_at=timezone.now(),
+        )
+
+        check_server_connectivity()
+
+        server.refresh_from_db()
+        mock_probe.assert_not_called()
+        self.assertTrue(server.is_reachable)
+
+    @patch("deployments.tasks._install_heartbeat_agent")
+    @patch("deployments.tasks._probe_server_ssh")
+    def test_repair_stale_heartbeat_agents_reinstalls_agent_when_ssh_is_available(self, mock_probe, mock_install):
+        mock_probe.return_value = (True, "Connected.")
+        mock_install.return_value = (True, "agent reinstalled")
+        server = OdooServer.objects.create(
+            organization=self.org,
+            name="heartbeat-repair",
+            odoo_version="19",
+            region="nyc3",
+            size="s-2vcpu-4gb",
+            ip_address="203.0.113.81",
+            is_reachable=False,
+            last_heartbeat_at=timezone.now() - timedelta(minutes=25),
+        )
+
+        repair_stale_heartbeat_agents()
+
+        server.refresh_from_db()
+        self.assertIsNotNone(server.last_agent_repair_at)
+        mock_probe.assert_called_once()
+        mock_install.assert_called_once_with(server)
+        self.assertIn("Heartbeat agent repaired.", server.provisioning_log)
 
 
 class OdooVersionedFlowTests(TestCase):

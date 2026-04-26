@@ -43,10 +43,21 @@ def _sync_connectivity_periodic_task():
         logger.warning("django_celery_beat models unavailable; skipping connectivity schedule sync.", exc_info=True)
         return
 
-    interval_seconds = max(
-        1,
-        int(getattr(settings, "CELERY_SERVER_CONNECTIVITY_INTERVAL_SECONDS", 180)),
+    interval_seconds = max(1, int(getattr(settings, "CELERY_SERVER_CONNECTIVITY_INTERVAL_SECONDS", 180)))
+    _sync_interval_periodic_task(
+        name="check-server-connectivity",
+        task="deployments.tasks.check_server_connectivity",
+        interval_seconds=interval_seconds,
     )
+    logger.info(
+        "Synced celery beat task 'check-server-connectivity' to every %s second(s).",
+        interval_seconds,
+    )
+
+
+def _sync_interval_periodic_task(*, name: str, task: str, interval_seconds: int):
+    from django_celery_beat.models import IntervalSchedule, PeriodicTask
+
     every, period = (
         (interval_seconds, IntervalSchedule.SECONDS)
         if interval_seconds < 60 or interval_seconds % 60 != 0
@@ -54,16 +65,38 @@ def _sync_connectivity_periodic_task():
     )
     interval, _ = IntervalSchedule.objects.get_or_create(every=every, period=period)
     PeriodicTask.objects.update_or_create(
-        name="check-server-connectivity",
+        name=name,
         defaults={
-            "task": "deployments.tasks.check_server_connectivity",
+            "task": task,
             "interval": interval,
             "enabled": True,
         },
     )
+
+
+def _sync_heartbeat_periodic_tasks():
+    try:
+        from django_celery_beat.models import IntervalSchedule  # noqa: F401
+    except Exception:
+        logger.warning("django_celery_beat models unavailable; skipping heartbeat schedule sync.", exc_info=True)
+        return
+
+    heartbeat_interval = max(1, int(getattr(settings, "CELERY_SERVER_HEARTBEAT_INTERVAL_SECONDS", 60)))
+    repair_interval = max(60, int(getattr(settings, "CELERY_SERVER_HEARTBEAT_REPAIR_INTERVAL_SECONDS", 3600)))
+    _sync_interval_periodic_task(
+        name="mark-disconnected-servers",
+        task="deployments.tasks.mark_disconnected_servers",
+        interval_seconds=heartbeat_interval,
+    )
+    _sync_interval_periodic_task(
+        name="repair-stale-heartbeat-agents",
+        task="deployments.tasks.repair_stale_heartbeat_agents",
+        interval_seconds=repair_interval,
+    )
     logger.info(
-        "Synced celery beat task 'check-server-connectivity' to every %s second(s).",
-        interval_seconds,
+        "Synced heartbeat beat tasks: disconnect every %s second(s), repair every %s second(s).",
+        heartbeat_interval,
+        repair_interval,
     )
 
 
@@ -72,3 +105,4 @@ def sync_deployment_periodic_tasks(sender, **kwargs):
     if getattr(sender, "label", "") != "deployments":
         return
     _sync_connectivity_periodic_task()
+    _sync_heartbeat_periodic_tasks()

@@ -21,6 +21,7 @@ from channels.layers import get_channel_layer
 from django.conf import settings
 from django.core.cache import cache
 from django.core.serializers.json import DjangoJSONEncoder
+from django.db.models import Q
 from django.utils import timezone
 
 from audit.models import AuditLog
@@ -1925,6 +1926,11 @@ def _default_docker_host_playbook() -> str:
     return str(Path(settings.BASE_DIR) / "infra" / "ansible" / "setup_docker_host.yml")
 
 
+def _default_heartbeat_agent_playbook() -> str:
+    """Absolute path to the repo-local heartbeat agent playbook."""
+    return str(Path(settings.BASE_DIR) / "infra" / "ansible" / "install_dafeapp_heartbeat_agent.yml")
+
+
 def _default_docker_instance_delete_playbook() -> str:
     """Absolute path to the repo-local Docker instance deletion playbook."""
     return str(Path(settings.BASE_DIR) / "infra" / "ansible" / "delete_docker_odoo_instance.yml")
@@ -1948,6 +1954,39 @@ def _default_docker_enterprise_update_playbook() -> str:
 def _default_enterprise_server_sync_playbook() -> str:
     """Server-level: DafeApp host → server shared dir (network upload, done once per server)."""
     return str(Path(settings.BASE_DIR) / "infra" / "ansible" / "sync_enterprise_to_server.yml")
+
+
+def _server_heartbeat_url(server: OdooServer) -> str:
+    base_url = getattr(settings, "SITE_URL", "").strip().rstrip("/")
+    return f"{base_url}/api/deployments/odoo/servers/heartbeat/{server.agent_token}/"
+
+
+def _heartbeat_agent_extra_vars(server: OdooServer) -> dict:
+    return {
+        "agent_token": str(server.agent_token),
+        "dafeapp_heartbeat_url": _server_heartbeat_url(server),
+    }
+
+
+def _install_heartbeat_agent(server: OdooServer) -> tuple[bool, str]:
+    host, _ = _odoo_server_ssh_target(server)
+    if not host:
+        return False, "No SSH target available for heartbeat agent repair."
+
+    ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
+    try:
+        return _run_ansible_playbook(
+            _default_heartbeat_agent_playbook(),
+            host,
+            _heartbeat_agent_extra_vars(server),
+            ssh_user=ssh_user,
+            ssh_key_path=ssh_key,
+            ssh_password=ssh_password,
+        )
+    finally:
+        if tmp_key:
+            with suppress(OSError):
+                os.unlink(tmp_key)
 
 
 def _server_enterprise_shared_path(server: OdooServer) -> str:
@@ -3358,6 +3397,7 @@ def _configure_odoo_server_inner(self, server_id: int, job_id: int | None = None
         "website_name": server.dns_domain if server.dns_domain else "_",
         "admin_email": admin_email,
     }
+    extra_vars.update(_heartbeat_agent_extra_vars(server))
 
     _broadcast_server(server.id, "Running Ansible playbook — Odoo install takes 5–15 min…", server.status)
     ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)
@@ -4253,6 +4293,11 @@ def check_server_connectivity():
             host, port = _odoo_server_ssh_target(server)
             if not host:
                 continue
+            if server.last_heartbeat_at is not None:
+                if server.ip_address != host:
+                    server.ip_address = host
+                    server.save(update_fields=["ip_address", "updated_at"])
+                continue
             reachable, message = _probe_server_ssh(server)
             # Fallback: if SSH is unreachable, check ports 443/80 —
             # server is up even if DafeApp can't SSH into it.
@@ -4295,6 +4340,74 @@ def check_server_connectivity():
             ]
         )
     logger.info("Periodic reachability sweep finished.")
+
+
+@shared_task
+def mark_disconnected_servers():
+    """Mark heartbeat-enabled servers disconnected after the heartbeat timeout."""
+    now = timezone.now()
+    threshold = now - timedelta(
+        minutes=max(1, int(getattr(settings, "SERVER_HEARTBEAT_TIMEOUT_MINUTES", 5)))
+    )
+    updated = OdooServer.objects.filter(
+        is_active=True,
+        last_heartbeat_at__isnull=False,
+        last_heartbeat_at__lt=threshold,
+        is_reachable=True,
+    ).update(
+        is_reachable=False,
+        last_checked_at=now,
+        updated_at=now,
+    )
+    if updated:
+        logger.info("Heartbeat timeout marked %s server(s) disconnected.", updated)
+
+
+@shared_task
+def repair_stale_heartbeat_agents():
+    """
+    Once per hour, try to repair the heartbeat service on servers that have
+    stopped sending heartbeats for an extended period but are still SSH reachable.
+    """
+    now = timezone.now()
+    stale_threshold = now - timedelta(
+        minutes=max(1, int(getattr(settings, "SERVER_HEARTBEAT_REPAIR_THRESHOLD_MINUTES", 20)))
+    )
+    retry_threshold = now - timedelta(
+        seconds=max(60, int(getattr(settings, "CELERY_SERVER_HEARTBEAT_REPAIR_INTERVAL_SECONDS", 3600)))
+    )
+    servers = OdooServer.objects.select_related(
+        "infrastructure",
+        "infrastructure__external_server",
+    ).filter(
+        is_active=True,
+        last_heartbeat_at__isnull=False,
+        last_heartbeat_at__lt=stale_threshold,
+    ).filter(
+        Q(last_agent_repair_at__isnull=True) | Q(last_agent_repair_at__lt=retry_threshold)
+    )
+
+    for server in servers:
+        server.last_agent_repair_at = now
+        server.save(update_fields=["last_agent_repair_at", "updated_at"])
+
+        reachable, message = _probe_server_ssh(server)
+        if not reachable:
+            logger.info(
+                "Heartbeat repair skipped for server %s because SSH is unavailable: %s",
+                server.id,
+                message,
+            )
+            continue
+
+        ok, log_blob = _install_heartbeat_agent(server)
+        summary = "Heartbeat agent repaired." if ok else "Heartbeat agent repair failed."
+        logger.info("Heartbeat repair for server %s: ok=%s", server.id, ok)
+        server.provisioning_log = _append_text(
+            server.provisioning_log,
+            f"[heartbeat repair]\n{summary}\n{log_blob}".strip(),
+        )
+        server.save(update_fields=["provisioning_log", "updated_at"])
 
 
 @shared_task
@@ -5743,6 +5856,7 @@ def _configure_docker_host_inner(self, server_id: int, job_id: int | None = None
         "cf_dns_api_token": os.getenv("PLATFORM_DNS_API_TOKEN", "").strip(),
         "traefik_base_domain": os.getenv("PLATFORM_BASE_DOMAIN", "").strip(),
     }
+    extra_vars.update(_heartbeat_agent_extra_vars(server))
 
     _broadcast_server(server.id, "Running Docker host setup playbook…", server.status)
     ssh_user, ssh_key, ssh_password, tmp_key = _server_ansible_creds(server)

@@ -1,3 +1,5 @@
+import uuid
+
 from django.conf import settings
 from django.db import models
 
@@ -309,6 +311,14 @@ class OdooServer(models.Model):
     installation_summary_text = models.TextField(blank=True)
     is_reachable = models.BooleanField(default=False)
     last_checked_at = models.DateTimeField(null=True, blank=True)
+    agent_token = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        db_index=True,
+        editable=False,
+    )
+    last_heartbeat_at = models.DateTimeField(null=True, blank=True)
+    last_agent_repair_at = models.DateTimeField(null=True, blank=True)
     # Celery task ID of the currently running provision/configure task (for cancellation)
     celery_task_id = models.CharField(max_length=255, blank=True, default="")
     # Enterprise shared copy on this server (populated at provisioning time)
