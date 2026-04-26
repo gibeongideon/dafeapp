@@ -4,3 +4,39 @@ celery_worker-1  | absolutely not recommended!
 celery_worker-1  | 
 celery_worker-1  | Please specify a different user using 
 
+
+
+Server Provisioning Gaps (setup_docker_host.yml)
+🔴 Missing: Swap configuration
+Reference ensures 1GB swap is configured. DafeApp doesn't set swap. On a 2GB RAM droplet without swap, a memory spike during Odoo DB init or a large module install will OOM-kill the container. Most DigitalOcean droplets have no swap by default.
+
+🔴 Missing: inotify watches
+Reference sets fs.inotify.max_user_watches=524288. DafeApp doesn't. This causes silent failures with Odoo's file watching, and can break some enterprise addons and Python watchdog-based tools when running many instances on one host.
+
+🟡 Missing: Pre-flight system checks
+Reference validates memory (2GB min), disk (10GB min), CPU cores, architecture, DNS resolution, Docker Hub reachability, and that curl/wget/git/zip/unzip are installed — before attempting provisioning. DafeApp just waits for SSH and immediately runs Ansible. A server that's too small or can't reach Docker Hub will fail mid-provisioning with a confusing error.
+
+🟡 Missing: External port reachability check
+Reference confirms ports 80 and 443 are externally reachable before starting. DafeApp opens UFW but never verifies the firewall/network actually allows external traffic. A misconfigured cloud firewall rule would cause TLS to fail silently.
+
+Instance Creation Gaps (create_docker_odoo_instance.yml)
+🟡 Shared PostgreSQL vs. per-instance container
+Reference creates a dedicated PostgreSQL container per instance. DafeApp uses a shared odoo-postgres with separate databases. The reference approach gives better isolation (independent resource limits, separate restart, individual pg_hba). DafeApp's approach is more resource-efficient but one bloated instance can impact all others.
+
+🟡 Shared Docker network vs. per-instance network
+Reference creates a dedicated network per instance (oecsh_net_<uuid>). DafeApp uses a shared odoo-network. Same trade-off as PostgreSQL — reference is more isolated; DafeApp is simpler.
+
+🟡 Missing: Dynamic PGTune optimization
+Reference runs PGTune to tune PostgreSQL based on actual server RAM/CPU. DafeApp uses static defaults (shared_buffers=256MB, work_mem=16MB, etc.). On a 4GB+ droplet those values are undertuned; on a 2GB droplet they may be overtuned.
+
+🟢 Missing: apt.txt / requirements.txt scanning
+Reference scans addon repos for dependency files before starting the container, installing extra system packages and Python packages. DafeApp skips this — custom addons with system dependencies will fail at runtime.
+
+Priority Recommendations
+Priority	Gap	Impact
+enterprise addons
+🟡 Medium	Add pre-flight checks (disk/RAM/ports)	Better failure messages
+🟡 Medium	Dynamic PGTune based on server RAM	Better performance at scale
+🟢 Low	Per-instance network/PostgreSQL	Isolation improvement, big architectural change
+🟢 Low	apt.txt/requirements.txt scanning	Needed only if custom addons with system deps
+The swap and inotify fixes are one-liners in setup_docker_host.yml and have the most real-world impact. Want me to implement those two first?

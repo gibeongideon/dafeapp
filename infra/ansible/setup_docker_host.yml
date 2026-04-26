@@ -63,6 +63,50 @@
       delay: 10
       until: apt_prereqs is succeeded
 
+    - name: Configure swap (1GB)
+      block:
+        - name: Check if swapfile already exists
+          stat:
+            path: /swapfile
+          register: swapfile_stat
+
+        - name: Create 1GB swapfile
+          command: fallocate -l 1G /swapfile
+          when: not swapfile_stat.stat.exists
+
+        - name: Set swapfile permissions
+          file:
+            path: /swapfile
+            mode: "0600"
+          when: not swapfile_stat.stat.exists
+
+        - name: Format swapfile
+          command: mkswap /swapfile
+          when: not swapfile_stat.stat.exists
+
+        - name: Enable swapfile
+          command: swapon /swapfile
+          when: not swapfile_stat.stat.exists
+
+        - name: Persist swap in /etc/fstab
+          lineinfile:
+            path: /etc/fstab
+            line: "/swapfile none swap sw 0 0"
+            state: present
+
+    - name: Set inotify watch limit
+      sysctl:
+        name: fs.inotify.max_user_watches
+        value: "524288"
+        state: present
+        reload: true
+
+    - name: Persist inotify limit across reboots
+      lineinfile:
+        path: /etc/sysctl.conf
+        line: "fs.inotify.max_user_watches=524288"
+        state: present
+
     - name: Add Docker GPG key
       shell: |
         install -m 0755 -d /etc/apt/keyrings
