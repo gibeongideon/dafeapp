@@ -1543,8 +1543,8 @@
             <div>
               <label class="block text-xs font-medium text-gray-600 mb-1">Deployment Mode</label>
               <select id="pyos-deployment-mode" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white">
-                <option value="BARE_METAL">Bare-metal</option>
                 <option value="DOCKER">Docker</option>
+                <option value="BARE_METAL">Bare-metal</option>
               </select>
             </div>
           </div>
@@ -1646,8 +1646,8 @@ chmod 600 ~/.ssh/authorized_keys</pre>
           <div>
             <label class="block text-xs font-medium text-gray-600 mb-1">Deployment Mode</label>
             <select id="platform-deployment-mode" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white">
-              <option value="BARE_METAL">Bare-metal</option>
               <option value="DOCKER">Docker</option>
+              <option value="BARE_METAL">Bare-metal</option>
             </select>
           </div>
           <div class="grid grid-cols-2 gap-3">
@@ -1977,15 +1977,15 @@ chmod 600 ~/.ssh/authorized_keys</pre>
         <div>
           <label class="block text-xs font-medium text-gray-600 mb-1">Deployment Mode</label>
           <div class="grid grid-cols-2 gap-2">
-            <label id="mode-bare-label" class="flex items-start gap-2.5 p-3 border-2 border-gray-900 rounded-lg cursor-pointer bg-gray-50">
-              <input type="radio" name="server-deploy-mode" id="mode-bare" value="BARE_METAL" checked class="mt-0.5 accent-gray-900" />
+            <label id="mode-bare-label" class="flex items-start gap-2.5 p-3 border-2 border-transparent rounded-lg cursor-pointer hover:bg-gray-50">
+              <input type="radio" name="server-deploy-mode" id="mode-bare" value="BARE_METAL" class="mt-0.5 accent-gray-900" />
               <div>
                 <p class="text-xs font-semibold text-gray-900">Bare-metal</p>
                 <p class="text-[11px] text-gray-500 mt-0.5">Odoo via systemd · access via IP:PORT</p>
               </div>
             </label>
-            <label id="mode-docker-label" class="flex items-start gap-2.5 p-3 border-2 border-transparent rounded-lg cursor-pointer hover:bg-gray-50">
-              <input type="radio" name="server-deploy-mode" id="mode-docker" value="DOCKER" class="mt-0.5 accent-gray-900" />
+            <label id="mode-docker-label" class="flex items-start gap-2.5 p-3 border-2 border-gray-900 rounded-lg cursor-pointer bg-gray-50">
+              <input type="radio" name="server-deploy-mode" id="mode-docker" value="DOCKER" checked class="mt-0.5 accent-gray-900" />
               <div>
                 <p class="text-xs font-semibold text-gray-900">Docker</p>
                 <p class="text-[11px] text-gray-500 mt-0.5">Traefik + containers · HTTPS per domain</p>
@@ -2010,8 +2010,9 @@ chmod 600 ~/.ssh/authorized_keys</pre>
         </div>
 
         <div id="server-info-box" class="rounded-lg px-3 py-2 text-xs bg-blue-50 border border-blue-100 text-blue-700">
-          Instances will be accessible via <strong>http://SERVER_IP:PORT</strong> (ports 8069–8100).
-          They also get a default hostname under <strong>{{ PLATFORM_BASE_DOMAIN|default:"dafeapp.com" }}</strong>.
+          Docker mode: Traefik handles HTTPS and each instance gets a default hostname under
+          <strong>{{ PLATFORM_BASE_DOMAIN|default:"dafeapp.com" }}</strong>.
+          Ports 80 and 443 must be open.
           This server will be dedicated to Odoo <span id="version-label">19</span> only.
         </div>
       </div>
@@ -4066,10 +4067,10 @@ chmod 600 ~/.ssh/authorized_keys</pre>
   let selectedServerId = "{{ selected_server.id|default:'' }}";
   let selectedServerIp = "";
   let selectedServerMinPort = 8069;
-  let selectedServerMode = "BARE_METAL"; // "BARE_METAL" | "DOCKER"
+  let selectedServerMode = "DOCKER"; // "BARE_METAL" | "DOCKER"
   let activeDomainInstanceId = "";
   let activeDomainCurrentValue = "";
-  let activeDomainServerMode = "BARE_METAL";
+  let activeDomainServerMode = "DOCKER";
   let activeDomainLockReason = "";
 
   // ─── Server metrics polling ──────────────────────────────────────────────
@@ -4179,6 +4180,10 @@ chmod 600 ~/.ssh/authorized_keys</pre>
     syncCloudAccountState();
     if ($("server-name")) $("server-name").value = "";
     if ($("server-version")) $("server-version").value = "19";
+    if ($("mode-docker")) $("mode-docker").checked = true;
+    if ($("mode-docker")) $("mode-docker").dispatchEvent(new Event("change"));
+    if (platformDeployEl) platformDeployEl.value = "DOCKER";
+    if (pyosDeploymentModeEl) pyosDeploymentModeEl.value = "DOCKER";
     if ($("source-modal-msg")) $("source-modal-msg").textContent = "";
   });
 
@@ -4617,7 +4622,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
     if ($("pyos-username")) $("pyos-username").value = "root";
     if ($("pyos-auth-key")) $("pyos-auth-key").checked = true;
     if (pyosVersionEl) pyosVersionEl.value = "19";
-    if (pyosDeploymentModeEl) pyosDeploymentModeEl.value = "BARE_METAL";
+    if (pyosDeploymentModeEl) pyosDeploymentModeEl.value = "DOCKER";
     $("pyos-key-info")?.classList.remove("hidden");
     $("pyos-password-field")?.classList.add("hidden");
   }
@@ -4795,7 +4800,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
     const password = $("pyos-password") ? $("pyos-password").value : "";
     const sshKeyPath = "";
     const odooVersion = pyosVersionEl.value || "19";
-    const deployMode = pyosDeploymentModeEl.value || "BARE_METAL";
+    const deployMode = pyosDeploymentModeEl.value || "DOCKER";
     if (!name) { setMsg(msgEl, "Server name is required.", true); return; }
     if (!host) { setMsg(msgEl, "IP / host is required.", true); return; }
     if (authType === "PASSWORD" && !password.trim()) { setMsg(msgEl, "Password is required.", true); return; }
@@ -4823,7 +4828,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
     const region = platformRegionEl?.value || "";
     const size   = platformSizeEl?.value || "";
     const odooVersion = platformVersionEl?.value || "19";
-    const deployMode  = platformDeployEl?.value || "BARE_METAL";
+    const deployMode  = platformDeployEl?.value || "DOCKER";
     if (!name)   { setMsg(msgEl, "Server name is required.", true); return; }
     if (!region) { setMsg(msgEl, "Select a region.", true); return; }
     if (!size)   { setMsg(msgEl, "Select a size.", true); return; }
@@ -4868,7 +4873,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
     setMsg(msgEl, "Provisioning server… This may take 5–15 minutes.");
 
     const deployModeEl = document.querySelector("input[name='server-deploy-mode']:checked");
-    const deployMode = deployModeEl ? deployModeEl.value : "BARE_METAL";
+    const deployMode = deployModeEl ? deployModeEl.value : "DOCKER";
     let payload = {
       name,
       odoo_version: versionEl.value,

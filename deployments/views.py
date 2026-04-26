@@ -1607,7 +1607,7 @@ class OdooServerCreateAPIView(LoginRequiredMixin, View):
         name = (payload.get("name") or "").strip()
         deployment_mode = (payload.get("deployment_mode") or "").strip()
         if deployment_mode not in (OdooServer.DeploymentMode.BARE_METAL, OdooServer.DeploymentMode.DOCKER):
-            deployment_mode = OdooServer.DeploymentMode.BARE_METAL
+            deployment_mode = OdooServer.DeploymentMode.DOCKER
         dns_domain = platform_base_domain() if platform_domains_enabled() else ""
         managed_zone = None
         managed_dns_enabled = False

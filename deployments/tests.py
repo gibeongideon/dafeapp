@@ -221,6 +221,25 @@ class OdooVersionedFlowTests(TestCase):
         mock_dispatch.assert_called_once()
 
     @patch("deployments.views._dispatch")
+    def test_create_odoo_server_defaults_to_docker_when_mode_missing(self, mock_dispatch):
+        resp = self.client.post(
+            reverse("deployments:odoo-server-create"),
+            data={
+                "name": "odoo19-default-mode",
+                "infrastructure_id": self.infrastructure.id,
+                "odoo_version": "19",
+                "region": "nyc3",
+                "size": "s-2vcpu-4gb",
+            },
+            secure=True,
+        )
+
+        self.assertEqual(resp.status_code, 201)
+        server = OdooServer.objects.get(name="odoo19-default-mode")
+        self.assertEqual(server.deployment_mode, OdooServer.DeploymentMode.DOCKER)
+        mock_dispatch.assert_called_once()
+
+    @patch("deployments.views._dispatch")
     @patch("cloud.pyos.PyOSService.validate")
     def test_create_pyos_server_requires_successful_preflight_connection(self, mock_validate, mock_dispatch):
         mock_validate.return_value = (False, "Host unreachable for root@203.0.113.60:22: timed out")
