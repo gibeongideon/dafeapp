@@ -1,0 +1,22 @@
+name: Delete Old Docker Images
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Every night at midnight UTC
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+
+    steps:
+      - name: Delete images older than 30 days
+        uses: dataaxiom/ghcr-cleanup-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          package: dafeapp
+          older-than: 30 days
+          keep-n-tagged: 5
+          delete-untagged: true
