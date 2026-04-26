@@ -2239,12 +2239,8 @@ class OdooServerReprovisionAPIView(LoginRequiredMixin, View):
                 {"error": f"Server must be in FAILED or PROVISIONED state to re-provision (current: {server.status})."},
                 status=409,
             )
-        if not server.ip_address and server.infrastructure and server.infrastructure.infra_type != "PYOS":
-            return JsonResponse({"error": "Server has no IP address; cannot re-provision."}, status=400)
-
-        # For PYOS servers without an IP (connectivity never confirmed): run the full provision flow
-        # which includes the connectivity check. For servers that already have an IP, go straight
-        # to configure (skip Terraform re-run).
+        # If no IP: run the full provision flow (Terraform + configure).
+        # If has IP: skip Terraform, go straight to configure.
         from deployments.tasks import provision_odoo_server
         if not server.ip_address:
             server.status = OdooServer.Status.CONNECTING
