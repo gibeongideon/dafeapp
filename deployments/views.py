@@ -1476,9 +1476,10 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
             instance__organization=org
         ).select_related("instance")[:15]
         ctx["enforcer"] = getattr(self.request, "subscription_enforcer", SubscriptionEnforcer(org))
-        from cloud.models import SystemSSHKey
+        from cloud.models import SystemSSHKey, CloudAccount
         ctx["dafeapp_public_key"] = SystemSSHKey.get_or_create_keypair().public_key
         ctx["pyos_default_ssh_key_path"] = PyOSSSHSettings.get_or_create_settings().default_ssh_key_path
+        ctx["platform_account_available"] = CloudAccount.get_platform_account() is not None
         return ctx
 
     def _build_instances_url(
@@ -1762,6 +1763,53 @@ class OdooServerCreateAPIView(LoginRequiredMixin, View):
                 _dispatch(configure_docker_host, server.id)
             else:
                 _dispatch(configure_odoo_server, server.id)
+            return JsonResponse(OdooServerSerializer(server).data, status=201)
+
+        # ── DafeApp Platform VPS ─────────────────────────────────────────────
+        if payload.get("use_platform_account") in (True, "true", "True", "1"):
+            from cloud.models import CloudAccount as _CloudAccount
+            region = (payload.get("region") or "").strip()
+            size   = (payload.get("size") or "").strip()
+            if not name or not region or not size:
+                return JsonResponse({"error": "name, region and size are required."}, status=400)
+            platform_account = _CloudAccount.get_platform_account()
+            if not platform_account:
+                return JsonResponse(
+                    {"error": "DafeApp VPS is not configured on this platform. Contact support."},
+                    status=400,
+                )
+            infrastructure = Infrastructure.objects.create(
+                organization=org,
+                infra_type=Infrastructure.InfraType.MANAGED,
+                cloud_account=platform_account,
+                name=f"platform-vps-{org.id}-{name}",
+                is_connected=True,
+                validation_log="Auto-created via DafeApp VPS platform account.",
+                created_by=request.user,
+            )
+            server = OdooServer.objects.create(
+                organization=org,
+                infrastructure=infrastructure,
+                cloud_account=platform_account,
+                name=name,
+                odoo_version=odoo_version,
+                region=region,
+                size=size,
+                dns_domain=dns_domain,
+                managed_dns_enabled=managed_dns_enabled,
+                managed_dns_zone=managed_zone,
+                domain_routing_enabled=domain_routing_enabled,
+                tls_mode=tls_mode,
+                deployment_mode=deployment_mode,
+                created_by=request.user,
+            )
+            logger.info(
+                "DafeApp platform VPS create: org=%s user=%s id=%s name=%s version=%s mode=%s region=%s size=%s",
+                org.id, request.user, server.id, name, odoo_version, deployment_mode, region, size,
+            )
+            server.status = OdooServer.Status.CONNECTING
+            server.save(update_fields=["status", "updated_at"])
+            _dispatch(provision_odoo_server, server.id)
             return JsonResponse(OdooServerSerializer(server).data, status=201)
 
         region = (payload.get("region") or "").strip()

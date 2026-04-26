@@ -73,9 +73,9 @@ class CloudAccountAdmin(RoleControlledAdminMixin, admin.ModelAdmin):
     readonly_roles = {PLATFORM_SUPPORT_ROLE, PLATFORM_FINANCE_ROLE}
 
     list_display = [
-        "name", "provider", "organization", "verified_badge", "last_verified_at", "created_at",
+        "name", "provider", "organization", "is_platform_badge", "verified_badge", "last_verified_at", "created_at",
     ]
-    list_filter = ["provider", VerificationStatusFilter, "organization"]
+    list_filter = ["provider", "is_platform", VerificationStatusFilter, "organization"]
     search_fields = ["name", "organization__name"]
     readonly_fields = [
         "encrypted_api_token_display",
@@ -103,6 +103,18 @@ class CloudAccountAdmin(RoleControlledAdminMixin, admin.ModelAdmin):
             return format_html('<span style="color:green;font-weight:bold;">✓ Verified</span>')
         return format_html('<span style="color:gray;">✗ Unverified</span>')
     verified_badge.short_description = "Status"
+
+    def is_platform_badge(self, obj):
+        if obj.is_platform:
+            return format_html('<span style="color:#7c3aed;font-weight:bold;">★ Platform</span>')
+        return "—"
+    is_platform_badge.short_description = "Platform"
+
+    def get_readonly_fields(self, request, obj=None):
+        readonly = list(super().get_readonly_fields(request, obj))
+        if not request.user.is_superuser:
+            readonly.append("is_platform")
+        return readonly
 
     @admin.action(description="Re-verify selected cloud accounts")
     def reverify_accounts(self, request, queryset):

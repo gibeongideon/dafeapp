@@ -486,3 +486,32 @@ class DafeAppPublicKeyView(CloudSuperAdminMixin, View):
         SystemSSHKey.objects.all().delete()
         key_obj = SystemSSHKey.get_or_create_keypair()
         return JsonResponse({"public_key": key_obj.public_key, "regenerated": True})
+
+
+class PlatformCloudAccountOptionsView(LoginRequiredMixin, View):
+    """
+    Return region/size options from the platform's shared cloud account.
+    Any authenticated org member can call this — no SUPER_ADMIN role required.
+    Returns 404 if no platform account is configured or verified.
+    """
+
+    def get(self, request):
+        org = getattr(request, "organization", None)
+        if not org:
+            return JsonResponse({"error": "No active organization."}, status=400)
+
+        account = CloudAccount.get_platform_account()
+        if not account:
+            return JsonResponse(
+                {"regions": [], "sizes": [], "error": "No platform account configured."},
+                status=404,
+            )
+
+        try:
+            provider = get_provider(account)
+            regions = provider.list_regions()
+            region = request.GET.get("region", "").strip()
+            sizes = provider.list_sizes(region=region)
+            return JsonResponse({"regions": regions, "sizes": sizes, "provider": account.provider})
+        except Exception as exc:
+            return JsonResponse({"regions": [], "sizes": [], "error": str(exc)}, status=400)

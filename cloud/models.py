@@ -77,6 +77,8 @@ class CloudAccount(models.Model):
         "organizations.Organization",
         on_delete=models.CASCADE,
         related_name="cloud_accounts",
+        null=True,
+        blank=True,
     )
     provider = models.CharField(
         max_length=20, choices=Provider.choices, default=Provider.DIGITALOCEAN
@@ -94,6 +96,10 @@ class CloudAccount(models.Model):
     encrypted_do_oauth_refresh_token = models.TextField(blank=True)
     do_oauth_token_expiry = models.DateTimeField(null=True, blank=True)
     is_verified = models.BooleanField(default=False)
+    is_platform = models.BooleanField(
+        default=False,
+        help_text="Shared platform account available to all organizations.",
+    )
     verification_error = models.CharField(max_length=500, blank=True)
     last_verified_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -154,6 +160,11 @@ class CloudAccount(models.Model):
             self._raw_do_oauth_refresh_token = None
 
         super().save(*args, **kwargs)
+
+    @classmethod
+    def get_platform_account(cls):
+        """Return the single verified platform CloudAccount, or None if not configured."""
+        return cls.objects.filter(is_platform=True, is_verified=True).first()
 
 
 class CloudServer(models.Model):
