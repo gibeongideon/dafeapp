@@ -3515,7 +3515,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
     try {
       const resp = await fetch(`/api/deployments/odoo/servers/${serverId}/reprovision/`, {
         method: "POST",
-        headers: { "X-CSRFToken": getCsrfToken(), "Content-Type": "application/json" },
+        headers: { "X-CSRFToken": csrf, "Content-Type": "application/json" },
       });
       const data = await resp.json();
       if (resp.ok && data.ok) {
@@ -3540,7 +3540,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
     try {
       const resp = await fetch(`/api/deployments/odoo/servers/${serverId}/cancel/`, {
         method: "POST",
-        headers: { "X-CSRFToken": getCsrfToken(), "Content-Type": "application/json" },
+        headers: { "X-CSRFToken": csrf, "Content-Type": "application/json" },
       });
       const data = await resp.json();
       if (resp.ok && data.ok) {
@@ -6076,6 +6076,9 @@ chmod 600 ~/.ssh/authorized_keys</pre>
     $("server-search-input")?.addEventListener("input", () => serversGroupRender());
     $("server-group-select")?.addEventListener("change", () => serversGroupRender());
   }
+
+  window.reprovisionServer = reprovisionServer;
+  window.cancelServerProvision = cancelServerProvision;
 })();
 </script>
 {% endblock %}
