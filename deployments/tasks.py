@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 import time
 import traceback
-from datetime import datetime, timezone as dt_timezone
+from datetime import datetime, timedelta, timezone as dt_timezone
 from contextlib import suppress
 from pathlib import Path
 from urllib.parse import quote, urlparse, urlunparse
@@ -1958,6 +1958,12 @@ def _default_enterprise_server_sync_playbook() -> str:
 
 def _server_heartbeat_url(server: OdooServer) -> str:
     base_url = getattr(settings, "SITE_URL", "").strip().rstrip("/")
+    if not base_url:
+        logger.error(
+            "SITE_URL is not configured — heartbeat agent on server %s will use a "
+            "relative URL and will never connect. Set SITE_URL in your .env file.",
+            server.id,
+        )
     return f"{base_url}/api/deployments/odoo/servers/heartbeat/{server.agent_token}/"
 
 
@@ -4381,6 +4387,7 @@ def repair_stale_heartbeat_agents():
         "infrastructure__external_server",
     ).filter(
         is_active=True,
+        is_reachable=False,
         last_heartbeat_at__isnull=False,
         last_heartbeat_at__lt=stale_threshold,
     ).filter(

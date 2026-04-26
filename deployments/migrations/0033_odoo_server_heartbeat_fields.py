@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 def populate_agent_tokens(apps, schema_editor):
     OdooServer = apps.get_model("deployments", "OdooServer")
-    for server in OdooServer.objects.filter(agent_token__isnull=True).iterator():
+    for server in OdooServer.objects.all().iterator():
         server.agent_token = uuid.uuid4()
         server.save(update_fields=["agent_token"])
 
@@ -20,7 +20,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="odooserver",
             name="agent_token",
-            field=models.UUIDField(blank=True, db_index=True, default=uuid.uuid4, editable=False, null=True, unique=True),
+            field=models.UUIDField(blank=True, db_index=True, default=uuid.uuid4, editable=False, null=True),
         ),
         migrations.AddField(
             model_name="odooserver",
