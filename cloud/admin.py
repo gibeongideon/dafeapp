@@ -1,5 +1,5 @@
 from django.contrib import admin
-from django.utils.html import format_html
+from django.utils.html import format_html, mark_safe
 
 from cloud.models import (
     CloudAccount,
@@ -100,13 +100,13 @@ class CloudAccountAdmin(RoleControlledAdminMixin, admin.ModelAdmin):
 
     def verified_badge(self, obj):
         if obj.is_verified:
-            return format_html('<span style="color:green;font-weight:bold;">✓ Verified</span>')
-        return format_html('<span style="color:gray;">✗ Unverified</span>')
+            return mark_safe('<span style="color:green;font-weight:bold;">✓ Verified</span>')
+        return mark_safe('<span style="color:gray;">✗ Unverified</span>')
     verified_badge.short_description = "Status"
 
     def is_platform_badge(self, obj):
         if obj.is_platform:
-            return format_html('<span style="color:#7c3aed;font-weight:bold;">★ Platform</span>')
+            return mark_safe('<span style="color:#7c3aed;font-weight:bold;">★ Platform</span>')
         return "—"
     is_platform_badge.short_description = "Platform"
 
