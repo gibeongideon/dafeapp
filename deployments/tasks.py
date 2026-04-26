@@ -1745,6 +1745,22 @@ def _provider_native_provision(instance: Instance, run: TerraformRun) -> tuple[b
 
 
 def _provider_native_provision_server(server: OdooServer) -> tuple[bool, str, str, str]:
+    def _provider_error_message(status_code, detail="", *, action="complete the provisioning request") -> str:
+        detail = (detail or "").strip()
+        if status_code == 401:
+            return "Cloud API returned 401 Unauthorized — check that the API token is valid and still active."
+        if status_code == 403:
+            base = f"Cloud API denied permission to {action}."
+            scopes = (
+                " For DigitalOcean custom-scope tokens, include droplet:create, "
+                "firewall:create, ssh_key:create, ssh_key:read, droplet:read, "
+                "firewall:read, image:read, actions:read, regions:read, and sizes:read."
+            )
+            return f"{base}{scopes}" + (f" Provider said: {detail}" if detail else "")
+        if status_code == 422:
+            return f"Cloud API rejected the request ({status_code}): {detail or 'check the requested region, size, and image.'}"
+        return f"Cloud API error ({status_code}): {detail or action}."
+
     if not server.cloud_account:
         return False, "", "", "Infrastructure has no managed cloud account."
     from cloud.models import SystemSSHKey
@@ -1753,32 +1769,42 @@ def _provider_native_provision_server(server: OdooServer) -> tuple[bool, str, st
     system_key = SystemSSHKey.get_or_create_keypair()
     fingerprint = provider.ensure_dafeapp_ssh_key(system_key.public_key)
     if not fingerprint:
-        logger.warning(
-            "Could not register DafeApp SSH key in cloud account '%s'. "
-            "Ansible may not be able to connect to the new server.",
-            server.cloud_account.name,
+        logger.warning("Could not register DafeApp SSH key in cloud account '%s'.", server.cloud_account.name)
+        return (
+            False,
+            "",
+            "",
+            "DafeApp could not register its SSH key with the cloud provider. "
+            "Provisioning needs permission to upload and attach an SSH key. "
+            "For DigitalOcean custom-scope tokens, include ssh_key:read and ssh_key:create.",
         )
-    ssh_key_ids = [fingerprint] if fingerprint else None
+    ssh_key_ids = [fingerprint]
     try:
         created = provider.create_server(name=server.name, region=server.region, size=server.size, ssh_key_ids=ssh_key_ids)
     except _requests.HTTPError as exc:
         status_code = exc.response.status_code if exc.response is not None else "?"
-        if status_code == 401:
-            return False, "", "", "Cloud API returned 401 Unauthorized — check that the API token has write permissions."
-        if status_code == 422:
-            try:
-                detail = exc.response.json().get("message", str(exc))
-            except Exception:
-                detail = str(exc)
-            return False, "", "", f"Cloud API rejected the request ({status_code}): {detail}"
-        return False, "", "", f"Cloud API error ({status_code}): {exc}"
+        try:
+            detail = exc.response.json().get("message", str(exc)) if exc.response is not None else str(exc)
+        except Exception:
+            detail = str(exc)
+        return False, "", "", _provider_error_message(status_code, detail, action="create a server")
     except Exception as exc:
         return False, "", "", f"Failed to create server: {exc}"
     provider_id = str(created.get("id") or "")
     if not provider_id:
         return False, "", "", "Provider did not return a server id."
 
-    provider.create_firewall(provider_id)
+    try:
+        provider.create_firewall(provider_id)
+    except _requests.HTTPError as exc:
+        status_code = exc.response.status_code if exc.response is not None else "?"
+        try:
+            detail = exc.response.json().get("message", str(exc)) if exc.response is not None else str(exc)
+        except Exception:
+            detail = str(exc)
+        return False, provider_id, "", _provider_error_message(status_code, detail, action="create the server firewall")
+    except Exception as exc:
+        return False, provider_id, "", f"Server was created, but firewall setup failed: {exc}"
 
     for _ in range(30):
         status = provider.get_server_status(provider_id)
@@ -3247,10 +3273,15 @@ def _provision_odoo_server_inner(self, server_id: int):
         if not ip:
             ok, provider_id, ip, err = _provider_native_provision_server(server)
             if not ok:
+                if provider_id:
+                    server.provider_server_id = provider_id
                 server.status = OdooServer.Status.FAILED
                 server.celery_task_id = ""
                 server.provisioning_log = _append_text(server.provisioning_log, err)
-                server.save(update_fields=["status", "celery_task_id", "provisioning_log", "updated_at"])
+                update_fields = ["status", "celery_task_id", "provisioning_log", "updated_at"]
+                if provider_id:
+                    update_fields.append("provider_server_id")
+                server.save(update_fields=update_fields)
                 _broadcast_server(server.id, "Failed to provision server.", server.status, done=True)
                 return
             server.provider_server_id = provider_id
@@ -3260,11 +3291,16 @@ def _provision_odoo_server_inner(self, server_id: int):
     else:
         ok, provider_id, ip, err = _provider_native_provision_server(server)
         if not ok:
+            if provider_id:
+                server.provider_server_id = provider_id
             server.status = OdooServer.Status.FAILED
             server.celery_task_id = ""
             server.provisioning_log = _append_text(server.provisioning_log, "Provider fallback provisioning failed.")
             server.provisioning_log = _append_text(server.provisioning_log, err)
-            server.save(update_fields=["status", "celery_task_id", "provisioning_log", "updated_at"])
+            update_fields = ["status", "celery_task_id", "provisioning_log", "updated_at"]
+            if provider_id:
+                update_fields.append("provider_server_id")
+            server.save(update_fields=update_fields)
             _broadcast_server(server.id, "Failed to provision server.", server.status, done=True)
             return
         server.provider_server_id = provider_id

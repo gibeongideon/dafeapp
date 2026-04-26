@@ -74,10 +74,13 @@ class DigitalOceanProvider(AbstractCloudProvider):
 
     def validate_credentials(self) -> tuple[bool, str]:
         """
-        Validate the API token has both read AND write access.
-        GET /v2/account checks the token is valid.
-        GET /v2/account/keys checks write scope (DO tokens with read-only scope
-        cannot create droplets and return 401 on POST /v2/droplets).
+        Validate the API token can reach the account API and the read endpoints
+        DafeApp needs to populate provisioning choices.
+
+        DigitalOcean custom scopes are granular, so a successful verification
+        here does not prove droplet creation will succeed later. Provisioning a
+        fresh server still requires create scopes such as `droplet:create`,
+        `firewall:create`, and `ssh_key:create`.
         """
         try:
             resp = self._session.get(f"{API_BASE}/account", timeout=10)
@@ -88,17 +91,34 @@ class DigitalOceanProvider(AbstractCloudProvider):
         except requests.RequestException as exc:
             return False, f"Network error reaching DigitalOcean: {exc}"
 
-        # Also verify write scope — read-only tokens return 401 on POST /v2/droplets
         try:
-            resp = self._session.get(f"{API_BASE}/account/keys", timeout=10)
+            resp = self._session.get(f"{API_BASE}/regions", timeout=10)
             if resp.status_code == 403:
-                return False, "API token lacks write permission — create a token with full read/write scope."
+                return False, "API token is missing provisioning read scopes — include at least regions:read and sizes:read."
             if resp.status_code == 401:
                 return False, "API token is invalid or expired (401)."
         except requests.RequestException as exc:
             return False, f"Network error reaching DigitalOcean: {exc}"
 
-        return True, "Credentials valid."
+        try:
+            resp = self._session.get(f"{API_BASE}/sizes", timeout=10)
+            if resp.status_code == 403:
+                return False, "API token is missing provisioning read scopes — include at least regions:read and sizes:read."
+            if resp.status_code == 401:
+                return False, "API token is invalid or expired (401)."
+        except requests.RequestException as exc:
+            return False, f"Network error reaching DigitalOcean: {exc}"
+
+        try:
+            resp = self._session.get(f"{API_BASE}/account/keys", timeout=10)
+            if resp.status_code == 403:
+                return False, "API token cannot read SSH keys — include ssh_key:read before provisioning servers."
+            if resp.status_code == 401:
+                return False, "API token is invalid or expired (401)."
+        except requests.RequestException as exc:
+            return False, f"Network error reaching DigitalOcean: {exc}"
+
+        return True, "Credentials valid. Provisioning still requires droplet:create, firewall:create, and ssh_key:create scopes."
 
     def get_provider_account_id(self) -> str:
         """Return the DO team UUID from /v2/account."""

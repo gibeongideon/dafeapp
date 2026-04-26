@@ -53,10 +53,13 @@ class DigitalOceanProviderTests(TestCase):
 
     @patch("requests.Session.get")
     def test_validate_credentials_success(self, mock_get):
-        """GET /v2/account → 200 → validate_credentials returns (True, …)."""
-        mock_resp = MagicMock()
-        mock_resp.status_code = 200
-        mock_get.return_value = mock_resp
+        """GET provisioning read endpoints → 200 → validate_credentials returns (True, …)."""
+        mock_get.side_effect = [
+            MagicMock(status_code=200),
+            MagicMock(status_code=200),
+            MagicMock(status_code=200),
+            MagicMock(status_code=200),
+        ]
 
         provider = self._provider()
         success, msg = provider.validate_credentials()
@@ -67,9 +70,7 @@ class DigitalOceanProviderTests(TestCase):
     @patch("requests.Session.get")
     def test_validate_credentials_bad_token(self, mock_get):
         """GET /v2/account → 401 → validate_credentials returns (False, …)."""
-        mock_resp = MagicMock()
-        mock_resp.status_code = 401
-        mock_get.return_value = mock_resp
+        mock_get.return_value = MagicMock(status_code=401)
 
         provider = self._provider()
         success, msg = provider.validate_credentials()
