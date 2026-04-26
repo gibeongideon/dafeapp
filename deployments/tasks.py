@@ -4059,14 +4059,14 @@ def _queue_auto_update_for_repo(repo: OdooInstanceGitRepo) -> bool:
         return False
     if DeploymentJob.objects.filter(
         odoo_instance=repo.instance,
-        job_type=DeploymentJob.JobType.AUTO_SYNC_INSTANCE_REPOS,
+        job_type=DeploymentJob.JobType.UPDATE_INSTANCE_REPO,
         status__in=[DeploymentJob.Status.QUEUED, DeploymentJob.Status.RUNNING],
     ).exists():
         return False
 
     job = DeploymentJob.objects.create(
         organization=repo.instance.organization,
-        job_type=DeploymentJob.JobType.AUTO_SYNC_INSTANCE_REPOS,
+        job_type=DeploymentJob.JobType.UPDATE_INSTANCE_REPO,
         odoo_instance=repo.instance,
         created_by=repo.created_by or repo.instance.created_by,
     )
