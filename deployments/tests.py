@@ -1,5 +1,6 @@
 import json
 import io
+import requests
 import tarfile
 import tempfile
 from pathlib import Path
@@ -33,6 +34,7 @@ from subscriptions.models import Plan, Subscription
 from deployments.tasks import (
     delete_odoo_instance,
     _mark_server_unreachable_from_ansible_log,
+    _provider_native_provision_server,
     _persist_server_reachability,
     check_server_connectivity,
     mark_disconnected_servers,
@@ -170,6 +172,74 @@ class DeploymentBeatScheduleTests(TestCase):
         self.assertTrue(repair_task.enabled)
         self.assertEqual(repair_task.interval.every, 1)
         self.assertEqual(repair_task.interval.period, IntervalSchedule.HOURS)
+
+
+class ProviderProvisioningTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(email="provider@test.com", password="pass")
+        cls.org = Organization.objects.create(name="Provider Org", owner=cls.user)
+        cls.account = CloudAccount.objects.create(
+            organization=cls.org,
+            provider=CloudAccount.Provider.DIGITALOCEAN,
+            name="Scoped DO Account",
+            encrypted_api_token="dummy",
+            is_verified=True,
+        )
+
+    @patch("deployments.tasks.get_provider")
+    @patch("cloud.models.SystemSSHKey.get_or_create_keypair")
+    def test_provider_native_provision_server_fails_fast_without_ssh_key_permissions(self, mock_system_key, mock_get_provider):
+        mock_system_key.return_value = type("Key", (), {"public_key": "ssh-ed25519 AAAATEST"})()
+        provider = mock_get_provider.return_value
+        provider.ensure_dafeapp_ssh_key.return_value = ""
+
+        server = OdooServer.objects.create(
+            organization=self.org,
+            cloud_account=self.account,
+            name="scoped-server",
+            odoo_version="19",
+            region="nyc3",
+            size="s-1vcpu-1gb",
+        )
+
+        ok, provider_id, ip, err = _provider_native_provision_server(server)
+
+        self.assertFalse(ok)
+        self.assertEqual(provider_id, "")
+        self.assertEqual(ip, "")
+        self.assertIn("ssh_key:create", err)
+        provider.create_server.assert_not_called()
+
+    @patch("deployments.tasks.get_provider")
+    @patch("cloud.models.SystemSSHKey.get_or_create_keypair")
+    def test_provider_native_provision_server_surfaces_droplet_create_scope_errors(self, mock_system_key, mock_get_provider):
+        mock_system_key.return_value = type("Key", (), {"public_key": "ssh-ed25519 AAAATEST"})()
+        provider = mock_get_provider.return_value
+        provider.ensure_dafeapp_ssh_key.return_value = "fp:123"
+
+        response = requests.Response()
+        response.status_code = 403
+        response._content = b'{"message":"forbidden"}'
+        http_error = requests.HTTPError("403 Forbidden")
+        http_error.response = response
+        provider.create_server.side_effect = http_error
+
+        server = OdooServer.objects.create(
+            organization=self.org,
+            cloud_account=self.account,
+            name="scoped-server",
+            odoo_version="19",
+            region="nyc3",
+            size="s-1vcpu-1gb",
+        )
+
+        ok, provider_id, ip, err = _provider_native_provision_server(server)
+
+        self.assertFalse(ok)
+        self.assertEqual(provider_id, "")
+        self.assertEqual(ip, "")
+        self.assertIn("droplet:create", err)
 
 
 class ServerHeartbeatTests(TestCase):

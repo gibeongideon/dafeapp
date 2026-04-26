@@ -42,7 +42,7 @@ services:
   celery_worker:
     build: .
     restart: unless-stopped
-    command: celery -A dafeapp worker -l info
+    command: celery -A dafeapp worker -l info --queues celery,provisioning
     volumes:
       - .:/app
     env_file:
