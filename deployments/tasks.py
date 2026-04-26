@@ -3251,8 +3251,11 @@ def _provision_odoo_server_inner(self, server_id: int):
     state_root.mkdir(parents=True, exist_ok=True)
 
     tf_dir = os.getenv("TERRAFORM_SERVER_MODULE_DIR", "").strip()
-    _tf_candidate = Path(tf_dir) if tf_dir else None
-    module_dir = _tf_candidate if (_tf_candidate and (_tf_candidate / "main.tf").exists()) else state_root
+    if not tf_dir:
+        # Auto-detect bundled Terraform module (works in Docker and local dev without env config)
+        tf_dir = str(Path(settings.BASE_DIR) / "infra" / "terraform" / "odoo_server")
+    _tf_candidate = Path(tf_dir)
+    module_dir = _tf_candidate if (_tf_candidate / "main.tf").exists() else state_root
 
     vars_payload = {
         "name": server.name,
