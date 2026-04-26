@@ -28,6 +28,7 @@
       </div>
       {% elif show_instances_view %}
       <h2 class="text-2xl font-semibold text-gray-900">All instances</h2>
+      <p class="text-sm text-gray-500 mt-0.5">Organization-wide board</p>
       {% else %}
       <h2 class="text-2xl font-semibold text-gray-900">Servers</h2>
       {% endif %}
@@ -386,7 +387,7 @@
       <select id="instance-group-select"
               class="text-xs border border-gray-200 rounded-lg px-2.5 py-2 bg-white text-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-200 cursor-pointer">
         <option value="" selected>None</option>
-        <option value="server">Server</option>
+        <option value="server">All servers</option>
         <option value="date">Created</option>
       </select>
     </div>
@@ -4145,6 +4146,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
   setInterval(refreshServerCards, SERVER_REFRESH_INTERVAL_MS);
   refreshInstanceRows();
   setInterval(refreshInstanceRows, SERVER_REFRESH_INTERVAL_MS);
+  setInterval(retryDisconnectedVisibleServers, DISCONNECTED_SERVER_RETRY_INTERVAL_MS);
   // Metrics: fetch immediately then every 30s
   setTimeout(refreshAllServerMetrics, 1500);
   setInterval(refreshAllServerMetrics, 30000);
