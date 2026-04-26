@@ -67,3 +67,11 @@ class AbstractCloudProvider(ABC):
         Default implementation returns empty string (provider does not support this).
         """
         return ""
+
+    def get_provider_account_id(self) -> str:
+        """
+        Return the stable provider-side account identifier (e.g. DO team UUID,
+        AWS account ID).  Used to detect duplicate cloud account connections.
+        Returns empty string if the call fails or is not supported.
+        """
+        return ""

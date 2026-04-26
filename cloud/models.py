@@ -95,6 +95,9 @@ class CloudAccount(models.Model):
     encrypted_do_oauth_token = models.TextField(blank=True)
     encrypted_do_oauth_refresh_token = models.TextField(blank=True)
     do_oauth_token_expiry = models.DateTimeField(null=True, blank=True)
+    # Stable identifier from the provider (DO account UUID, AWS account ID).
+    # Populated after first successful validation; used to detect duplicate connections.
+    provider_account_id = models.CharField(max_length=200, blank=True, db_index=True)
     is_verified = models.BooleanField(default=False)
     is_platform = models.BooleanField(
         default=False,

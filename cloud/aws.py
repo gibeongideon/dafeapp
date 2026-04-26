@@ -70,6 +70,14 @@ class AWSProvider(AbstractCloudProvider):
         except Exception as exc:
             return False, f"AWS credential validation failed: {exc}"
 
+    def get_provider_account_id(self) -> str:
+        """Return the AWS account ID via STS GetCallerIdentity."""
+        try:
+            sts = self._boto3_client("sts")
+            return sts.get_caller_identity().get("Account", "")
+        except Exception:
+            return ""
+
     def create_server(self, name: str, region: str, size: str, ssh_key_ids: list | None = None) -> dict:
         image_id = os.getenv("AWS_DEFAULT_AMI_ID", "ami-0fc5d935ebf8bc3bc")
         ec2 = self._ec2(region)

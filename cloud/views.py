@@ -48,6 +48,63 @@ def _dispatch(task, *args):
         task(*args)
 
 
+def _get_provider_account_id_from_credentials(provider: str, cleaned_data: dict) -> str:
+    """
+    Call the provider API with raw (unencrypted) credentials to get the stable
+    provider-side account identifier.  Used for duplicate-connection detection
+    before a new CloudAccount is saved.  Returns empty string on any failure.
+    """
+    if provider == CloudAccount.Provider.DIGITALOCEAN:
+        token = (cleaned_data.get("api_token") or "").strip()
+        if not token:
+            return ""
+        try:
+            resp = requests.get(
+                "https://api.digitalocean.com/v2/account",
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                return resp.json().get("account", {}).get("uuid", "")
+        except Exception:
+            pass
+
+    elif provider == CloudAccount.Provider.AWS:
+        key_id = (cleaned_data.get("aws_access_key_id") or "").strip()
+        secret = (cleaned_data.get("aws_secret_access_key") or "").strip()
+        region = (cleaned_data.get("aws_default_region") or "us-east-1").strip()
+        if not key_id or not secret:
+            return ""
+        try:
+            import boto3
+            sts = boto3.client(
+                "sts",
+                aws_access_key_id=key_id,
+                aws_secret_access_key=secret,
+                region_name=region,
+            )
+            return sts.get_caller_identity().get("Account", "")
+        except Exception:
+            pass
+
+    return ""
+
+
+def _get_do_account_uuid_from_token(token: str) -> str:
+    """Quick helper for OAuth callback — get DO UUID from a raw access token."""
+    try:
+        resp = requests.get(
+            "https://api.digitalocean.com/v2/account",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            return resp.json().get("account", {}).get("uuid", "")
+    except Exception:
+        pass
+    return ""
+
+
 class CloudSuperAdminMixin(LoginRequiredMixin):
     """All cloud views require login + SUPER_ADMIN role."""
 
@@ -221,10 +278,41 @@ class AddCloudAccountView(CloudSuperAdminMixin, View):
     def post(self, request):
         form = CloudAccountForm(request.POST)
         if form.is_valid():
+            from cloud.tasks import validate_cloud_account
+
+            provider = form.cleaned_data.get("provider", "")
             account = form.save(commit=False)
             account.organization = request.organization
-            account.save()
 
+            # Detect duplicate: same provider account already connected in this org
+            provider_account_id = _get_provider_account_id_from_credentials(provider, form.cleaned_data)
+            if provider_account_id:
+                existing = CloudAccount.objects.filter(
+                    organization=request.organization,
+                    provider=provider,
+                    provider_account_id=provider_account_id,
+                ).first()
+                if existing:
+                    # Upsert: refresh credentials on existing record and re-verify
+                    if provider == CloudAccount.Provider.DIGITALOCEAN:
+                        existing._raw_api_token = form.cleaned_data.get("api_token", "")
+                        existing.do_auth_method = CloudAccount.DOAuthMethod.TOKEN
+                    elif provider == CloudAccount.Provider.AWS:
+                        existing._raw_aws_access_key_id = form.cleaned_data.get("aws_access_key_id", "")
+                        existing._raw_aws_secret_access_key = form.cleaned_data.get("aws_secret_access_key", "")
+                        existing.aws_default_region = form.cleaned_data.get("aws_default_region") or existing.aws_default_region
+                    existing.name = account.name
+                    existing.is_verified = False
+                    existing.verification_error = ""
+                    existing.save()
+                    _dispatch(validate_cloud_account, existing.pk)
+                    log_audit(request.user, AuditLog.Action.CLOUD_ACCT_ADD, request,
+                              f"Reconnected cloud account '{existing.name}' ({existing.get_provider_display()})")
+                    messages.info(request, f"'{existing.name}' is already connected — credentials updated and re-verifying.")
+                    return redirect("cloud:dashboard")
+                account.provider_account_id = provider_account_id
+
+            account.save()
             log_audit(
                 request.user,
                 AuditLog.Action.CLOUD_ACCT_ADD,
@@ -232,10 +320,7 @@ class AddCloudAccountView(CloudSuperAdminMixin, View):
                 f"Added cloud account '{account.name}' ({account.get_provider_display()})",
             )
             messages.success(request, f"Account '{account.name}' added. Verifying token…")
-
-            from cloud.tasks import validate_cloud_account
             _dispatch(validate_cloud_account, account.pk)
-
             return redirect("cloud:dashboard")
 
         return render(
@@ -331,24 +416,59 @@ class DigitalOceanOAuthCallbackView(CloudSuperAdminMixin, View):
             messages.error(request, "DigitalOcean OAuth succeeded but no access token was returned.")
             return redirect("cloud:add-account")
 
+        from cloud.tasks import validate_cloud_account
+
+        # Resolve the DO team UUID so we can detect duplicate connections
+        do_uuid = _get_do_account_uuid_from_token(access_token)
+
+        if do_uuid:
+            existing = CloudAccount.objects.filter(
+                organization=request.organization,
+                provider=CloudAccount.Provider.DIGITALOCEAN,
+                provider_account_id=do_uuid,
+            ).first()
+            if existing:
+                # Same DO account already connected — refresh the OAuth token
+                existing._raw_do_oauth_token = access_token
+                existing.do_auth_method = CloudAccount.DOAuthMethod.OAUTH
+                if refresh_token:
+                    existing._raw_do_oauth_refresh_token = refresh_token
+                if expires_in:
+                    try:
+                        existing.do_oauth_token_expiry = timezone.now() + timedelta(seconds=int(expires_in))
+                    except Exception:
+                        pass
+                existing.is_verified = False
+                existing.verification_error = ""
+                existing.save()
+                _dispatch(validate_cloud_account, existing.pk)
+                log_audit(request.user, AuditLog.Action.CLOUD_ACCT_ADD, request,
+                          f"Reconnected cloud account '{existing.name}' via OAuth")
+                messages.info(request, f"'{existing.name}' is already connected — OAuth token refreshed and re-verifying.")
+                return redirect("cloud:dashboard")
+
+        expiry = None
+        if expires_in:
+            try:
+                expiry = timezone.now() + timedelta(seconds=int(expires_in))
+            except Exception:
+                pass
+
         account = CloudAccount(
             organization=request.organization,
             provider=CloudAccount.Provider.DIGITALOCEAN,
             name=f"DigitalOcean OAuth · {timezone.now().strftime('%Y-%m-%d %H:%M')}",
             do_auth_method=CloudAccount.DOAuthMethod.OAUTH,
+            provider_account_id=do_uuid,
             encrypted_api_token="",
             encrypted_aws_access_key_id="",
             encrypted_aws_secret_access_key="",
             aws_default_region="",
+            do_oauth_token_expiry=expiry,
         )
         account._raw_do_oauth_token = access_token
         if refresh_token:
             account._raw_do_oauth_refresh_token = refresh_token
-        if expires_in:
-            try:
-                account.do_oauth_token_expiry = timezone.now() + timedelta(seconds=int(expires_in))
-            except Exception:
-                account.do_oauth_token_expiry = None
         account.save()
 
         log_audit(
@@ -358,8 +478,6 @@ class DigitalOceanOAuthCallbackView(CloudSuperAdminMixin, View):
             f"Added cloud account '{account.name}' ({account.get_provider_display()}) via OAuth",
         )
         messages.success(request, f"Account '{account.name}' connected. Verifying access…")
-
-        from cloud.tasks import validate_cloud_account
         _dispatch(validate_cloud_account, account.pk)
         return redirect("cloud:dashboard")
 

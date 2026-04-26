@@ -100,6 +100,16 @@ class DigitalOceanProvider(AbstractCloudProvider):
 
         return True, "Credentials valid."
 
+    def get_provider_account_id(self) -> str:
+        """Return the DO team UUID from /v2/account."""
+        try:
+            resp = self._session.get(f"{API_BASE}/account", timeout=10)
+            if resp.status_code == 200:
+                return resp.json().get("account", {}).get("uuid", "")
+        except Exception:
+            pass
+        return ""
+
     def list_ssh_keys(self) -> list[str]:
         """GET /v2/account/keys — return fingerprints of all SSH keys in the DO account."""
         try:

@@ -111,10 +111,18 @@ def validate_cloud_account(self, account_id: int):
     provider = get_provider(account)
     success, message = provider.validate_credentials()
 
+    update_fields = ["is_verified", "verification_error", "last_verified_at"]
     account.is_verified = success
     account.verification_error = "" if success else message
     account.last_verified_at = timezone.now()
-    account.save(update_fields=["is_verified", "verification_error", "last_verified_at"])
+
+    if success and not account.provider_account_id:
+        account_id = provider.get_provider_account_id()
+        if account_id:
+            account.provider_account_id = account_id
+            update_fields.append("provider_account_id")
+
+    account.save(update_fields=update_fields)
 
     log_audit(None, AuditLog.Action.CLOUD_ACCT_VERIFY, None, f"Account '{account.name}': {message}", organization=account.organization)
 
