@@ -193,3 +193,6 @@
         - "443"
         - "8069:8100"
       ignore_errors: true
+
+    - name: Install DafeApp heartbeat agent
+      import_tasks: "{{ playbook_dir }}/tasks/install_dafeapp_heartbeat_agent.yml"

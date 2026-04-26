@@ -196,6 +196,9 @@
       ignore_errors: true
       when: bootstrap_standalone_value == 'True'
 
+    - name: Install DafeApp heartbeat agent
+      import_tasks: "{{ playbook_dir }}/tasks/install_dafeapp_heartbeat_agent.yml"
+
     # ------------------------------------------------------------------
     # 8. Summary
     # ------------------------------------------------------------------

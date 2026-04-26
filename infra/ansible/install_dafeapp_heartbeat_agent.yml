@@ -1,0 +1,8 @@
+---
+- name: Install or repair DafeApp heartbeat agent
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Install DafeApp heartbeat agent tasks
+      import_tasks: "{{ playbook_dir }}/tasks/install_dafeapp_heartbeat_agent.yml"

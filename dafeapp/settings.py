@@ -163,10 +163,34 @@ CELERY_SERVER_CONNECTIVITY_INTERVAL_SECONDS = env.int(
     "CELERY_SERVER_CONNECTIVITY_INTERVAL_SECONDS",
     default=180,
 )
+CELERY_SERVER_HEARTBEAT_INTERVAL_SECONDS = env.int(
+    "CELERY_SERVER_HEARTBEAT_INTERVAL_SECONDS",
+    default=60,
+)
+SERVER_HEARTBEAT_TIMEOUT_MINUTES = env.int(
+    "SERVER_HEARTBEAT_TIMEOUT_MINUTES",
+    default=5,
+)
+CELERY_SERVER_HEARTBEAT_REPAIR_INTERVAL_SECONDS = env.int(
+    "CELERY_SERVER_HEARTBEAT_REPAIR_INTERVAL_SECONDS",
+    default=3600,
+)
+SERVER_HEARTBEAT_REPAIR_THRESHOLD_MINUTES = env.int(
+    "SERVER_HEARTBEAT_REPAIR_THRESHOLD_MINUTES",
+    default=20,
+)
 CELERY_BEAT_SCHEDULE = {
     "check-server-connectivity": {
         "task": "deployments.tasks.check_server_connectivity",
         "schedule": float(CELERY_SERVER_CONNECTIVITY_INTERVAL_SECONDS),
+    },
+    "mark-disconnected-servers": {
+        "task": "deployments.tasks.mark_disconnected_servers",
+        "schedule": float(CELERY_SERVER_HEARTBEAT_INTERVAL_SECONDS),
+    },
+    "repair-stale-heartbeat-agents": {
+        "task": "deployments.tasks.repair_stale_heartbeat_agents",
+        "schedule": float(CELERY_SERVER_HEARTBEAT_REPAIR_INTERVAL_SECONDS),
     },
     "check-instance-health": {
         "task": "deployments.tasks.check_instance_health",

@@ -1,0 +1,49 @@
+- name: Ensure curl is installed for heartbeat posts
+  apt:
+    name: curl
+    state: present
+    update_cache: true
+
+- name: Create DafeApp agent directory
+  file:
+    path: /opt/dafeapp-agent
+    state: directory
+    mode: "0755"
+
+- name: Install heartbeat script
+  copy:
+    dest: /opt/dafeapp-agent/heartbeat.sh
+    mode: "0755"
+    content: |
+      #!/bin/bash
+      DAFEAPP_URL="{{ dafeapp_heartbeat_url }}"
+      while true; do
+        curl -X POST --max-time 10 --silent --output /dev/null "$DAFEAPP_URL" || true
+        sleep 60
+      done
+
+- name: Install heartbeat systemd service
+  copy:
+    dest: /etc/systemd/system/dafeapp-heartbeat.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=DafeApp Heartbeat Agent
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      ExecStart=/opt/dafeapp-agent/heartbeat.sh
+      Restart=always
+      RestartSec=30
+
+      [Install]
+      WantedBy=multi-user.target
+
+- name: Enable and start heartbeat service
+  systemd:
+    name: dafeapp-heartbeat
+    enabled: true
+    state: started
+    daemon_reload: true

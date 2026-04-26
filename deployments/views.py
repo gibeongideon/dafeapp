@@ -2075,6 +2075,30 @@ class OdooServerCheckConnectivityView(LoginRequiredMixin, View):
         return JsonResponse(payload)
 
 
+@method_decorator(csrf_exempt, name="dispatch")
+class HeartbeatView(View):
+    """Receive liveness heartbeats from the remote dafeapp-heartbeat service."""
+
+    def post(self, request, token):
+        try:
+            server = OdooServer.objects.only(
+                "pk",
+                "is_active",
+                "is_reachable",
+                "last_heartbeat_at",
+                "last_checked_at",
+            ).get(agent_token=token, is_active=True)
+        except OdooServer.DoesNotExist:
+            return JsonResponse({"ok": False}, status=404)
+
+        now = timezone.now()
+        server.last_heartbeat_at = now
+        server.last_checked_at = now
+        server.is_reachable = True
+        server.save(update_fields=["last_heartbeat_at", "last_checked_at", "is_reachable", "updated_at"])
+        return JsonResponse({"ok": True})
+
+
 from deployments.tasks import _METRICS_CMD
 
 
