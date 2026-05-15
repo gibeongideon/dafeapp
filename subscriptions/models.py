@@ -26,6 +26,12 @@ class Plan(models.Model):
     staging_enabled = models.BooleanField(default=False)
     version_upgrade_enabled = models.BooleanField(default=False)
 
+    # Paystack — set this to enable automatic recurring billing for the plan
+    paystack_plan_code = models.CharField(
+        max_length=50, blank=True,
+        help_text="Paystack plan code (e.g. PLN_xxxx). When set, subscribing initializes a recurring Paystack subscription.",
+    )
+
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -34,6 +40,11 @@ class Plan(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.plan_type})"
+
+    @property
+    def price_in_kobo(self):
+        """Amount in Paystack subunits (kobo for NGN, pesewas for GHS, cents for USD)."""
+        return int(self.price_monthly * 100)
 
 
 class Subscription(models.Model):
@@ -56,6 +67,15 @@ class Subscription(models.Model):
     current_period_start = models.DateTimeField()
     current_period_end = models.DateTimeField()
     auto_renew = models.BooleanField(default=True)
+
+    # Paystack identifiers — populated after first successful payment
+    paystack_customer_code = models.CharField(max_length=100, blank=True)
+    paystack_subscription_code = models.CharField(max_length=100, blank=True)
+    paystack_email_token = models.CharField(
+        max_length=200, blank=True,
+        help_text="Token used to generate the Paystack subscription management link.",
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -93,6 +113,48 @@ class Subscription(models.Model):
     def days_until_renewal(self):
         delta = self.current_period_end - timezone.now()
         return max(0, delta.days)
+
+
+class PaystackPayment(models.Model):
+    """Tracks every Paystack transaction attempt tied to a subscription."""
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Pending"
+        SUCCESS = "SUCCESS", "Success"
+        FAILED = "FAILED", "Failed"
+        ABANDONED = "ABANDONED", "Abandoned"
+
+    class PaymentType(models.TextChoices):
+        INITIAL = "INITIAL", "Initial subscription"
+        RENEWAL = "RENEWAL", "Auto-renewal"
+        UPGRADE = "UPGRADE", "Plan upgrade"
+
+    organization = models.ForeignKey(
+        "organizations.Organization",
+        on_delete=models.CASCADE,
+        related_name="paystack_payments",
+    )
+    plan = models.ForeignKey(Plan, on_delete=models.PROTECT, related_name="payments")
+    reference = models.CharField(max_length=100, unique=True)
+    paystack_id = models.CharField(max_length=100, blank=True, help_text="Paystack transaction ID")
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    currency = models.CharField(max_length=10, default="NGN")
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    payment_type = models.CharField(max_length=20, choices=PaymentType.choices, default=PaymentType.INITIAL)
+    gateway_response = models.CharField(max_length=255, blank=True)
+    paid_at = models.DateTimeField(null=True, blank=True)
+    metadata = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["organization", "status", "created_at"]),
+            models.Index(fields=["reference"]),
+        ]
+
+    def __str__(self):
+        return f"{self.reference} — {self.organization.name} [{self.status}]"
 
 
 class UsageRecord(models.Model):

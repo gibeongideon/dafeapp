@@ -447,6 +447,14 @@ DIGITALOCEAN_CLIENT_ID = env("DIGITALOCEAN_CLIENT_ID", default="")
 DIGITALOCEAN_CLIENT_SECRET = env("DIGITALOCEAN_CLIENT_SECRET", default="")
 
 # ---------------------------------------------------------------------------
+# Paystack payment gateway
+# ---------------------------------------------------------------------------
+PAYSTACK_SECRET_KEY = env("PAYSTACK_SECRET_KEY", default="")
+PAYSTACK_PUBLIC_KEY = env("PAYSTACK_PUBLIC_KEY", default="")
+# Currency for Paystack transactions. NGN (kobo), GHS (pesewas), ZAR (cents), USD (cents).
+PAYSTACK_CURRENCY = env("PAYSTACK_CURRENCY", default="NGN")
+
+# ---------------------------------------------------------------------------
 # Extra built-ins
 # ---------------------------------------------------------------------------
 INSTALLED_APPS += ["django.contrib.humanize"]

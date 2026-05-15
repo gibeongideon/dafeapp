@@ -9,7 +9,7 @@ from core.admin_mixins import (
     ReadOnlyAdminMixin,
     RoleControlledAdminMixin,
 )
-from .models import Plan, Subscription, UsageRecord
+from .models import Plan, PaystackPayment, Subscription, UsageRecord
 
 
 @admin.register(Plan)
@@ -67,6 +67,35 @@ class SubscriptionAdmin(RoleControlledAdminMixin, admin.ModelAdmin):
             "PAST_DUE": "orange",
             "SUSPENDED": "red",
             "CANCELLED": "gray",
+        }
+        colour = colours.get(obj.status, "gray")
+        return format_html(
+            '<span style="color:{}; font-weight:bold;">{}</span>',
+            colour,
+            obj.get_status_display(),
+        )
+
+
+@admin.register(PaystackPayment)
+class PaystackPaymentAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
+    view_roles = {PLATFORM_OWNER_ROLE, PLATFORM_FINANCE_ROLE, PLATFORM_SUPPORT_ROLE}
+    list_display = (
+        "reference", "organization", "plan", "amount", "currency",
+        "status_badge", "payment_type", "paid_at", "created_at",
+    )
+    list_filter = ("status", "payment_type", "currency", "plan")
+    search_fields = ("reference", "organization__name", "paystack_id")
+    readonly_fields = ("reference", "paystack_id", "created_at", "paid_at", "metadata")
+    raw_id_fields = ("organization",)
+    date_hierarchy = "created_at"
+
+    @admin.display(description="Status")
+    def status_badge(self, obj):
+        colours = {
+            "SUCCESS": "green",
+            "PENDING": "orange",
+            "FAILED": "red",
+            "ABANDONED": "gray",
         }
         colour = colours.get(obj.status, "gray")
         return format_html(

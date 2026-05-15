@@ -11,6 +11,9 @@ _EXEMPT_PREFIXES = (
     "/orgs/",
     "/api/token/",
     "/subscriptions/required/",
+    "/subscriptions/payment/",
+    "/subscriptions/webhook/",
+    "/subscriptions/cancel/",
     "/static/",
     "/media/",
 )
