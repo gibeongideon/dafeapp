@@ -50,6 +50,9 @@ jobs:
     name: Deploy to DigitalOcean
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
 
     steps:
       - name: Checkout code
@@ -60,13 +63,11 @@ jobs:
           DO_HOST: ${{ secrets.DO_HOST }}
           DO_USER: ${{ secrets.DO_USER }}
           DO_SSH_KEY: ${{ secrets.DO_SSH_KEY }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
         run: |
           set -euo pipefail
 
           [ -n "${DO_HOST}" ] || { echo "::error::Missing GitHub secret DO_HOST"; exit 1; }
           [ -n "${DO_USER}" ] || { echo "::error::Missing GitHub secret DO_USER"; exit 1; }
-          [ -n "${GHCR_TOKEN}" ] || { echo "::error::Missing GitHub secret GHCR_TOKEN"; exit 1; }
           [ -n "${DO_SSH_KEY}" ] || { echo "::error::Missing GitHub secret DO_SSH_KEY"; exit 1; }
 
           case "${DO_SSH_KEY}" in
@@ -119,8 +120,8 @@ jobs:
         uses: appleboy/ssh-action@v1.0.3
         env:
           IMAGE: ghcr.io/${{ env.IMAGE_NAME }}:dev
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
-          GHCR_USERNAME: ${{ github.repository_owner }}
+          GHCR_TOKEN: ${{ github.token }}
+          GHCR_USERNAME: ${{ github.actor }}
         with:
           host: ${{ secrets.DO_HOST }}
           username: ${{ secrets.DO_USER }}
