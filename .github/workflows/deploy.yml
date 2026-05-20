@@ -151,6 +151,9 @@ jobs:
 
             if grep -Eq "CHANGE_ME|YOUR_DROPLET_IP_OR_DOMAIN|your-secret-key-here|your-fernet-key-here" .env; then
               echo "/opt/dafeapp/.env still contains placeholder values."
+              echo "Placeholder variables still present:"
+              grep -En "CHANGE_ME|YOUR_DROPLET_IP_OR_DOMAIN|your-secret-key-here|your-fernet-key-here" .env \
+                | sed -E 's/^([0-9]+):([^=]+)=.*/  line \1: \2/' || true
               echo "SSH into the server and replace placeholders before deploying:"
               echo "  ssh ${{ secrets.DO_USER }}@${{ secrets.DO_HOST }}"
               echo "  nano /opt/dafeapp/.env"

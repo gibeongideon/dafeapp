@@ -107,6 +107,23 @@ ssh root@192.34.61.66 "bash -s" < scripts/droplet-setup.sh
 
 If the workflow says `/opt/dafeapp/.env` contains placeholders, edit the env file on the server and rerun the workflow.
 
+At minimum, replace every value containing `CHANGE_ME` or `YOUR_DROPLET_IP_OR_DOMAIN`. For the current production server, the domain-related values should be:
+
+```env
+ALLOWED_HOSTS=dafeapp.com,www.dafeapp.com
+CSRF_TRUSTED_ORIGINS=https://dafeapp.com,https://www.dafeapp.com
+SITE_URL=https://dafeapp.com
+```
+
+The required secret values must also be real:
+
+```env
+SECRET_KEY=<real generated Django secret>
+DB_PASSWORD=<real database password>
+DATABASE_URL=postgres://dafeapp:<same database password>@db:5432/dafeapp
+FIELD_ENCRYPTION_KEY=<real Fernet key>
+```
+
 You can check the server manually:
 
 ```bash
