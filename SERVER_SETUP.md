@@ -155,4 +155,25 @@ https://dafeapp.com
 ```
 
 Caddy handles HTTPS automatically for `dafeapp.com` using the root `Caddyfile`.
- deploy
+
+## 8. Domain Troubleshooting
+
+If the deploy succeeds but the browser keeps loading:
+
+```bash
+ssh root@192.34.61.66
+cd /opt/dafeapp
+docker compose -f docker-compose.prod.yml ps
+docker compose -f docker-compose.prod.yml logs --tail=100 caddy
+docker compose -f docker-compose.prod.yml logs --tail=100 web
+curl -I http://localhost
+curl -I https://dafeapp.com
+```
+
+Check these common causes:
+
+- DNS `A` records for `dafeapp.com` and `www.dafeapp.com` must point to `192.34.61.66`.
+- DigitalOcean firewall and Ubuntu `ufw` must allow ports `80` and `443`.
+- Cloudflare SSL/TLS mode should be `Full` or `Full (strict)`, not `Flexible`.
+- If using Cloudflare proxy, try DNS-only temporarily until Caddy issues the certificate.
+- `Caddyfile` must include both `dafeapp.com` and `www.dafeapp.com`.
