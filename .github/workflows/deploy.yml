@@ -47,7 +47,7 @@ jobs:
 
   # ── 2. Deploy to DigitalOcean Droplet ───────────────────────────────────────
   deploy:
-    name: Deploy to DigitalOcean (168.144.21.99)
+    name: Deploy to DigitalOcean
     needs: build
     runs-on: ubuntu-latest
 
@@ -77,6 +77,34 @@ jobs:
               exit 1
               ;;
           esac
+
+      - name: Copy bootstrap script to droplet
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DO_HOST }}
+          username: ${{ secrets.DO_USER }}
+          key: ${{ secrets.DO_SSH_KEY }}
+          source: "scripts/droplet-setup.sh"
+          target: "/tmp/dafeapp-bootstrap/"
+
+      - name: Bootstrap droplet if needed
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DO_HOST }}
+          username: ${{ secrets.DO_USER }}
+          key: ${{ secrets.DO_SSH_KEY }}
+          script: |
+            set -e
+
+            if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+              echo "Docker and Docker Compose are already installed."
+              exit 0
+            fi
+
+            echo "Docker or Docker Compose is missing. Running one-time droplet bootstrap..."
+            bash /tmp/dafeapp-bootstrap/scripts/droplet-setup.sh
+
+            echo "Bootstrap complete. Edit /opt/dafeapp/.env before the first successful deploy."
 
       - name: Copy compose + Caddyfile to droplet
         uses: appleboy/scp-action@v0.1.7
@@ -114,6 +142,20 @@ jobs:
             fi
 
             cd /opt/dafeapp
+
+            if [ ! -f .env ]; then
+              echo "Missing /opt/dafeapp/.env."
+              echo "Run the bootstrap script, then fill in /opt/dafeapp/.env."
+              exit 1
+            fi
+
+            if grep -Eq "CHANGE_ME|YOUR_DROPLET_IP_OR_DOMAIN|your-secret-key-here|your-fernet-key-here" .env; then
+              echo "/opt/dafeapp/.env still contains placeholder values."
+              echo "SSH into the server and replace placeholders before deploying:"
+              echo "  ssh ${{ secrets.DO_USER }}@${{ secrets.DO_HOST }}"
+              echo "  nano /opt/dafeapp/.env"
+              exit 1
+            fi
 
             echo "==> Authenticating with GHCR..."
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GH_ACTOR" --password-stdin

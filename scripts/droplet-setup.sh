@@ -61,9 +61,11 @@ cat > /opt/dafeapp/.env << ENVEOF
 SECRET_KEY=CHANGE_ME_generate_with_python_-c_"import_secrets;print(secrets.token_hex(50))"
 DEBUG=False
 ALLOWED_HOSTS=YOUR_DROPLET_IP_OR_DOMAIN
-SITE_URL=http://YOUR_DROPLET_IP_OR_DOMAIN:8000
-SESSION_COOKIE_SECURE=False
-CSRF_COOKIE_SECURE=False
+CSRF_TRUSTED_ORIGINS=https://YOUR_DROPLET_IP_OR_DOMAIN
+SITE_URL=https://YOUR_DROPLET_IP_OR_DOMAIN
+SESSION_COOKIE_SECURE=True
+CSRF_COOKIE_SECURE=True
+SECURE_SSL_REDIRECT=True
 
 # ── Database (matches docker-compose.prod.yml defaults) ───────────────────────
 DATABASE_URL=postgres://dafeapp:CHANGE_ME_DB_PASSWORD@db:5432/dafeapp
@@ -121,7 +123,8 @@ warn ""
 warn " Key things to set:"
 warn "   SECRET_KEY          — random 50-char hex string"
 warn "   ALLOWED_HOSTS       — your droplet IP or domain"
-warn "   SITE_URL            — http(s)://your-ip-or-domain:8000"
+warn "   CSRF_TRUSTED_ORIGINS — https://your-domain"
+warn "   SITE_URL            — https://your-domain"
 warn "   DB_PASSWORD         — strong password (also update DATABASE_URL)"
 warn "   FIELD_ENCRYPTION_KEY — already generated above, back it up!"
 warn "   DIGITALOCEAN_TOKEN  — your DO API token"

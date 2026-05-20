@@ -27,6 +27,8 @@ ssh root@192.34.61.66 "bash -s" < scripts/droplet-setup.sh
 
 The script installs Docker and Docker Compose, creates `/opt/dafeapp`, and writes a starter `/opt/dafeapp/.env`.
 
+The GitHub Actions deploy workflow also runs this bootstrap automatically if Docker or Docker Compose is missing. On a fresh server, the first workflow run may stop after bootstrap and ask you to edit `/opt/dafeapp/.env`; that is expected.
+
 ## 3. Configure `/opt/dafeapp/.env`
 
 SSH into the server:
@@ -96,6 +98,14 @@ git push origin dev:dev
 ```
 
 The workflow in `.github/workflows/deploy.yml` will build and deploy the app.
+
+If the workflow says Docker is missing, bootstrap the server manually:
+
+```bash
+ssh root@192.34.61.66 "bash -s" < scripts/droplet-setup.sh
+```
+
+If the workflow says `/opt/dafeapp/.env` contains placeholders, edit the env file on the server and rerun the workflow.
 
 You can check the server manually:
 
