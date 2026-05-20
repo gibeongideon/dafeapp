@@ -85,9 +85,11 @@ In GitHub, open the repository settings and set:
 DO_HOST=192.34.61.66
 DO_USER=root
 DO_SSH_KEY=<private SSH key that can access root@192.34.61.66>
-GHCR_TOKEN=<GitHub token with package access>
+GHCR_TOKEN=<GitHub token with read:packages access>
 FIELD_ENCRYPTION_KEY=<same Fernet key used in /opt/dafeapp/.env>
 ```
+
+`GHCR_TOKEN` must be able to pull `ghcr.io/gibeongideon/dafeapp:dev`. For a private GHCR package, use a classic GitHub personal access token from the repository/package owner with `read:packages`. If the repository/package is private, include `repo` as well. If your organization enforces SSO, authorize the token for the organization.
 
 ## 5. Deploy
 

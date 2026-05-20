@@ -120,12 +120,12 @@ jobs:
         env:
           IMAGE: ghcr.io/${{ env.IMAGE_NAME }}:dev
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
-          GH_ACTOR: ${{ github.actor }}
+          GHCR_USERNAME: ${{ github.repository_owner }}
         with:
           host: ${{ secrets.DO_HOST }}
           username: ${{ secrets.DO_USER }}
           key: ${{ secrets.DO_SSH_KEY }}
-          envs: IMAGE,GHCR_TOKEN,GH_ACTOR
+          envs: IMAGE,GHCR_TOKEN,GHCR_USERNAME
           script: |
             set -e
 
@@ -161,7 +161,7 @@ jobs:
             fi
 
             echo "==> Authenticating with GHCR..."
-            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GH_ACTOR" --password-stdin
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
 
             echo "==> Pulling image: $IMAGE"
             IMAGE="$IMAGE" docker compose -f docker-compose.prod.yml pull
