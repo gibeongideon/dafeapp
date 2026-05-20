@@ -154,3 +154,4 @@ https://dafeapp.com
 ```
 
 Caddy handles HTTPS automatically for `dafeapp.com` using the root `Caddyfile`.
+ deploy
