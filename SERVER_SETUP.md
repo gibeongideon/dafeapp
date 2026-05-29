@@ -177,3 +177,35 @@ Check these common causes:
 - Cloudflare SSL/TLS mode should be `Full` or `Full (strict)`, not `Flexible`.
 - If using Cloudflare proxy, try DNS-only temporarily until Caddy issues the certificate.
 - `Caddyfile` must include both `dafeapp.com` and `www.dafeapp.com`.
+
+
+
+
+
+
+DO AFTER DEPLOYEMENT
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d web
+.
+
+
+
+
+THIS WORKS
+
+docker compose -f docker-compose.prod.yml logs celery_worker --tail=100
+docker compose -f docker-compose.prod.yml logs celery_beat --tail=50
+
+
+how to get live logss
+
+docker compose -f docker-compose.prod.yml logs web -f
+The -f flag streams logs live. For all services at once:
+
+
+docker compose -f docker-compose.prod.yml logs -f
+For just celery worker:
+
+
+docker compose -f docker-compose.prod.yml logs celery_worker -f
+Press Ctrl+C to stop streaming.
