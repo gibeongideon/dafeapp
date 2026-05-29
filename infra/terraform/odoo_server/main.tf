@@ -18,7 +18,7 @@ terraform {
 }
 
 provider "aws" {
-  region                      = var.aws_region != "" ? var.aws_region : var.region
+  region = var.cloud_provider == "AWS" ? (var.aws_region != "" ? var.aws_region : var.region) : "us-east-1"
   skip_credentials_validation = var.cloud_provider != "AWS"
   skip_requesting_account_id  = var.cloud_provider != "AWS"
   skip_metadata_api_check     = var.cloud_provider != "AWS"
