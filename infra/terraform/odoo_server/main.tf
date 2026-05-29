@@ -22,8 +22,8 @@ provider "aws" {
 }
 
 locals {
-  is_do  = upper(var.provider) == "DIGITALOCEAN"
-  is_aws = upper(var.provider) == "AWS"
+  is_do  = upper(var.cloud_provider) == "DIGITALOCEAN"
+  is_aws = upper(var.cloud_provider) == "AWS"
 }
 
 resource "random_id" "suffix" {

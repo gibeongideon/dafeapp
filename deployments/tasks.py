@@ -2961,7 +2961,7 @@ def terraform_apply_instance(self, run_id: int):
         "name": instance.name,
         "region": instance.region,
         "size": instance.size,
-        "provider": account.provider if account else "",
+        "cloud_provider": account.provider if account else "",
         "organization_id": org.id,
     }
     tfvars_path = state_root / "terraform.auto.tfvars.json"
@@ -3266,7 +3266,7 @@ def _provision_odoo_server_inner(self, server_id: int):
         "name": server.name,
         "region": server.region,
         "size": server.size,
-        "provider": managed_account.provider if managed_account else "",
+        "cloud_provider": managed_account.provider if managed_account else "",
         "organization_id": org.id,
         "odoo_version": server.odoo_version,
     }
