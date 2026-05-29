@@ -208,4 +208,6 @@ For just celery worker:
 
 
 docker compose -f docker-compose.prod.yml logs celery_worker -f
-Press Ctrl+C to stop streaming.
+Press Ctrl+C to stop streaming
+
+deploy.
