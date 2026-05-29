@@ -18,7 +18,12 @@ terraform {
 }
 
 provider "aws" {
-  region = var.aws_region != "" ? var.aws_region : var.region
+  region                      = var.aws_region != "" ? var.aws_region : var.region
+  skip_credentials_validation = var.cloud_provider != "AWS"
+  skip_requesting_account_id  = var.cloud_provider != "AWS"
+  skip_metadata_api_check     = var.cloud_provider != "AWS"
+  access_key                  = var.cloud_provider != "AWS" ? "placeholder" : null
+  secret_key                  = var.cloud_provider != "AWS" ? "placeholder" : null
 }
 
 locals {

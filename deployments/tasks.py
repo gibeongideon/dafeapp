@@ -1719,8 +1719,11 @@ def _test_ssh(ip: str):
         client.close()
 
 
-def _extract_public_ip(workdir: Path, extra_env: dict | None = None):
-    code, out, _ = _run_cmd(["terraform", "output", "-json"], workdir, extra_env=extra_env)
+def _extract_public_ip(workdir: Path, extra_env: dict | None = None, state_file: str | None = None):
+    cmd = ["terraform", "output", "-json"]
+    if state_file:
+        cmd += [f"-state={state_file}"]
+    code, out, _ = _run_cmd(cmd, workdir, extra_env=extra_env)
     if code != 0 or not out.strip():
         return ""
     try:
@@ -3278,9 +3281,17 @@ def _provision_odoo_server_inner(self, server_id: int):
 
     tf_env = _terraform_provider_env(managed_account, server.region)
 
+    server_state_file = str(state_root / "terraform.tfstate")
+    server.terraform_state_path = server_state_file
+    server.save(update_fields=["terraform_state_path"])
+
     if (module_dir / "main.tf").exists():
         _record_server_step(server, "Running Terraform init", f"module_dir={module_dir}")
-        code, out, err = _run_cmd(["terraform", f"-chdir={module_dir}", "init", "-input=false"], module_dir, extra_env=tf_env)
+        code, out, err = _run_cmd(
+            ["terraform", f"-chdir={module_dir}", "init", "-input=false", "-reconfigure"],
+            module_dir,
+            extra_env=tf_env,
+        )
         server.provisioning_log = _append_text(server.provisioning_log, f"[terraform init]\n{out}\n{err}".strip())
         server.save(update_fields=["provisioning_log"])
         if code != 0:
@@ -3299,6 +3310,8 @@ def _provision_odoo_server_inner(self, server_id: int):
                 "-auto-approve",
                 "-input=false",
                 f"-var-file={tfvars_path}",
+                f"-state={server_state_file}",
+                f"-state-out={server_state_file}",
             ],
             module_dir,
             extra_env=tf_env,
@@ -3312,7 +3325,7 @@ def _provision_odoo_server_inner(self, server_id: int):
             _broadcast_server(server.id, "Terraform apply failed — check logs.", server.status, done=True)
             return
 
-        ip = _extract_public_ip(module_dir, extra_env=tf_env)
+        ip = _extract_public_ip(module_dir, extra_env=tf_env, state_file=server_state_file)
         if not ip:
             ok, provider_id, ip, err = _provider_native_provision_server(server)
             if not ok:
