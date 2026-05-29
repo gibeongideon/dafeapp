@@ -4270,11 +4270,13 @@ class OdooServerDockerCleanupExecuteAPIView(LoginRequiredMixin, View):
                     "updated_at",
                 ]
             )
-            log_audit(
-                request.user,
-                AuditLog.Action.OTHER,
-                None,
-                f"Docker cleanup ran on server '{server.name}'.",
+            AuditLog.objects.create(
+                user=request.user,
+                organization=server.organization,
+                action=AuditLog.Action.OTHER,
+                ip_address=request.META.get("REMOTE_ADDR"),
+                user_agent=request.META.get("HTTP_USER_AGENT", "")[:500],
+                description=f"Docker cleanup ran on server '{server.name}'.",
                 metadata={
                     "server_id": server.id,
                     "cleanup_types": cleanup_types,
@@ -4282,7 +4284,6 @@ class OdooServerDockerCleanupExecuteAPIView(LoginRequiredMixin, View):
                     "items_deleted": run.items_deleted,
                     "space_freed_bytes": run.space_freed_bytes,
                 },
-                organization=server.organization,
             )
         except Exception as exc:
             finished_at = timezone.now()

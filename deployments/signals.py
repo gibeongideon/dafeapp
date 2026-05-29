@@ -58,11 +58,12 @@ def _sync_connectivity_periodic_task():
 def _sync_interval_periodic_task(*, name: str, task: str, interval_seconds: int):
     from django_celery_beat.models import IntervalSchedule, PeriodicTask
 
-    every, period = (
-        (interval_seconds, IntervalSchedule.SECONDS)
-        if interval_seconds < 60 or interval_seconds % 60 != 0
-        else (interval_seconds // 60, IntervalSchedule.MINUTES)
-    )
+    if interval_seconds >= 3600 and interval_seconds % 3600 == 0:
+        every, period = interval_seconds // 3600, IntervalSchedule.HOURS
+    elif interval_seconds >= 60 and interval_seconds % 60 == 0:
+        every, period = interval_seconds // 60, IntervalSchedule.MINUTES
+    else:
+        every, period = interval_seconds, IntervalSchedule.SECONDS
     interval, _ = IntervalSchedule.objects.get_or_create(every=every, period=period)
     PeriodicTask.objects.update_or_create(
         name=name,

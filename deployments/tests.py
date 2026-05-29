@@ -758,7 +758,7 @@ class OdooVersionedFlowTests(TestCase):
         self.assertContains(resp, "Setting")
         self.assertContains(resp, "Time (UTC)")
         self.assertContains(resp, "Database name")
-        self.assertContains(resp, "Restore To New Instance")
+        self.assertContains(resp, "Restore to New Instance")
         self.assertContains(resp, "Installation Summary")
         self.assertContains(resp, "Server IP")
         self.assertContains(resp, "Slide to activate")

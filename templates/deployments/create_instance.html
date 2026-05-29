@@ -1266,7 +1266,7 @@
 
       {% if instance_page_obj.paginator.num_pages > 1 %}
       <div class="flex flex-col gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-        {% if not show_instances_view %}<p class="text-sm text-gray-500">Showing {{ instance_page_start }}-{{ instance_page_end }} of {{ instance_filter_total }} instances.</p>{% endif %}
+        {% if show_instances_view %}<p class="text-sm text-gray-500">Showing {{ instance_page_start }}-{{ instance_page_end }} of {{ instance_filter_total }} instances.</p>{% endif %}
         <div class="flex flex-wrap items-center gap-2">
           {% if instance_prev_url %}
           <a href="{{ instance_prev_url }}" class="inline-flex items-center rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">Previous</a>
