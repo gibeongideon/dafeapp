@@ -1,5 +1,3 @@
-version: "3.11"
-
 # Production compose — uses pre-built image from GHCR.
 #
 # Start:

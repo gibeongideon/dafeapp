@@ -109,15 +109,14 @@ class CloudSuperAdminMixin(LoginRequiredMixin):
     """All cloud views require login + SUPER_ADMIN role."""
 
     def dispatch(self, request, *args, **kwargs):
-        resp = super().dispatch(request, *args, **kwargs)
         if not request.user.is_authenticated:
-            return resp
+            return self.handle_no_permission()
         if not request.organization:
             return redirect("organizations:select")
         if request.org_role != "SUPER_ADMIN":
             messages.error(request, "Only Super Admins can manage infrastructure.")
             return redirect("core:dashboard")
-        return resp
+        return super().dispatch(request, *args, **kwargs)
 
 
 # ── Dashboard ───────────────────────────────────────────────────────────────
@@ -367,19 +366,28 @@ class DigitalOceanOAuthStartView(CloudSuperAdminMixin, View):
 
 class DigitalOceanOAuthCallbackView(CloudSuperAdminMixin, View):
     def get(self, request):
+        redirect_uri = _digitalocean_redirect_uri(request)
+        logger.info("DO OAuth callback received for user=%s org=%s redirect_uri=%s params=%s",
+                    request.user, getattr(request.organization, "id", None),
+                    redirect_uri, dict(request.GET))
+
         expected_state = request.session.pop(DO_OAUTH_STATE_SESSION_KEY, "")
         returned_state = (request.GET.get("state") or "").strip()
         if not expected_state or not returned_state or expected_state != returned_state:
+            logger.error("DO OAuth state mismatch for user=%s: expected=%r returned=%r",
+                         request.user, expected_state, returned_state)
             messages.error(request, "DigitalOcean OAuth state check failed. Please try again.")
             return redirect("cloud:add-account")
 
         if request.GET.get("error"):
             error = request.GET.get("error_description") or request.GET.get("error") or "Authorization was denied."
+            logger.error("DO OAuth error from DigitalOcean for user=%s: %s", request.user, error)
             messages.error(request, f"DigitalOcean OAuth failed: {error}")
             return redirect("cloud:add-account")
 
         code = (request.GET.get("code") or "").strip()
         if not code:
+            logger.error("DO OAuth callback missing code for user=%s", request.user)
             messages.error(request, "DigitalOcean did not return an authorization code.")
             return redirect("cloud:add-account")
 
@@ -391,28 +399,33 @@ class DigitalOceanOAuthCallbackView(CloudSuperAdminMixin, View):
                     "code": code,
                     "client_id": settings.DIGITALOCEAN_CLIENT_ID,
                     "client_secret": settings.DIGITALOCEAN_CLIENT_SECRET,
-                    "redirect_uri": _digitalocean_redirect_uri(request),
+                    "redirect_uri": redirect_uri,
                 },
                 timeout=20,
             )
             payload = response.json()
         except requests.RequestException as exc:
+            logger.error("DO OAuth token exchange network error for user=%s: %s", request.user, exc)
             messages.error(request, f"Could not complete DigitalOcean OAuth: {exc}")
             return redirect("cloud:add-account")
         except ValueError:
+            logger.error("DO OAuth token exchange returned non-JSON for user=%s status=%s",
+                         request.user, response.status_code)
             payload = {}
 
         if not response.ok:
-            messages.error(
-                request,
-                f"DigitalOcean OAuth token exchange failed: {payload.get('error_description') or payload.get('error') or response.status_code}",
-            )
+            err = payload.get('error_description') or payload.get('error') or response.status_code
+            logger.error("DO OAuth token exchange failed for user=%s status=%s error=%s",
+                         request.user, response.status_code, err)
+            messages.error(request, f"DigitalOcean OAuth token exchange failed: {err}")
             return redirect("cloud:add-account")
 
         access_token = (payload.get("access_token") or "").strip()
         refresh_token = (payload.get("refresh_token") or "").strip()
         expires_in = payload.get("expires_in")
         if not access_token:
+            logger.error("DO OAuth token exchange returned no access_token for user=%s payload_keys=%s",
+                         request.user, list(payload.keys()))
             messages.error(request, "DigitalOcean OAuth succeeded but no access token was returned.")
             return redirect("cloud:add-account")
 
@@ -471,6 +484,8 @@ class DigitalOceanOAuthCallbackView(CloudSuperAdminMixin, View):
             account._raw_do_oauth_refresh_token = refresh_token
         account.save()
 
+        logger.info("DO OAuth account created: id=%s org=%s uuid=%s user=%s",
+                    account.pk, account.organization_id, do_uuid, request.user)
         log_audit(
             request.user,
             AuditLog.Action.CLOUD_ACCT_ADD,
