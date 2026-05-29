@@ -11,7 +11,7 @@ from audit.models import AuditLog
 from core.utils import get_client_ip
 
 from .decorators import organization_required, organization_role_required
-from .forms import InviteUserForm, MemberRoleForm
+from .forms import CreateOrganizationForm, InviteUserForm, MemberRoleForm
 from .models import Organization, OrganizationInvite, OrganizationMembership
 from .permissions import has_org_permission
 
@@ -39,6 +39,47 @@ def switch_org(request, org_id):
     ).exists():
         request.session["current_org_id"] = org_id
     return redirect(request.META.get("HTTP_REFERER", "core:dashboard"))
+
+
+@login_required
+def create_org(request):
+    """Create a new organization and make the current user its SUPER_ADMIN."""
+    form = CreateOrganizationForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        with transaction.atomic():
+            org = form.save(commit=False)
+            org.owner = request.user
+            org.save()
+
+            OrganizationMembership.objects.create(
+                user=request.user,
+                organization=org,
+                role=OrganizationMembership.Role.SUPER_ADMIN,
+                is_active=True,
+            )
+
+            # Create a TRIAL subscription so the org is serviceable immediately
+            from subscriptions.models import Plan, Subscription
+            plan = Plan.objects.filter(plan_type="STARTER").first() or Plan.objects.first()
+            if plan:
+                Subscription.objects.get_or_create(
+                    organization=org,
+                    defaults={"plan": plan, "status": "TRIAL"},
+                )
+
+            AuditLog.objects.create(
+                user=request.user,
+                organization=org,
+                action=AuditLog.Action.ORG_CREATED,
+                ip_address=get_client_ip(request),
+                description=f"Created organization '{org.name}'",
+            )
+
+        request.session["current_org_id"] = org.id
+        messages.success(request, f"Organization '{org.name}' created.")
+        return redirect("core:dashboard")
+
+    return render(request, "organizations/create.html", {"form": form})
 
 
 @organization_role_required(["SUPER_ADMIN", "ADMIN"])

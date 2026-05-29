@@ -1,6 +1,19 @@
 from django import forms
 
-from .models import OrganizationInvite, OrganizationMembership
+from .models import Organization, OrganizationInvite, OrganizationMembership
+
+
+class CreateOrganizationForm(forms.ModelForm):
+    class Meta:
+        model = Organization
+        fields = ["name"]
+        widgets = {
+            "name": forms.TextInput(attrs={
+                "placeholder": "My Company",
+                "class": "w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500",
+                "autofocus": True,
+            })
+        }
 
 
 class InviteUserForm(forms.ModelForm):
