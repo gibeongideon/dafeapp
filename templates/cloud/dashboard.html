@@ -41,7 +41,12 @@
           </div>
           {% endif %}
           <div>
-            <p class="text-sm font-medium text-gray-900">{{ account.name }}</p>
+            <div class="flex items-center gap-1.5">
+              <p class="text-sm font-medium text-gray-900">{{ account.name }}</p>
+              {% if account.is_platform %}
+              <span class="inline-flex items-center gap-0.5 text-[10px] font-bold text-violet-700 bg-violet-50 border border-violet-200 rounded-full px-1.5 py-0.5">★ DafeApp Cloud</span>
+              {% endif %}
+            </div>
             <p class="text-xs text-gray-400">{{ account.get_provider_display }}{% if account.last_verified_at %} · verified {{ account.last_verified_at|timesince }} ago{% endif %}</p>
           </div>
         </div>
@@ -54,6 +59,16 @@
           <span class="flex items-center gap-1 text-[10px] font-medium text-amber-600">
             <span class="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block"></span>Verifying…
           </span>
+          {% endif %}
+          {% if is_platform_admin and account.is_verified %}
+          <form method="post" action="{% url 'cloud:set-platform-account' account.pk %}">
+            {% csrf_token %}
+            <button type="submit"
+              class="text-[10px] border px-2 py-1 rounded-lg transition-colors
+              {% if account.is_platform %}text-violet-700 border-violet-300 bg-violet-50 hover:bg-violet-100{% else %}text-gray-400 border-gray-200 hover:bg-gray-50{% endif %}">
+              {% if account.is_platform %}★ DafeApp Cloud{% else %}Make DafeApp Cloud{% endif %}
+            </button>
+          </form>
           {% endif %}
           <form method="post" action="{% url 'cloud:verify-account' account.pk %}">
             {% csrf_token %}

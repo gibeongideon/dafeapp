@@ -127,16 +127,27 @@ class CloudDashboardView(CloudSuperAdminMixin, TemplateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         org = self.request.organization
-        all_accounts = list(CloudAccount.objects.filter(organization=org))
+        is_platform_admin = getattr(self.request.user, "is_platform_admin", False)
+
+        org_accounts = list(CloudAccount.objects.filter(organization=org))
+
+        # Platform admins also see the global platform account even if it belongs to another org
+        platform_account = CloudAccount.get_platform_account()
+        all_accounts = org_accounts[:]
+        if platform_account and platform_account not in all_accounts:
+            all_accounts.insert(0, platform_account)
+
         ctx["external_servers"] = ExternalServer.objects.filter(organization=org)
         ctx["cloud_accounts"] = all_accounts
-        ctx["do_accounts"] = [a for a in all_accounts if a.provider == CloudAccount.Provider.DIGITALOCEAN]
-        ctx["aws_accounts"] = [a for a in all_accounts if a.provider == CloudAccount.Provider.AWS]
+        ctx["do_accounts"] = [a for a in org_accounts if a.provider == CloudAccount.Provider.DIGITALOCEAN]
+        ctx["aws_accounts"] = [a for a in org_accounts if a.provider == CloudAccount.Provider.AWS]
         ctx["cloud_servers"] = CloudServer.objects.filter(
             organization=org
         ).exclude(status=CloudServer.Status.DELETED)
         ctx["pyos_ssh_settings"] = PyOSSSHSettings.get_or_create_settings()
         ctx["digitalocean_oauth_enabled"] = _digitalocean_oauth_enabled()
+        ctx["platform_account"] = platform_account
+        ctx["is_platform_admin"] = is_platform_admin
         return ctx
 
 
@@ -494,6 +505,49 @@ class DigitalOceanOAuthCallbackView(CloudSuperAdminMixin, View):
         )
         messages.success(request, f"Account '{account.name}' connected. Verifying access…")
         _dispatch(validate_cloud_account, account.pk)
+        return redirect("cloud:dashboard")
+
+
+class SetPlatformAccountView(CloudSuperAdminMixin, View):
+    """POST /cloud/accounts/<pk>/set-platform/ — mark account as the global DafeApp Cloud account.
+    Only platform admins can do this. Clears the flag on any previous platform account first."""
+
+    def post(self, request, pk):
+        if not getattr(request.user, "is_platform_admin", False):
+            return JsonResponse({"error": "Only platform admins can set the platform account."}, status=403)
+
+        account = get_object_or_404(CloudAccount, pk=pk)
+
+        if not account.is_verified:
+            messages.error(request, "Account must be verified before marking it as DafeApp Cloud.")
+            return redirect("cloud:dashboard")
+
+        # Unmark any existing platform account
+        CloudAccount.objects.filter(is_platform=True).exclude(pk=pk).update(is_platform=False)
+
+        # Toggle: if already platform, unmark it; otherwise mark it
+        new_value = not account.is_platform
+        account.is_platform = new_value
+        account.save(update_fields=["is_platform"])
+
+        log_audit(
+            request.user,
+            AuditLog.Action.CLOUD_ACCT_ADD,
+            request,
+            f"{'Set' if new_value else 'Unset'} '{account.name}' as DafeApp platform cloud account.",
+        )
+
+        if request.headers.get("HX-Request"):
+            if new_value:
+                return HttpResponse(
+                    '<span class="text-violet-700 text-xs font-semibold">★ DafeApp Cloud</span>'
+                )
+            return HttpResponse(
+                '<span class="text-gray-400 text-xs">Make DafeApp Cloud</span>'
+            )
+
+        action = "set as" if new_value else "removed from"
+        messages.success(request, f"'{account.name}' {action} DafeApp Cloud.")
         return redirect("cloud:dashboard")
 
 
