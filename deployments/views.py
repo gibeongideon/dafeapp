@@ -1518,6 +1518,9 @@ class DeploymentCreateView(LoginRequiredMixin, TemplateView):
         ctx["dafeapp_public_key"] = SystemSSHKey.get_or_create_keypair().public_key
         ctx["pyos_default_ssh_key_path"] = PyOSSSHSettings.get_or_create_settings().default_ssh_key_path
         ctx["platform_account_available"] = CloudAccount.get_platform_account() is not None
+        accounts_list = list(accounts)
+        ctx["do_accounts"] = [a for a in accounts_list if a.provider == CloudAccount.Provider.DIGITALOCEAN]
+        ctx["aws_accounts"] = [a for a in accounts_list if a.provider == CloudAccount.Provider.AWS]
         return ctx
 
     def _build_instances_url(

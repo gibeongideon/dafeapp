@@ -1702,16 +1702,81 @@
         <h3 class="text-sm font-semibold text-gray-900">Create Server · Select Infrastructure</h3>
         <button id="close-source-modal" class="text-gray-500 hover:text-gray-700 text-sm">Close</button>
       </div>
-      <div class="p-4 space-y-3.5">
-        <div class="grid grid-cols-3 gap-3">
-          <button id="pick-cloud" type="button" class="px-3 py-2 rounded-lg border border-gray-300 text-sm font-medium hover:bg-gray-50">Cloud Provider</button>
-          <button id="pick-pyos" type="button" class="px-3 py-2 rounded-lg border border-gray-300 text-sm font-medium hover:bg-gray-50">PYOS (SSH/VPS)</button>
+      <div class="p-4 space-y-3">
+
+        <!-- ── Picker cards — hidden when a panel is active ── -->
+        <div id="server-picker-section" class="space-y-2">
+
           {% if platform_account_available %}
-          <button id="pick-platform" type="button" class="px-3 py-2 rounded-lg border border-violet-300 text-sm font-medium hover:bg-violet-50 text-violet-800">DafeApp VPS</button>
-          {% else %}
-          <button id="pick-platform" type="button" disabled class="px-3 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-300 cursor-not-allowed" title="DafeApp VPS is not available on this platform.">DafeApp VPS</button>
+          <button id="pick-platform" type="button"
+                  class="w-full flex items-center gap-3 p-3.5 rounded-xl border-2 border-violet-200 bg-gradient-to-r from-violet-50 to-white hover:from-violet-100 transition-colors text-left group">
+            <div class="shrink-0 w-10 h-10 rounded-xl bg-violet-600 flex items-center justify-center shadow-sm">
+              <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"/></svg>
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-1.5">
+                <p class="text-sm font-semibold text-violet-900">DafeApp Servers</p>
+                <span class="text-[10px] bg-violet-100 text-violet-700 px-1.5 py-0.5 rounded-full font-semibold">Recommended</span>
+              </div>
+              <p class="text-xs text-violet-600 mt-0.5">Hosted on DafeApp's infrastructure — no setup needed</p>
+            </div>
+            <svg class="w-4 h-4 text-violet-400 group-hover:text-violet-600 shrink-0 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+          </button>
           {% endif %}
-        </div>
+
+          <button id="pick-pyos" type="button"
+                  class="w-full flex items-center gap-3 p-3.5 rounded-xl border-2 border-gray-200 hover:border-gray-300 hover:bg-gray-50 transition-colors text-left group">
+            <div class="shrink-0 w-10 h-10 rounded-xl bg-gray-800 flex items-center justify-center shadow-sm">
+              <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-semibold text-gray-900">Your Server (SSH / VPS)</p>
+              <p class="text-xs text-gray-500 mt-0.5">Connect any Linux server you already own</p>
+            </div>
+            <svg class="w-4 h-4 text-gray-400 group-hover:text-gray-600 shrink-0 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+          </button>
+
+          <div class="pt-1 pb-0.5">
+            <div class="flex items-center gap-2">
+              <div class="flex-1 h-px bg-gray-200"></div>
+              <p class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Cloud Providers</p>
+              <div class="flex-1 h-px bg-gray-200"></div>
+            </div>
+          </div>
+
+          <button id="pick-cloud" type="button"
+                  class="w-full flex items-center gap-3 p-3.5 rounded-xl border-2 border-gray-200 hover:border-blue-300 hover:bg-blue-50/50 transition-colors text-left group">
+            <div class="shrink-0 w-10 h-10 rounded-xl bg-[#0080FF] flex items-center justify-center shadow-sm">
+              <svg viewBox="0 0 120 120" class="h-5 w-5 text-white" fill="currentColor"><circle cx="60" cy="60" r="60"/><path d="M60 17C36.8 17 18 35.8 18 59s18.8 42 42 42V82.5c-12.9 0-23.5-10.5-23.5-23.5S47.1 35.5 60 35.5 83.5 46 83.5 59c0 12.9-10.5 23.5-23.5 23.5V101c23.2 0 42-18.8 42-42S83.2 17 60 17z" fill="white"/><rect x="18" y="82.5" width="17.5" height="9" rx="2" fill="white"/><rect x="18" y="94" width="11" height="9" rx="2" fill="white"/></svg>
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-semibold text-gray-900">DigitalOcean</p>
+              <p class="text-xs mt-0.5">{% if do_accounts %}<span class="text-emerald-600">{{ do_accounts|length }} account{{ do_accounts|length|pluralize }} connected</span>{% else %}<span class="text-amber-600">No account connected yet</span>{% endif %}</p>
+            </div>
+            <svg class="w-4 h-4 text-gray-400 group-hover:text-blue-500 shrink-0 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+          </button>
+
+          <button id="pick-aws" type="button"
+                  class="w-full flex items-center gap-3 p-3.5 rounded-xl border-2 border-gray-200 hover:border-orange-300 hover:bg-orange-50/50 transition-colors text-left group">
+            <div class="shrink-0 w-10 h-10 rounded-xl bg-[#FF9900] flex items-center justify-center shadow-sm">
+              <span class="text-[11px] font-black text-white leading-none">AWS</span>
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-semibold text-gray-900">Amazon AWS</p>
+              <p class="text-xs mt-0.5">{% if aws_accounts %}<span class="text-emerald-600">{{ aws_accounts|length }} account{{ aws_accounts|length|pluralize }} connected</span>{% else %}<span class="text-amber-600">No account connected yet</span>{% endif %}</p>
+            </div>
+            <svg class="w-4 h-4 text-gray-400 group-hover:text-orange-500 shrink-0 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+          </button>
+
+        </div><!-- end server-picker-section -->
+
+        <!-- ── Panel section (shown after picking, hidden initially) ── -->
+        <div id="server-panel-section" class="hidden space-y-3">
+          <button id="back-to-picker" type="button"
+                  class="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 transition-colors">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+            Back
+          </button>
 
         <!-- Cloud panel -->
         <div id="cloud-panel" class="hidden space-y-3">
@@ -1924,6 +1989,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
         </div>
 
         <p id="source-modal-msg" class="text-xs text-red-600"></p>
+        </div><!-- end server-panel-section -->
       </div>
     </div>
   </div>
@@ -4803,7 +4869,7 @@ chmod 600 ~/.ssh/authorized_keys</pre>
     if ($("source-modal-msg")) $("source-modal-msg").textContent = "";
   });
 
-  $("close-source-modal")?.addEventListener("click", () => hide(sourceModal));
+  $("close-source-modal")?.addEventListener("click", () => { hide(sourceModal); backToPicker(); });
   $("close-details-modal")?.addEventListener("click", () => hide(detailsModal));
   $("close-instance-modal")?.addEventListener("click", () => hide(instanceModal));
   $("confirm-cancel")?.addEventListener("click", () => hide(confirmModal));
@@ -5217,21 +5283,32 @@ chmod 600 ~/.ssh/authorized_keys</pre>
     document.body.classList.remove("overflow-hidden");
   }
 
+  const pickerSection = $("server-picker-section");
+  const panelSection  = $("server-panel-section");
+
+  function enterPanel() {
+    hide(pickerSection);
+    show(panelSection);
+    if ($("source-modal-msg")) $("source-modal-msg").textContent = "";
+  }
+  function backToPicker() {
+    show(pickerSection);
+    hide(panelSection);
+    hide(cloudPanel); hide(pyosPanel); hide(platformPanel);
+    if ($("source-modal-msg")) $("source-modal-msg").textContent = "";
+  }
+
   function showCloud() {
     mode = "cloud";
+    enterPanel();
     show(cloudPanel); hide(pyosPanel); hide(platformPanel);
-    activateBtn(pickCloud, pickPyos);
-    pickPlatform?.classList.remove("bg-gray-900", "text-white", "border-gray-900");
-    if ($("source-modal-msg")) $("source-modal-msg").textContent = "";
     syncCloudAccountState();
   }
   function showPyos() {
     mode = "pyos";
+    enterPanel();
     show(pyosPanel); hide(cloudPanel); hide(platformPanel);
     hide(detailsModal);
-    activateBtn(pickPyos, pickCloud);
-    pickPlatform?.classList.remove("bg-gray-900", "text-white", "border-gray-900");
-    if ($("source-modal-msg")) $("source-modal-msg").textContent = "";
     if ($("pyos-server-name")) $("pyos-server-name").value = "";
     if ($("pyos-host")) $("pyos-host").value = "";
     if ($("pyos-port")) $("pyos-port").value = "22";
@@ -5244,14 +5321,15 @@ chmod 600 ~/.ssh/authorized_keys</pre>
   }
   function showPlatform() {
     mode = "platform";
+    enterPanel();
     show(platformPanel); hide(cloudPanel); hide(pyosPanel);
-    activateBtn(pickPlatform, pickCloud);
-    pickPyos?.classList.remove("bg-gray-900", "text-white", "border-gray-900");
     if ($("source-modal-msg")) $("source-modal-msg").textContent = "";
     loadPlatformRegionsAndSizes();
   }
 
+  $("back-to-picker")?.addEventListener("click", backToPicker);
   pickCloud?.addEventListener("click", showCloud);
+  $("pick-aws")?.addEventListener("click", showCloud);  // AWS uses the same cloud panel
   pickPyos?.addEventListener("click", showPyos);
   pickPlatform?.addEventListener("click", showPlatform);
   connectCloudAccountCtaEl?.addEventListener("click", openCloudProviderModal);
